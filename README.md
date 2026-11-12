@@ -1,4 +1,4 @@
-# Global Standoff — Prototype 0.3.2
+# Global Standoff — Prototype 0.3.3
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
@@ -78,3 +78,13 @@ This is **2.5D illustrative artwork**, not actual 3D geometry, textured models, 
 - Your cards are displayed in a **fanned hand** at the bottom of the map. Tap a card to pull up a large, readable preview and decide whether to **Play Card** or close it. Merely tapping the hand cannot consume a card.
 - **End Turn** remains available above the hand, with the same animated CPU POV transitions. All economic rules and old saves are preserved.
 - All overlays work on iPhone-sized screens without leaving the map; long rosters scroll inside their overlay rather than scrolling the entire game page.
+
+
+## 0.3.3 — Faster turns
+
+- All four countries now receive **three major actions** per turn, plus one optional card and one troop logistics order.
+- Any combination of claims, construction, military recruitment, training, research, building sales, or emergency taxes may be used while actions remain.
+- Each additional claim in a single turn costs **2 extra Gold** to keep fast expansion from being free.
+- Emergency taxes may be collected only **once per turn**.
+- A visible action meter tracks remaining actions on the map. CPU countries play up to three actions, with each one presented during their camera turn.
+- Existing local game saves are preserved: a previously used one-action turn counts as one of three actions rather than locking the turn.
