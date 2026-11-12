@@ -1,4 +1,4 @@
-# Global Standoff — Prototype 0.3.7
+# Global Standoff — Prototype 0.3.8
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
@@ -129,3 +129,21 @@ This update keeps the equal **3 major actions per turn** rule for all countries.
 The military readiness bonuses are tracked but combat is still a future system. Trade routes and player-vs-CPU interactions remain experimental.
 
 - Newly generated countries now begin with 34 Gold instead of 24, allowing a little more time to establish their first wages and buildings under the three-action turn system. Existing saves retain their Gold balance.
+
+
+## Version 0.3.8 — physical production chains and deliveries
+
+- **No starting army equipment:** newly enlisted soldiers begin without armor, weapons or shields. Legacy saves reset their old free/default Leather, while previously earned Iron/Steel/Gold/Diamond armor stays on the soldier. Newly produced gear must be shipped before issue.
+- **Farms** make Food and **raw Leather** at the farm worksite, scaled by workforce and morale. Output does not appear in the treasury until a shipment reaches the warehouse.
+- **Lumber Camps** collect raw **Timber Logs**. **Woodworks Factories** choose a recipe: logs into **Construction Wood** (for buildings), or logs into **Wooden Shields**. Both outputs must be shipped onward.
+- **Every mountain yields Stone when a staffed Mine is operating**, even a barren mountain. Ore (plus optional Coal co-deposit) is separate and still finite. **Stone Workshops** produce Stone Axes, Stone Pickaxes, Stone Swords or Stone Clubs, chosen from the territory overlay.
+- **Leather Factories** convert delivered Leather into Leather Armor. **Steelworks** consume delivered Iron and Coal to make Steel. **Armories** produce Iron, Steel, Gold-Reinforced Steel, and Diamond-Reinforced Steel armor; recipes consume local inputs.
+- **Local inventories:** goods are held at a worksite, in an outbound shipment, at another worksite, or at the capital warehouse. Wages, Gold and research are not physical cargo.
+- **Delivery routing:** each producer has independent routes for every item. Players can send raw Leather directly to a Leather Factory, Stone to a Stone Workshop, Timber Logs to a Woodworks Factory, or finished gear to a chosen Military Post. The default destination is the capital warehouse. Factories automatically request missing ingredients from the capital warehouse; all inputs physically travel and cannot be used before arriving.
+- **Domestic freight:** shipment paths only traverse owned hexes and typically require 1–3 complete rounds based on distance. Transit lists and local stock counts appear in the Nation and Territory overlays. A destroyed/sold site has its remaining inventory sent back to capital.
+- **Issue gear at destination:** named soldiers can receive armor, Wooden Shields and Stone weapons only when the finished items have arrived at their own post. Equipping consumes the delivered item and a major action. Three-action fairness applies to humans and CPUs.
+- Building construction and upgrades still take multiple rounds, and employees still receive wages. This adds strategic bottlenecks rather than providing any item for free.
+
+Known prototype limitations: shipments are not yet visual caravans; military combat and interception are not in the game; capital-warehouse construction purchases use stocked materials without a separate delivery animation. National trade-route negotiation from 0.3.5 remains independent of these domestic supply chains. Ore variants Copper/Silver and mining probabilities remain unchanged.
+
+The prototype currently includes a modest personal-income tax from housed adults and employed citizens to offset the increased salary pressure; wage and fixed upkeep are still fully charged. Economy balance is provisional.
