@@ -1,16 +1,6 @@
-# Global Standoff — Prototype 0.3.4
+# Global Standoff — Prototype 0.3.5
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
-
-## New in 0.3.4 — Visible build and expansion animations
-
-- Constructing a building now **dismisses the territory overlay before animating**.
-- The camera centers on the selected hex; cartoon dust puffs appear and the new miniature building springs up with a bounce.
-- The building stays hidden on the board until the animation starts, rather than appearing behind the overlay.
-- Claiming territory uses the same hide → camera → border reveal → restore sequence.
-- After the animation ends, the territory overlay reopens on the same tile, restoring the construction options and scroll position where possible.
-- Actions are temporarily locked during an animation, and CPU turn playback still advances normally.
-- Reduced-motion accessibility settings shorten the animation.
 
 ## Play online
 
@@ -38,7 +28,7 @@ The page uses plain HTML, CSS, and JavaScript: no build pipeline or external dep
 - Each Homes building houses **up to eight citizens**, limited by the terrain's total population ceiling. Building homes cannot overcome a territory's natural population limit.
 - **Citizen roster:** each person has a name, age, residence, and optional military assignment. Countries start with 10 citizens. New citizens can arrive each round when Food and living conditions permit. Unhoused people are tracked as homeless.
 - **Food use:** 1 Food per six citizens (round up), in addition to existing expansion costs. Food shortages stop population growth; citizens in housing produce some tax Gold.
-- **Military roster:** recruit adult citizens into Military Posts (up to 12 per post), train them, and transfer one soldier between posts per turn. Training can unlock a placeholder perk, `Disciplined`; warfare/experience gains are not implemented yet.
+- **Military roster:** citizens enlist voluntarily after a military post is complete. Each potential volunteer uses age, health and morale to determine their odds. Recruiting campaigns boost interest; players can train and transfer soldiers. Older citizens are far less likely to enlist.
 - **Automatic waterways:** rivers and lakes are generated randomly with each new world (no manual setting). Maps may have either, both, or neither. Farms on riverbank hexes gain +1 Food production.
 - The map supports drag-to-pan and pinch-to-zoom on a touchscreen.
 - Old 0.1 saved matches can be resumed, but retain their original 61-hex layout. Start a **new match** for the larger world and generation options.
@@ -46,14 +36,14 @@ The page uses plain HTML, CSS, and JavaScript: no build pipeline or external dep
 ## Other gameplay
 
 - Expand into neighboring neutral territory (Gold + Food)
-- Build or sell structures with Gold cost and Gold upkeep; negative Gold puts construction/recruitment on hold
+- Build or sell structures with Gold, Wood and Ore costs and ongoing Gold upkeep; unfinished builds reserve space but give no output
 - Research Irrigation, Commerce, and Cartography
 - Draw and play resource and discount cards
 - Three CPU opponents build and expand after each turn; 24-round economy leaderboard
 
 ## Current limitations
 
-This remains a **local solo test**. Battles, troop travel time, diplomacy, trade caravans, espionage, public online multiplayer, and the complete four-category scoring system will be developed in later updates. Soldier `Experience` is currently 0 until battle progression is introduced. Troop transfers are instantaneous for this test, and population arrival is simplified.
+This remains a **local solo test**. Battles, troop travel time, resource-carrying trade caravans, espionage, public online multiplayer, and the complete four-category scoring system are still planned. Trade-route negotiation and construction now exist, but do not yet carry itemized cargo. Soldier `Experience` is currently 0 until battle progression is introduced. Troop transfers are instantaneous for this test, and population arrival is simplified.
 
 ## Source files
 
@@ -98,3 +88,20 @@ This is **2.5D illustrative artwork**, not actual 3D geometry, textured models, 
 - Emergency taxes may be collected only **once per turn**.
 - A visible action meter tracks remaining actions on the map. CPU countries play up to three actions, with each one presented during their camera turn.
 - Existing local game saves are preserved: a previously used one-action turn counts as one of three actions rather than locking the turn.
+
+
+## 0.3.4 — Construction-reveal animation
+
+- Territory overlays now temporarily close while the game focuses on a construction or territory action, then reopen with the previous tab and scroll position when the action finishes.
+
+## 0.3.5 — World activity, construction timers, trade routes, volunteers, and Wood/Ore
+
+- **CPU observation:** during the other nations’ turns, your hand becomes a compact left-side stack showing card names; the focused opponent has a fanned set of card backs to the right. A smaller action caption stays near the top of the map instead of covering the center.
+- **Card activation:** played cards appear in the center of the map, reveal their illustration/icon and name, then burst into fading fragments. Skip CPU animations also skips CPU card effects.
+- **Timed construction:** starting a building spends its resources and reserves space. A worksite with looping cartoon dust is visible until the project has completed its 1–3 round build time. Only completed buildings generate resources, housing, or military posts. At the beginning of your next turn, newly completed buildings receive a dust-cloud/spring-up reveal before ordinary play continues.
+- **International trade routes:** first contact happens when two countries' claimed territories come within two hexes. After contact, countries can propose a route and agree on the cost split (25/75, 50/50, or 75/25). CPU countries consider offers after a delay. Human players can accept or reject incoming offers in the World overlay. Accepted routes draw along **shared land-hex edges**, like rivers, and grow in length during their construction period. Longer routes take more rounds and cost more Gold. Once active, both countries earn 2 Gold per round. Trade goods and caravan interception remain future extensions.
+- **Voluntary military enlistment:** finished military posts can accept up to 12 soldiers each. Citizens roll a chance to enlist each round based on age, health and morale; marketing costs 4 Gold and increases the chance for two rounds. Training and soldier transfers remain manual. Very old citizens have a very low (not zero) chance to join.
+- **Materials split:** the old Materials balance becomes **Wood** and **Ore**. Forest hexes yield Wood and only forests can host Lumber Camps. Mountain hexes yield Ore and only mountains can host Mines. Hills, deserts, and plains cannot host either extraction building. Construction costs use specific combinations of Wood and Ore.
+- **Save migration:** v0.3.x saves retain map, player ownership, citizens, buildings, and progress. Old Materials holdings become approximately 60% Wood and 40% Ore. On old existing worlds, legacy extraction buildings remain where they were, but only newly constructed ones obey the terrain-specific rules.
+
+This update keeps the equal **3 major actions per turn** rule for all countries. Trade proposals and recruitment marketing each consume one major action; accepting an incoming diplomatic proposal does not.
