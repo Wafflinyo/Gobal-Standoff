@@ -1,4 +1,4 @@
-# Global Standoff — Prototype 0.4.6
+# Global Standoff — Prototype 0.4.0
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
