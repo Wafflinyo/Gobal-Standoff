@@ -5,20 +5,19 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
   <meta name="theme-color" content="#101e2a">
   <meta name="description" content="Global Standoff, an offline turn-based civilization prototype against three CPU nations.">
-  <title>Global Standoff — Prototype 0.1.1</title>
-  <link rel="icon" href="./icon.svg" type="image/svg+xml">
-
-  <link rel="stylesheet" href="./styles.css">
+  <title>Global Standoff — Prototype 0.2.0</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="app">
   <header class="topbar">
-    <div class="brand"><div class="brand-icon">GS<span>✦</span></div><div><div class="brand-name">GLOBAL <b>STANDOFF</b></div><div class="brand-sub">WORLD SANDBOX · PROTOTYPE 0.1.1</div></div></div>
+    <div class="brand"><div class="brand-icon">GS<span>✦</span></div><div><div class="brand-name">GLOBAL <b>STANDOFF</b></div><div class="brand-sub">WORLD SANDBOX · PROTOTYPE 0.2.0</div></div></div>
     <div class="header-right"><div id="roundBadge" class="round-badge">SOLO TEST</div><button id="topMenuBtn" class="icon-button top-menu hidden" title="Match options" aria-label="Match options">⚙</button></div>
   </header>
 
   <main id="lobby" class="lobby-wrap">
-    <div class="lobby-hero"><div class="eyebrow">THE WORLD IS YOURS TO SHAPE</div><h1>Four nations.<br><em>One world.</em></h1><p>Build a country, claim the frontier, and compete with three CPU leaders. This first test focuses on territory, construction, economy, and turn-taking.</p></div>
+    <div class="lobby-hero"><div class="eyebrow">THE WORLD IS YOURS TO SHAPE</div><h1>Four nations.<br><em>One world.</em></h1><p>Build a country, claim the frontier, and compete with three CPU leaders. Build towns with limited space, manage citizens and soldiers, and expand across a much larger randomized world.</p></div>
     <section class="lobby-card">
       <div class="section-kicker">NEW SOLO TEST MATCH</div>
       <h2>Found your nation</h2>
@@ -29,6 +28,10 @@
       <div id="cpuPreview" class="cpu-list"></div>
       <div class="lobby-separator"></div>
       <div class="seed-row"><label>World seed <span>(optional)</span><input id="seedInput" type="text" maxlength="25" autocomplete="off" placeholder="Random world each game"></label><button id="shuffleSeedBtn" class="small-outline" title="Random world seed">↻ Shuffle</button></div>
+      <div class="lobby-separator"></div>
+      <div class="player-list-title">WORLD GENERATION <span>169 HEXES</span></div>
+      <p class="settings-note">Choose optional freshwater features. Random allows maps with neither, one, or both.</p>
+      <div class="field-grid world-options"><label>Rivers<select id="riverMode"><option value="random" selected>Random (may appear)</option><option value="on">Always generate</option><option value="off">No rivers</option></select></label><label>Lakes<select id="lakeMode"><option value="random" selected>Random (may appear)</option><option value="on">Always generate</option><option value="off">No lakes</option></select></label></div>
       <div id="runtimeNotice" class="launch-notice" role="alert"><b>Interactive game not running in this preview.</b><span>On iPhone, an HTML file preview can show this screen without running the game. Publish this file as a website and open the site in Safari to play.</span></div>
       <div id="launchError" class="launch-notice hidden" role="alert"></div>
       <button id="startBtn" type="button" class="primary start-button">GENERATE WORLD <span>→</span></button>
@@ -42,11 +45,11 @@
       <section class="world-panel">
         <div class="world-heading"><div><div class="section-kicker">THE FRONTIER</div><h1 id="worldTitle">The Known World</h1></div><div class="world-heading-right"><span id="turnLabel" class="turn-chip">YOUR TURN</span><div id="turnCounter" class="muted-small">Round 1 / 16</div></div></div>
         <div id="mapWrap" class="map-wrap">
-          <svg id="worldMap" xmlns="http://www.w3.org/2000/svg" viewBox="-400 -340 800 680" role="img" aria-label="Interactive hexagonal strategy map"><defs id="mapDefs"></defs><g id="mapContent"></g></svg>
+          <svg id="worldMap" xmlns="http://www.w3.org/2000/svg" viewBox="-560 -490 1120 980" role="img" aria-label="Interactive hexagonal strategy map"><defs id="mapDefs"></defs><g id="mapContent"></g></svg>
           <div class="map-actions"><button id="zoomIn" aria-label="Zoom in">+</button><button id="zoomOut" aria-label="Zoom out">−</button><button id="zoomReset" aria-label="Reset map zoom">⌖</button></div>
-          <div class="map-hint">TAP A HEX TO INSPECT · DRAG TO PAN</div>
+          <div class="map-hint">TAP HEX · DRAG TO PAN · PINCH TO ZOOM</div>
         </div>
-        <div class="legend"><span><i class="legend-dot" style="background:#b8c879"></i> Plains</span><span><i class="legend-dot" style="background:#579c79"></i> Forest</span><span><i class="legend-dot" style="background:#b99a72"></i> Hills</span><span><i class="legend-dot" style="background:#8794a3"></i> Mountain</span><span><i class="legend-dot" style="background:#579dc2"></i> Water</span></div>
+        <div class="legend"><span><i class="legend-dot" style="background:#b8c879"></i> Plains</span><span><i class="legend-dot" style="background:#579c79"></i> Forest</span><span><i class="legend-dot" style="background:#b99a72"></i> Hills</span><span><i class="legend-dot" style="background:#d2b879"></i> Desert</span><span><i class="legend-dot" style="background:#8794a3"></i> Mountain</span><span><i class="legend-dot" style="background:#579dc2"></i> Lakes</span></div>
       </section>
       <section class="below-map-grid">
         <div class="feed-panel panel"><div class="panel-heading"><h2>World dispatches</h2><span class="tiny-tag">LATEST EVENTS</span></div><div id="gameLog" class="game-log"></div></div>
@@ -55,9 +58,11 @@
     </div>
     <aside class="sidebar">
       <section class="treasury-panel panel"><div class="panel-heading"><div><div class="section-kicker">YOUR NATION</div><h2 id="nationLabel">Asteria</h2></div><div id="capitalFlag" class="nation-flag">✦</div></div><div class="resources" id="resources"></div><div id="economySummary" class="economy-summary"></div></section>
+      <section class="population-panel panel"><div class="panel-heading"><h2>Population</h2><span class="tiny-tag">CITIZENS & HOMES</span></div><div id="populationSummary" class="population-summary"></div><p id="populationAdvice" class="population-advice"></p></section>
       <section class="territory-panel panel"><div class="panel-heading"><h2>Territory</h2><span id="territoryTag" class="tiny-tag">SELECT A HEX</span></div><div id="territoryDetails" class="territory-details"><p class="empty-note">Tap a territory on the map to view ownership, terrain, and available actions.</p></div></section>
       <section class="build-panel panel hidden" id="buildPanel"><div class="panel-heading"><h2>Construct</h2><button id="closeBuildBtn" class="light-close" aria-label="Close build menu">✕</button></div><div id="buildOptions" class="build-options"></div></section>
       <section class="research-panel panel hidden" id="researchPanel"><div class="panel-heading"><h2>Research</h2><button id="closeResearchBtn" class="light-close" aria-label="Close research menu">✕</button></div><div id="researchOptions" class="build-options"></div></section>
+      <section class="roster-panel panel"><div class="panel-heading"><h2>National roster</h2><span id="rosterCount" class="tiny-tag">0 TOTAL</span></div><div class="roster-tabs"><button id="rosterCitizensBtn" class="active" type="button">Citizens</button><button id="rosterTroopsBtn" type="button">Military</button></div><div id="rosterList" class="roster-list" aria-live="polite"></div></section>
       <section class="cards-panel panel"><div class="panel-heading"><h2>Your hand</h2><span id="cardCount" class="tiny-tag">0 / 4</span></div><div id="hand" class="hand"></div><p class="footnote">Play one card per turn. Draw one at the start of each turn. The card deck is a testing system, not the final design.</p></section>
       <section class="turn-panel panel"><div id="actionNotice" class="action-notice"></div><div class="utility-actions"><button id="researchBtn" class="small-outline">⌬ Research</button><button id="levyBtn" class="small-outline">◈ Emergency Taxes</button></div><button id="endTurnBtn" class="primary wide">END TURN <span>→</span></button><div id="turnFoot" class="turn-foot">One major action per turn · Cards are optional</div></section>
     </aside>
@@ -66,6 +71,6 @@
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <div id="modalLayer" class="modal-layer hidden"><div class="modal-backdrop" id="modalBackdrop"></div><div class="modal"><div id="modalBody"></div></div></div>
-<script defer src="./game.js"></script>
+<script src="game.js"></script>
 </body>
 </html>
