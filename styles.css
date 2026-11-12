@@ -179,3 +179,12 @@ body.gs-playing .map-hint{display:none}
  .sheet-body{flex:0 1 auto;max-height:calc(78dvh - 91px);overflow-y:auto}
 }
 @media(min-width:521px){.hand-dock .card-item{bottom:-10px}}
+
+/* 0.3.3 — three-action turn meter below the map's resource ribbon */
+.map-action-counter{position:absolute;z-index:9;left:12px;top:86px;display:flex;align-items:center;gap:6px;background:#17313ee9;color:#f0dfb4;border:1px solid #bba27391;border-radius:999px;box-shadow:0 4px 15px #0819239c;padding:6px 10px;font-size:10px;font-weight:800;letter-spacing:.05em;pointer-events:none}
+.map-action-counter b{color:#ffdfa1;font-variant-numeric:tabular-nums}
+.action-dots{display:flex;align-items:center;gap:3px;margin-right:3px}
+.action-dots i{width:7px;height:7px;border-radius:50%;border:1px solid #d2b378;display:block}
+.action-dots i.ready{background:#f0d18f;box-shadow:0 0 6px #b9a364a0}
+.action-dots i.spent{background:#30424b;opacity:.65}
+@media(max-width:520px){.map-action-counter{left:8px;top:77px;font-size:9px;padding:5px 9px}}
