@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.11 — directional expedition steps and covered wagons on hex borders. */
+/* Global Standoff 0.4.12 — occupied-household Silver Pents, transparent upkeep, restored classic bootprints. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -90,7 +90,7 @@ const BUILDINGS={
  farm:{name:'Farm',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>',gold:4,wood:2,iron:0,space:2,rounds:1,upkeep:1,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Workers produce Food and raw Leather · both must be delivered'},
  lumber:{name:'Lumber Camp',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-forest"></use></svg>',gold:4,wood:1,iron:0,space:2,rounds:2,upkeep:1,jobs:[2,4,6],production:{},allow:['forest'],text:'Workers harvest Timber Logs · ship logs to Woodworks'},
  mine:{name:'Mine',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-mine"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['mountain'],text:'Produces Stone on EVERY mountain plus any mineral veins'},
- homes:{name:'Homes',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-homes"></use></svg>',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces · caretakers employed for upkeep'},
+ homes:{name:'Homes',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-homes"></use></svg>',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces · no workers required · occupied family homes earn Silver Pents'},
  market:{name:'Marketplace',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-market"></use></svg>',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'Silver Pents income scales with worker staffing and morale'},
  academy:{name:'Academy',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-book"></use></svg>',gold:8,wood:2,iron:2,space:2,rounds:3,upkeep:2,jobs:[2,3,4],production:{knowledge:3},allow:['plains','forest','hills','desert','mountain'],text:'Research output requires staffed teachers'},
  caravanWarehouse:{name:'Caravan Warehouse',icon:'▣',gold:8,wood:5,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert'],text:'Houses 1 / 2 / 3 caravans by level; shipments require an available wagon'},
@@ -658,6 +658,8 @@ function makeCitizen(p,rng,starting=false){
 function buildUsed(t){return (t.capital?2:0)+(t.buildings||[]).reduce((sum,type)=>sum+(BUILDINGS[type]?.space||0),0)+(G?.projects||[]).filter(j=>j.tileId===t.id&&!j.upgradeSiteId).reduce((sum,j)=>sum+(BUILDINGS[j.type]?.space||0),0);}
 function buildFree(t){return Math.max(0,TERRAIN[t.terrain].slots-buildUsed(t));}
 function buildingCount(t,type){return (t.buildings||[]).filter(b=>b===type).length;}
+const HOUSEHOLD_SIZE=4; // one occupied house per four housed citizens (including children).
+const HOUSEHOLD_RENT=2; // Silver Pents per occupied household, not per citizen.
 function tileHousing(t){return (t.capital?12:0)+(t.buildings||[]).reduce((beds,kind,i)=>beds+(kind==='homes'?8+4*((t.buildingMeta?.[i]?.level||1)-1):0),0);}
 function tileResidentCap(t){return Math.min(TERRAIN[t.terrain].population,tileHousing(t));}
 function reallocateHousing(p){
@@ -667,8 +669,14 @@ function reallocateHousing(p){
  for(const c of p.citizens){if(c.homeId&&remaining[c.homeId]>0)remaining[c.homeId]--;else c.homeId=null;}
  for(const c of p.citizens){if(c.homeId)continue;const t=territories.find(t=>remaining[t.id]>0);if(t){c.homeId=t.id;remaining[t.id]--;}}
 }
+function occupiedHouseholds(p){
+ // A housing unit holds four residents. Count only occupied units, never each resident individually.
+ const residents=new Map();
+ for(const c of p.citizens||[])if(c.homeId)residents.set(c.homeId,(residents.get(c.homeId)||0)+1);
+ return G.tiles.filter(t=>t.owner===p.id).reduce((total,t)=>total+Math.ceil(Math.min(tileResidentCap(t),residents.get(t.id)||0)/HOUSEHOLD_SIZE),0);
+}
 function peopleSummary(p){const people=p.citizens||[];const housed=people.filter(c=>!!c.homeId).length;
- return {count:people.length,housed,homeless:people.length-housed,housing:G.tiles.filter(t=>t.owner===p.id).reduce((n,t)=>n+tileResidentCap(t),0),soldiers:people.filter(c=>!!c.military).length};}
+ return {count:people.length,housed,homeless:people.length-housed,housing:G.tiles.filter(t=>t.owner===p.id).reduce((n,t)=>n+tileResidentCap(t),0),soldiers:people.filter(c=>!!c.military).length,households:occupiedHouseholds(p)};}
 function getMilitaryPosts(id){return G.tiles.filter(t=>t.owner===id&&buildingCount(t,'post')>0);}
 function postGarrison(p,postId){return p.citizens.filter(c=>c.military?.postId===postId);}
 function newCitizensForRound(p){
@@ -1411,28 +1419,39 @@ function buildingCost(p,b){return Math.max(0,b.gold-p.discountBuild);}
 function canBuild(p,t,b){return allowed(p,t)&&idleBuilders(p).length>0&&buildFree(t)>=b.space&&b.allow.includes(t.terrain)&&hasMoney(p,buildingCost(p,b))&&p.wood>=b.wood&&mineralCount(p,'iron')>=b.iron;}
 function getEconomy(id){
  const p=G.players[id],summary=peopleSummary(p);
- let vals={gold:0,food:0,wood:0,knowledge:0,upkeep:0,wages:0,buildingUpkeep:0};
+ let vals={gold:0,food:0,wood:0,knowledge:0,upkeep:0,wages:0,buildingUpkeep:0,
+  occupiedHomes:summary.households,householdIncome:summary.households*HOUSEHOLD_RENT,
+  capitalIncome:0,marketIncome:0,capitalUpkeep:0,farmUpkeep:0,factoryUpkeep:0,
+  otherBuildingUpkeep:0,workerWages:0,builderWages:0,militaryUpkeep:0};
+ const factories=new Set(['foundry','leatherFactory','woodworks','stoneworks','armory']);
  for(const t of G.tiles.filter(t=>t.owner===id)){
   const y=TERRAIN[t.terrain].yield;for(const k in y)vals[k]+=(y[k]||0);
-  if(t.capital){vals.gold+=3;vals.upkeep+=1;}
+  if(t.capital){vals.gold+=3;vals.capitalIncome+=3;vals.upkeep+=1;vals.capitalUpkeep+=1;}
   for(let i=0;i<(t.buildings||[]).length;i++){
    const type=t.buildings[i],b=BUILDINGS[type],meta=worksite(t,i);if(!b||!meta)continue;
    const q=workQuality(p,meta,type);
-   // A levelled building is more expensive even when understaffed.
+   // Fixed upkeep applies to completed buildings even if idle. Employees add wages.
    const fixed=b.upkeep+Math.max(0,q.level-1)*Math.ceil(b.upkeep*.8);
    vals.upkeep+=fixed;vals.buildingUpkeep+=fixed;
-   vals.upkeep+=q.count;vals.wages+=q.count; // 1 Gold salary per employee, each round.
-   if(q.count===0)continue; // Unstaffed workplaces produce NOTHING.
+   if(type==='farm')vals.farmUpkeep+=fixed;
+   else if(factories.has(type))vals.factoryUpkeep+=fixed;
+   else vals.otherBuildingUpkeep+=fixed;
+   vals.upkeep+=q.count;vals.wages+=q.count;vals.workerWages+=q.count;
+   if(q.count===0)continue;
    const boost=1+(q.level-1)*.6;
-   for(const k in b.production)vals[k]+=Math.max(0,Math.floor(b.production[k]*boost*q.ratio*q.efficiency+.0001));
-   if(type==='market'&&p.tech.includes('commerce'))vals.gold+=Math.floor(q.ratio*q.efficiency);
+   for(const k in b.production){
+    const amount=Math.max(0,Math.floor(b.production[k]*boost*q.ratio*q.efficiency+.0001));
+    vals[k]+=amount;if(k==='gold'&&type==='market')vals.marketIncome+=amount;
+   }
+   if(type==='market'&&p.tech.includes('commerce')){
+    const bonus=Math.floor(q.ratio*q.efficiency);vals.gold+=bonus;vals.marketIncome+=bonus;
+   }
   }
  }
- const adultTaxpayers=p.citizens.filter(c=>c.homeId&&c.age>=18).length;
- vals.gold+=Math.floor(adultTaxpayers/2)+Math.floor(workforceSummary(p).employed/2); // wage earners fund part of the tax base, salaries still cost a full Gold
- vals.upkeep+=Math.ceil(summary.soldiers/3);
-  const builderWages=(p.citizens||[]).filter(c=>!!c.builder).length;
- vals.upkeep+=builderWages;vals.wages+=builderWages;
+ vals.gold+=vals.householdIncome;
+ vals.militaryUpkeep=Math.ceil(summary.soldiers/3);vals.upkeep+=vals.militaryUpkeep;
+ vals.builderWages=(p.citizens||[]).filter(c=>!!c.builder).length;
+ vals.upkeep+=vals.builderWages;vals.wages+=vals.builderWages;
  vals.foodUse=Math.ceil(summary.count/6);
  vals.netFood=vals.food-vals.foodUse;
  vals.netGold=vals.gold-vals.upkeep;
@@ -1779,9 +1798,23 @@ function render(){if(!G)return;
  el('turnLabel').textContent=G.finished?'TEST COMPLETE':G.turnIndex===0&&!cpuBusy?'YOUR TURN':'CPU TURN';el('turnLabel').classList.toggle('cpu-turn',G.turnIndex!==0||cpuBusy);
  el('resources').innerHTML=[['gold',silverPentIcon(23),'Silver Pents'],['food','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>','Food'],['wood','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg>','Wood'],['iron','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>','Iron'],['knowledge','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>','Knowledge']].map(([field,icon,name])=>`<div class="resource ${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
  el('quickStats').innerHTML=[['gold',silverPentIcon(16)],['food','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>'],['wood','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg>'],['iron','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>'],['knowledge','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</b></span>`).join('');
- el('economySummary').innerHTML=`<span>Silver Pents income <strong>+${e.gold}</strong></span> · <span>Upkeep <strong>−${e.upkeep}</strong></span> · <span>Net <strong class="${e.netGold>=0?'positive':'negative'}">${e.netGold>=0?'+':''}${e.netGold}</strong>/round</span><span> · Wages <strong>−${e.wages}</strong>/round</span><span> · Employed <strong>${workforceSummary(p).employed}</strong> / Available <strong>${workforceSummary(p).available}</strong></span><span> · Food <strong class="${e.netFood>=0?'positive':'negative'}">${e.netFood>=0?'+':''}${e.netFood}</strong>/round</span>${p.gold<0?'<div class="economy-alert"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-warning"></use></svg> In debt: building and recruitment are locked until the treasury recovers.</div>':''}`;
+ el('economySummary').innerHTML=`<div class="gs-econ-totals"><span>Income <strong>+${e.gold} SP</strong></span><span>Upkeep & wages <strong>−${e.upkeep} SP</strong></span><span>Net / round <strong class="${e.netGold>=0?'positive':'negative'}">${e.netGold>=0?'+':''}${e.netGold} SP</strong></span></div>
+  <div class="gs-econ-ledger" aria-label="Silver Pents income and upkeep breakdown">
+   <strong class="gs-econ-ledger-title">Income per round</strong>
+   <span>Occupied family homes (${e.occupiedHomes} × ${HOUSEHOLD_RENT} SP)</span><b class="positive">+${e.householdIncome} SP</b>
+   <span>Capital revenue</span><b class="positive">+${e.capitalIncome} SP</b>
+   <span>Marketplaces</span><b class="positive">+${e.marketIncome} SP</b>
+   <strong class="gs-econ-ledger-title">Expenses per round</strong>
+   <span>Farm upkeep (even if idle)</span><b class="negative">−${e.farmUpkeep} SP</b>
+   <span>Factory & workshop upkeep (even if idle)</span><b class="negative">−${e.factoryUpkeep} SP</b>
+   <span>Other buildings</span><b class="negative">−${e.otherBuildingUpkeep} SP</b>
+   <span>Capital upkeep</span><b class="negative">−${e.capitalUpkeep} SP</b>
+   <span>Worker wages</span><b class="negative">−${e.workerWages} SP</b>
+   <span>Builder wages</span><b class="negative">−${e.builderWages} SP</b>
+   <span>Military upkeep</span><b class="negative">−${e.militaryUpkeep} SP</b>
+  </div><p class="gs-econ-explainer">Each occupied household (up to ${HOUSEHOLD_SIZE} residents) pays ${HOUSEHOLD_RENT} Silver Pents per round. Empty homes pay nothing. Wages are in addition to upkeep; level upgrades increase fixed upkeep.</p><div class="gs-econ-extra">Employed ${workforceSummary(p).employed} · Available ${workforceSummary(p).available} · Food ${e.netFood>=0?'+':''}${e.netFood}/round</div>${p.gold<0?'<div class="economy-alert"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-warning"></use></svg> In debt: building and recruitment are locked until the treasury recovers.</div>':''}`;
  el('economySummary').innerHTML+=`<div class="gs-depot-note"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> Capital warehouse: ${Object.entries(p.warehouse||{}).filter(([k,v])=>v>0).map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · ')||'No crafted goods yet'}</div>`+shippingDashboard();
-  el('populationSummary').innerHTML=`<div class="population-stat"><strong>${people.count}</strong><span>Citizens</span></div><div class="population-stat"><strong>${people.housed} / ${people.housing}</strong><span>Housed / Beds</span></div><div class="population-stat ${people.homeless?'population-warning':''}"><strong>${people.homeless}</strong><span>Homeless</span></div><div class="population-stat"><strong>${people.soldiers}</strong><span>Troops</span></div>`;
+  el('populationSummary').innerHTML=`<div class="population-stat"><strong>${people.count}</strong><span>Citizens</span></div><div class="population-stat"><strong>${people.housed} / ${people.housing}</strong><span>Housed / Beds</span></div><div class="population-stat ${people.homeless?'population-warning':''}"><strong>${people.homeless}</strong><span>Homeless</span></div><div class="population-stat"><strong>${people.soldiers}</strong><span>Troops</span></div><div class="gs-household-population"><strong>${people.households}</strong> occupied family homes · <strong>+${people.households*HOUSEHOLD_RENT} SP</strong> / round</div>`;
  el('populationAdvice').textContent=people.homeless>0?`${people.homeless} citizens need homes. Build on an owned tile with open space, or expand to make room.`:people.housing<=people.count+2?'Housing is nearly full. Consider additional homes before the next population increase.':'Each round can bring new citizens when Food is available. Homes need building space, and terrain limits residents.';
  renderMap();renderTile(tile);renderHand();renderResearch();renderStandings();renderLog();renderRoster();renderTradePanel();renderWarPanel();renderMineralMarket();
  el('buildPanel').classList.toggle('hidden',!showBuild);el('researchPanel').classList.toggle('hidden',!showResearch);
@@ -1805,6 +1838,7 @@ function renderTile(t){
   if(t.terrain==='mountain'){html+='<span><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-stone"></use></svg> Stone obtainable from any staffed Mine</span>';html+=t.vein?`<span><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-mine"></use></svg> ${MINERALS[t.vein.kind].name} · ${t.vein.remaining}/${t.vein.capacity} in vein</span>`:'<span><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-mine"></use></svg> Barren of rare minerals — still provides Stone when mined</span>';if(t.coalVein)html+=`<span><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-coal"></use></svg> Coal (secondary) · ${t.coalVein.remaining}/${t.coalVein.capacity} in vein</span>`;}
  for(const k of Object.keys(terrain.yield))html+=`<span>+${terrain.yield[k]} ${k} / round</span>`;
  html+='</div>';
+ if(owner&&tileHousing(t)>0)html+=`<div class="gs-resident-revenue">Occupied family homes: <b>${Math.ceil(Math.min(residents,tileResidentCap(t))/HOUSEHOLD_SIZE)}</b> · <b>+${Math.ceil(Math.min(residents,tileResidentCap(t))/HOUSEHOLD_SIZE)*HOUSEHOLD_RENT} SP/round</b></div>`;
  if(t.buildings?.length){html+='<div class="building-roster"><strong>Buildings & jobs in this hex</strong>';
  t.buildings.forEach((type,i)=>{
   const b=BUILDINGS[type],meta=worksite(t,i),q=owner?workQuality(owner,meta,type):null,occupied=type==='post'&&owner?postGarrison(owner,t.id).length:0;
@@ -2109,8 +2143,8 @@ function expeditionTrailVisuals(){
    const back=25-i*6,side=(i%2===0?-1:1)*3.4;
    const x=position.x-ux*back+px*side,y=position.y-uy*back+py*side+7;
    return `<g class="gs-expedition-boot" style="--step:${i}" transform="translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${degrees.toFixed(2)})">
-    <path d="M-1.6 5Q-3.2 4-3.1 1.4L-2.1-3Q-4.3-7-1.1-8.4Q2.1-10 4-7Q5.2-4 2.2-2.4L2.3 3Q1.4 5.6-1.6 5Z" fill="#efd8a5" stroke="#24454e" stroke-width="1"/>
-    <path d="M-2.5 -4Q0.2 -2.2 3 -4" fill="none" stroke="#aa8557" stroke-width=".85"/>
+    <path d="M-2 4Q-4 2-3-2L-1-6Q1-8 3-5L3 1Q3 5-2 4Z" fill="#eed9ae" stroke="#304d52" stroke-width="1.1"/>
+    <path d="M-2 -4H2" stroke="#b08b5a" stroke-width="1.1"/>
    </g>`;
   }).join('');
   const flag=`<g class="gs-expedition-banner" pointer-events="none"><ellipse cx="${position.x.toFixed(1)}" cy="${(position.y+7).toFixed(1)}" rx="8" ry="3" fill="#10252e" opacity=".4"/>
