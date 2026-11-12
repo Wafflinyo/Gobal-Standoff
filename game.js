@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.13 — classic expedition footprints facing corrected by 180 degrees. */
+/* Global Standoff 0.4.14 — restore territory outlines and color-lined roads, preserving classic footprint direction. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -444,13 +444,13 @@ function domesticRoadEdge(a,b){
  const ac=corners(a),bc=corners(b);return ac.filter(v=>bc.some(w=>Math.hypot(v.x-w.x,v.y-w.y)<.1)).slice(0,2);
 }
 function domesticRoadVisuals(){
- const visuals=[];for(const road of [...(G.domesticRoads||[]),...(G.domesticRoadJobs||[])]){
+ const visuals=[];
+ for(const road of [...(G.domesticRoads||[]),...(G.domesticRoadJobs||[])]){
   const a=G.tiles.find(t=>t.id===road.aId),b=G.tiles.find(t=>t.id===road.bId);if(!a||!b)continue;
   const points=domesticRoadEdge(a,b);if(points.length!==2)continue;
-  const line='M'+points.map(v=>{const p=project(v.x,v.y);return p.x.toFixed(1)+','+p.y.toFixed(1)}).join(' L');
-  const building=road.remaining!=null;
-  visuals.push(`<g class="gs-domestic-road ${building?'building':'paved'}" pointer-events="none"><path d="${line}" fill="none" stroke="#334d4d" stroke-width="7" stroke-linecap="round"/><path d="${line}" fill="none" stroke="${building?'#d0ad6e':'#f1d38b'}" stroke-width="3.4" stroke-linecap="round" ${building?'stroke-dasharray="6 4"':''}/></g>`);
- }return visuals.join('');
+  visuals.push(edgedRoadSegment(project(points[0].x,points[0].y),project(points[1].x,points[1].y),[a.id,b.id],road.remaining==null));
+ }
+ return `<g class="gs-domestic-road" pointer-events="none">${visuals.join('')}</g>`;
 }
 // Caravans are physical, limited units housed in Caravan Warehouses, not invisible timers.
 function caravanWarehouses(p){
@@ -2070,6 +2070,40 @@ function routePolyline(points,stroke,width,dash=''){
  const d='M'+points.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L');
  return `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" ${dash?`stroke-dasharray="${dash}"`:''}/>`;
 }
+// Draw road surface along the hex edge, preserving country colors on each side.
+// The perpendicular offset is signed using the actual adjacent tile center,
+// so both players' stripes stay on their respective sides as the camera turns.
+function edgedRoadSegment(a,b,banks,constructed=true){
+ const dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1;
+ const nx=-dy/len,ny=dx/len,mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+ const stripeColors=[null,null];
+ for(const id of banks||[]){
+  const tile=G.tiles.find(t=>t.id===id);if(!tile||tile.owner==null)continue;
+  const cp=sceneCoords(tile),side=(cp.x-mid.x)*nx+(cp.y-mid.y)*ny>=0?1:0;
+  stripeColors[side]=G.players[tile.owner].color;
+ }
+ const line=(p,q,color,width,dash='')=>`<path d="M${p.x.toFixed(2)} ${p.y.toFixed(2)}L${q.x.toFixed(2)} ${q.y.toFixed(2)}" fill="none" stroke="${color}" stroke-width="${width}" stroke-linecap="round" ${dash?`stroke-dasharray="${dash}"`:''}/>`;
+ let svg=line(a,b,'#142d35',9.5);
+ svg+=line(a,b,constructed?'#cdb58a':'#816f57',5.2,constructed?'':'4 5');
+ if(constructed)svg+=line(a,b,'#eadbb8',1.25);
+ for(const side of [-1,1]){
+  const color=stripeColors[side===-1?0:1]||'#627a70';
+  const offset=5.7*side;
+  svg+=line({x:a.x+nx*offset,y:a.y+ny*offset},{x:b.x+nx*offset,y:b.y+ny*offset},color,2.7,constructed?'':'4 4');
+ }
+ return `<g class="gs-edge-road ${constructed?'complete':'building'}" pointer-events="none">${svg}</g>`;
+}
+// A territory's color needs to remain legible ABOVE rivers and roads.
+// Every controlled hex gets its own inset border so roads can sit between
+// neighboring nations' colors instead of hiding them.
+function ownedTerritoryOutlines(){
+ return G.tiles.filter(t=>t.owner!==null).map(t=>{
+  if(scenePlayback?.kind==='expand'&&scenePlayback.tileId===t.id&&scenePlayback.phase==='prepare')return '';
+  const poly=pts(hexPoints(t,HEX-5));const color=G.players[t.owner].color;
+  return `<g class="gs-owned-hex-border" data-owned-tile="${esc(t.id)}" pointer-events="none"><polygon points="${poly}" fill="none" stroke="#112d35" stroke-opacity=".85" stroke-width="7" stroke-linejoin="round"/><polygon points="${poly}" fill="none" stroke="${color}" stroke-width="4.2" stroke-opacity=".98" stroke-linejoin="round"/></g>`;
+ }).join('');
+}
+
 function foregroundTurnLabel(x,y,label,style='normal'){
  const value=String(label),wide=Math.max(42,Math.min(130,16+value.length*6.1));
  return billboardSvg(x,y,`<g class="gs-world-label ${style==='work'?'gs-label-work':''}" pointer-events="none">
@@ -2093,10 +2127,13 @@ function roadVisuals(){
   if(len<1)return '';
   const aBuilt=route.status==='active'?len:Math.min(len,route.aDone||0),bBuilt=route.status==='active'?0:Math.min(len,route.bDone||0);
   let body='<g class="gs-road-lines" pointer-events="none">';
-  body+=routePolyline(points,'#30434b',6,'3 6');
-  body+=routePolyline(points.slice(0,aBuilt+1),G.players[route.a].color,5);
-  if(route.status==='active')body+=routePolyline(points,'#edcb86',2.1);
-  else body+=routePolyline(points.slice(len-bBuilt),G.players[route.b].color,5);
+  // Unbuilt sections remain subdued dashed surveys; completed border edges
+  // get a stone road with ownership colors flanking the route.
+  body+=routePolyline(points,'#384e51',2.5,'4 7');
+  for(let i=0;i<len;i++){
+   if(i<aBuilt||i>=len-bBuilt||route.status==='active')
+    body+=edgedRoadSegment(points[i],points[i+1],route.banks?.[i]||[],true);
+  }
   body+='</g>';
   if(route.status!=='active'&&route.status!=='paused')for(const side of ['a','b']){
    const builder=G.players[route[side]].citizens.find(c=>c.id===route[side+'BuilderId']);
@@ -2318,9 +2355,11 @@ function renderMap(){
    return `<g class="river-course" pointer-events="none"><path d="${d}" stroke="#49675b" stroke-width="12" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".82"/><path d="${d}" stroke="#398aab" stroke-width="8.2" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="${d}" stroke="#a0dbe5" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".77"/></g>`;
   }).join('');
  const tradeLines=roadVisuals()+domesticRoadVisuals();
+ const ownerOutlines=ownedTerritoryOutlines();
  const movementOverlays=falconVisuals()+diplomaticFalconVisuals()+expeditionTrailVisuals()+caravanVisuals()+visibleWarOrderMarkers();
  const upperLabels=constructionHudLabels()+roadHudLabels();
- el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g><g class="gs-map-frontlabels" pointer-events="none">${upperLabels}</g>`;
+ // Ownership is laid over roads so its line is never hidden by paving or rivers.
+ el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="gs-national-borders" pointer-events="none">${ownerOutlines}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g><g class="gs-map-frontlabels" pointer-events="none">${upperLabels}</g>`;
  boardBaseYaw=cameraYaw;
  boardBillboards=[...el('mapContent').querySelectorAll('[data-gs-billboard]')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY)}));
  boardFootprints=[...el('mapContent').querySelectorAll('.gs-expedition-footprints')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY),dx:Number(node.dataset.dirX),dy:Number(node.dataset.dirY),baseHeading:Number(node.dataset.baseHeading)}));
@@ -2483,5 +2522,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={wagonRoadTrace,wagonViewArtwork,caravanVisuals,expeditionTrailVisuals,domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
+window.GS_TEST={ownedTerritoryOutlines,edgedRoadSegment,wagonRoadTrace,wagonViewArtwork,caravanVisuals,expeditionTrailVisuals,domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
 })();
