@@ -1,4 +1,12 @@
-# Global Standoff — Prototype 0.4.15
+# Global Standoff — Prototype 0.4.16
+
+## Version 0.4.16 — ground-contact depth, covered-wagon motion and falcon inbox
+
+- Buildings, houses, trees, mountains, construction sites, capitals and caravans render in one camera-aware painter's depth order by ground-contact position. Territories remain tappable, and foreground labels remain legible.
+- Compact covered wagons retain their road-edge path and directional views. Their rear wheels appear edge-on instead of circular/profile, and all moving views use gentle irregular bump-and-rock keyframes.
+- Incoming messenger falcon warnings, declarations, ceasefire requests and road proposals automatically pop up on the human player's turn. Messages can be acknowledged, acted on, or opened in World Affairs, and an unread badge stays visible until messages are reviewed.
+- Received dispatch history remains accessible in World Affairs; old saved worlds are preserved.
+- No changes to the existing classic expedition footprint design or to financial rules.
 
 ## Version 0.4.15 — limited national debt and per-side road ownership
 
