@@ -1,4 +1,11 @@
-# Global Standoff — Prototype 0.4.13
+# Global Standoff — Prototype 0.4.14
+
+## Version 0.4.14 — visible borders and color-lined roads
+
+- Restores a high-contrast nation-colored perimeter around every claimed hex.
+- Completed roads occupy the shared edge with a stone-colored path and two flanking color rails, reflecting the owners of adjacent hexes.
+- Nation outlines are rendered above paving and rivers, remain attached to the 2.5D terrain during camera turns, and do not block taps.
+- No change to claiming, construction timing, route speeds or existing saves.
 
 ## Version 0.4.13 — classic expedition footprint orientation
 
