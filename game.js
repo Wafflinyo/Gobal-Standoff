@@ -1236,6 +1236,46 @@ function refreshRouteEstimate(partnerId){
  label.textContent=plan&&split?`${plan.length} shared hex edges · you pay ${split.costA} SP and build ${split.aSegments} edges; ${G.players[partnerId].name} pays ${split.costB} SP and builds ${split.bSegments}.`:'No valid neutral-land border route found.';
 }
 function showToast(s){const t=el('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2650);}
+
+function unreadFalconDispatches(){
+ if(!G)return [];
+ const diplomatic=(G.diplomaticFalcons||[]).filter(f=>f.to===0&&!f.inboxRead&&['arrived','awaiting-reply'].includes(f.status)).map(f=>({type:'diplomatic',item:f,clock:f.deliveredClock??f.createdClock??0}));
+ const routes=(G.tradeOffers||[]).filter(o=>o.to===0&&!o.inboxRead&&o.status==='pending').map(o=>({type:'route',item:o,clock:o.deliveredClock??o.createdClock??0}));
+ return [...diplomatic,...routes].sort((a,b)=>a.clock-b.clock||a.item.id-b.item.id);
+}
+function presentFalconInbox(){
+ if(!active()||sheetMode||!el('modalLayer').classList.contains('hidden'))return;
+ const dispatch=unreadFalconDispatches()[0];if(!dispatch)return;
+ const f=dispatch.item,from=G.players[f.from],route=dispatch.type==='route';
+ const label=route?'ROAD PROPOSAL':f.kind==='warning'?'TERRITORIAL WARNING':f.kind==='war'?'DECLARATION OF WAR':'CEASEFIRE PROPOSAL';
+ const body=route?(()=>{
+  const a=G.tiles.find(t=>t.id===f.fromTileId),b=G.tiles.find(t=>t.id===f.toTileId);
+  return `${from.name} proposes a road from ${a?.name||'their territory'} to ${b?.name||'your territory'}. Your share is ${f.costB} Silver Pents, and their share is ${f.costA}.`;
+ })():diplomaticMessageText(f);
+ const actions=(route||f.kind==='peace')?`<button class="primary" data-modal="falcon-accept" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">${route?'Accept route':'Accept ceasefire'}</button><button class="secondary" data-modal="falcon-reject" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">Reject</button>`:'';
+ showModal(`<div class="gs-falcon-letter"><div class="gs-falcon-kicker">${icoMarkup('scroll')} MESSENGER FALCON · ROUND ${G.round}</div><div class="gs-falcon-subject">${esc(label)}</div><h2>${esc(from.name)}</h2><p class="gs-falcon-text">${esc(body)}</p><div class="gs-falcon-actions">${actions}<button class="secondary" data-modal="falcon-read" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">${actions?'Review later':'Acknowledge'}</button><button class="secondary" data-modal="falcon-world" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">Open World Affairs</button></div></div>`);
+}
+function handleFalconMessageAction(button){
+ if(!G||!active())return;
+ const type=button.dataset.inboxType,id=Number(button.dataset.inboxId),action=button.dataset.modal;
+ const target=(type==='route'?G.tradeOffers:G.diplomaticFalcons)?.find(f=>f.id===id&&f.to===0);
+ if(!target)return;
+ if(action==='falcon-accept'||action==='falcon-reject'){
+  const success=type==='route'?respondTradeOffer(id,action==='falcon-accept'):acceptCeasefire(id,action==='falcon-accept');
+  if(!success){showToast('Unable to respond. Check builders, Silver Pents or the War Room.');return;}
+ }
+ target.inboxRead=true;target.readRound=G.round;
+ save();closeModal();render();
+ if(action==='falcon-world')showSheet('world');
+ else setTimeout(presentFalconInbox,190);
+}
+function renderFalconBadge(){
+ const button=el('worldQuickBtn');if(!button)return;
+ let badge=button.querySelector('.gs-falcon-badge');
+ if(!badge){badge=document.createElement('span');badge.className='gs-falcon-badge';button.appendChild(badge);}
+ const total=unreadFalconDispatches().length;
+ badge.textContent=total>9?'9+':String(total);badge.hidden=!total;
+}
 function showModal(html){el('modalBody').innerHTML=html;el('modalLayer').classList.remove('hidden');}
 function closeModal(){el('modalLayer').classList.add('hidden');}
 function mountMapUi(){
@@ -1262,7 +1302,7 @@ function showSheet(mode='territory'){
  el('sheetLayer').classList.remove('hidden');el('sheetLayer').setAttribute('aria-hidden','false');
  render();
 }
-function closeSheet(){sheetMode=null;showBuild=false;showResearch=false;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');if(G)render();}
+function closeSheet(){sheetMode=null;showBuild=false;showResearch=false;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');if(G)render();setTimeout(presentFalconInbox,140);}
 function suspendSheetForScene(){
  const sheet=el('sheetBody');
  const resume={mode:sheetMode,showBuild,scroll:sheet?.scrollTop||0,tileId:G?.selectedId};
@@ -1407,7 +1447,7 @@ function openCardPreview(index){
 }
 function closeCardPreview(){previewCardIndex=-1;el('cardPreview').classList.add('hidden');el('cardPreview').setAttribute('aria-hidden','true');}
 
-function enterGame(){scenePlayback=null;scenePlaybackSerial++;document.body.classList.add('gs-playing');closeCardPreview();sheetMode=null;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');cpuPlaybackToken++;skipCpuPlayback=false;hideCpuHud();el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();focusHome(true);render();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));}
+function enterGame(){scenePlayback=null;scenePlaybackSerial++;document.body.classList.add('gs-playing');closeCardPreview();sheetMode=null;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');cpuPlaybackToken++;skipCpuPlayback=false;hideCpuHud();el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();focusHome(true);render();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));setTimeout(presentFalconInbox,300);}
 function newMatch(){cardEffectBusy=false;el('cardEffectLayer')?.classList.add('hidden');scenePlayback=null;scenePlaybackSerial++;document.body.classList.remove('gs-playing');closeCardPreview();closeSheet();cpuPlaybackToken++;cancelAnimationFrame(cameraMoveFrame);hideCpuHud();if(cameraResolve){cameraResolve();cameraResolve=null;}G=null;cpuBusy=false;el('lobby').classList.remove('hidden');el('game').classList.add('hidden');el('topMenuBtn').classList.add('hidden');el('roundBadge').textContent='SOLO TEST';closeModal();renderLobby();}
 function renderLobby(){
  el('colorOptions').innerHTML=COLORS.map((c,i)=>`<button class="color-swatch" style="--swatch:${c}" aria-label="Choose ${['jade','amber','violet','coral'][i]}" aria-pressed="${i===selectedColor}" data-color="${i}"></button>`).join('');
@@ -1689,7 +1729,7 @@ async function runCpuCinematic(token=cpuPlaybackToken){
  showCpuHud(0,'The next round begins — your move.');
  const home=G.tiles.find(t=>t.owner===0&&t.capital)||G.tiles[0];
  await moveCamera(home,POV_ANGLES[0],1350,window.innerWidth<600?435:565);
- hideCpuHud();await showCompletedProjects();cpuBusy=false;render();
+ hideCpuHud();await showCompletedProjects();cpuBusy=false;render();setTimeout(presentFalconInbox,390);
 }
 function endTurn(){
  if(!active())return;
@@ -1830,6 +1870,7 @@ function render(){if(!G)return;
  el('economySummary').innerHTML+=`<div class="gs-depot-note"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> Capital warehouse: ${Object.entries(p.warehouse||{}).filter(([k,v])=>v>0).map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · ')||'No crafted goods yet'}</div>`+shippingDashboard();
   el('populationSummary').innerHTML=`<div class="population-stat"><strong>${people.count}</strong><span>Citizens</span></div><div class="population-stat"><strong>${people.housed} / ${people.housing}</strong><span>Housed / Beds</span></div><div class="population-stat ${people.homeless?'population-warning':''}"><strong>${people.homeless}</strong><span>Homeless</span></div><div class="population-stat"><strong>${people.soldiers}</strong><span>Troops</span></div><div class="gs-household-population"><strong>${people.households}</strong> occupied family homes · <strong>+${people.households*HOUSEHOLD_RENT} SP</strong> / round</div>`;
  el('populationAdvice').textContent=people.homeless>0?`${people.homeless} citizens need homes. Build on an owned tile with open space, or expand to make room.`:people.housing<=people.count+2?'Housing is nearly full. Consider additional homes before the next population increase.':'Each round can bring new citizens when Food is available. Homes need building space, and terrain limits residents.';
+ renderFalconBadge();
  renderMap();renderTile(tile);renderHand();renderResearch();renderStandings();renderLog();renderRoster();renderTradePanel();renderWarPanel();renderMineralMarket();
  el('buildPanel').classList.toggle('hidden',!showBuild);el('researchPanel').classList.toggle('hidden',!showResearch);
  el('endTurnBtn').disabled=!active();el('levyBtn').disabled=!canAct()||!!p.levyUsed;el('researchBtn').disabled=!active();el('levySheetBtn')?.toggleAttribute('disabled',!canAct()||!!p.levyUsed);
