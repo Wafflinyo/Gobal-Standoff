@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.9 — corrected icon sizing and effect descriptions in the fanned hand. */
+/* Global Standoff 0.4.10 — clear action buttons and compact readable card effects. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -1895,7 +1895,7 @@ function renderHand(){
   return;
  }
  el('opponentDeck')?.classList.add('hidden');
- const handEffects={grant:'Gain 6 SP',harvest:'Gain 5 Food',supplies:'Gain 3 Wood + 2 Iron',insight:'Gain 3 Knowledge',charter:'Next claim costs 3 SP less',permit:'Next build costs 3 SP less'};
+ const handEffects={grant:'Gain 6 SP',harvest:'Gain 5 Food',supplies:'+3 Wood · +2 Iron',insight:'Gain 3 Knowledge',charter:'Next claim −3 SP',permit:'Next build −3 SP'};
  el('hand').innerHTML=p.hand.map((c,i)=>{
   const fan=i-(n-1)/2,angle=fan*9;
   return `<button type="button" class="card-item" data-card="${i}" style="--fan:${fan};--angle:${angle}deg" aria-label="Enlarge ${esc(CARDS[c].name)} — ${esc(CARDS[c].desc)}"><span class="card-icon">${CARDS[c].icon}</span><span class="card-name">${esc(CARDS[c].name)}</span><span class="card-desc">${esc(handEffects[c]||CARDS[c].desc)}</span></button>`;
