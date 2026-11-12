@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.0 — builders, expedition crews, per-turn progress and restored hex controls. */
+/* Global Standoff 0.4.3 — smooth cinematic camera with upright map miniatures. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -1390,9 +1390,22 @@ const coords=t=>({x:HEX*Math.sqrt(3)*(t.q+t.r/2),y:HEX*1.5*t.r});
 const VIEW_TILT=.68;
 const POV_ANGLES=[-.24,.36,.92,1.48];
 const smooth=t=>t*t*(3-2*t);
+const smoother=t=>t*t*t*(t*(t*6-15)+10);
 const blend=(a,b,t)=>a+(b-a)*t;
 let cameraYaw=POV_ANGLES[0],cameraMoveFrame=0,cameraResolve=null,cpuPlaybackToken=0,skipCpuPlayback=false,actionTileId=null,actionKind='';
 const project=(x,y,yaw=cameraYaw)=>({x:x*Math.cos(yaw)-y*Math.sin(yaw),y:(x*Math.sin(yaw)+y*Math.cos(yaw))*VIEW_TILT});
+const unproject=(x,y,yaw=cameraYaw)=>{const c=Math.cos(yaw),sn=Math.sin(yaw),fy=y/VIEW_TILT;return {x:x*c+fy*sn,y:-x*sn+fy*c};};
+let boardTileVisuals=[];
+function syncBoardRotation(){
+ const content=el('mapContent');if(!content)return;
+ const d=cameraYaw-POV_ANGLES[0],c=Math.cos(d),sn=Math.sin(d);
+ content.setAttribute('transform','matrix('+c.toFixed(7)+' '+(VIEW_TILT*sn).toFixed(7)+' '+(-sn/VIEW_TILT).toFixed(7)+' '+c.toFixed(7)+' 0 0)');
+ const invB=-VIEW_TILT*sn,invC=sn/VIEW_TILT;
+ for(const {node,x,y} of boardTileVisuals){
+  const tx=x-(c*x+invC*y),ty=y-(invB*x+c*y);
+  node.setAttribute('transform','matrix('+c.toFixed(7)+' '+invB.toFixed(7)+' '+invC.toFixed(7)+' '+c.toFixed(7)+' '+tx.toFixed(3)+' '+ty.toFixed(3)+')');
+ }
+}
 const sceneCoords=(tile,yaw=cameraYaw)=>{const c=coords(tile);return project(c.x,c.y,yaw);};
 function hexPoints(tile,r=HEX-1,yaw=cameraYaw){
  const center=coords(tile);return Array.from({length:6},(_,i)=>{
@@ -1469,9 +1482,11 @@ function tileMiniatures(t,x,y){
 function renderMap(){
  if(!G)return;
  const svg=el('worldMap');svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
+ const savedYaw=cameraYaw;cameraYaw=POV_ANGLES[0];
  const sorted=G.tiles.map(t=>({t,c:sceneCoords(t)})).sort((a,b)=>a.c.y-b.c.y||a.c.x-b.c.x);
- const bases=[],decorations=[];
+ const bases=[],decorations=[],visualAnchors=[];
  for(const {t,c:{x,y}} of sorted){
+  visualAnchors.push({x,y});
   const claiming=scenePlayback?.tileId===t.id&&scenePlayback.kind==='expand';
   const owner=(t.owner===null||(claiming&&scenePlayback.phase==='prepare'))?null:G.players[t.owner],selected=!cpuBusy&&t.id===G.selectedId;
   const top=hexPoints(t,HEX-1),lower=top.map(p=>({x:p.x,y:p.y+10}));
@@ -1481,7 +1496,7 @@ function renderMap(){
   bases.push(`<g class="tile-base" pointer-events="none"><polygon points="${pts(lower)}" fill="#202f2b" opacity=".33" transform="translate(2 2)"/>${faces}<polygon points="${pts(top)}" fill="${fill}" stroke="${border}" stroke-width="${owner?'2.5':'1.4'}"/><polygon points="${pts([top[4],top[5],top[0]])}" fill="#fff3c9" opacity=".07"/><polygon points="${pts([top[1],top[2],top[3]])}" fill="#2d312f" opacity=".08"/>${owner?`<polygon points="${pts(top)}" fill="${owner.color}" opacity=".14"/>`:''}${selected?`<polygon points="${pts(top)}" fill="none" stroke="#fff6c7" stroke-width="3.6"/>`:''}</g>`);
   const action=t.id===actionTileId;
   const scout=expeditionForTile(t.id);
-  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/>${tileMiniatures(t,x,y)}${scout?`<g pointer-events="none"><text x="${x}" y="${y-33}" text-anchor="middle" font-size="13">🧭</text><text x="${x}" y="${y-44}" text-anchor="middle" fill="#fff0bf" font-size="9">${scout.remaining}t</text></g>`:''}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}</g>`);
+  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/><g class="tile-visual">${tileMiniatures(t,x,y)}${scout?`<g pointer-events="none"><text x="${x}" y="${y-33}" text-anchor="middle" font-size="13">🧭</text><text x="${x}" y="${y-44}" text-anchor="middle" fill="#fff0bf" font-size="9">${scout.remaining}t</text></g>`:''}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}</g>${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}</g>`);
  }
   const waterways=(G.rivers||[]).map(river=>{
    // Vertices are shared by two land hexes; project AFTER camera yaw/tilt.
@@ -1500,9 +1515,11 @@ function renderMap(){
   return `<g class="gs-trade-path ${route.status==='active'?'active':'building'}" pointer-events="none"><path d="${d}" fill="none" stroke="#4a3c27" stroke-width="7" stroke-linejoin="round"/><path d="${d}" fill="none" stroke="#edc277" stroke-width="3.4" stroke-linejoin="round" ${route.status==='active'?'':'stroke-dasharray="6 4"'}/></g>`;
  }).join('');
  el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="world-features">${decorations.join('')}</g>`;
+ boardTileVisuals=[...el('mapContent').querySelectorAll('.tile-visual')].map((node,i)=>({node,...visualAnchors[i]}));
+ cameraYaw=savedYaw;syncBoardRotation();
 }
 function mapAspect(){const rect=el('worldMap').getBoundingClientRect();return rect.width>0&&rect.height>0?rect.width/rect.height:1.5;}
-function setCenter(cx,cy,width){const aspect=mapAspect();view.w=width;view.h=width/aspect;view.x=cx-width/2;view.y=cy-view.h/2;el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);}
+function setCenter(cx,cy,width,aspect=mapAspect()){view.w=width;view.h=width/aspect;view.x=cx-width/2;view.y=cy-view.h/2;el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);}
 function focusHome(immediate=true){if(!G)return;const t=G.tiles.find(t=>t.owner===0&&t.capital)||G.tiles[0];return moveCamera(t,POV_ANGLES[0],immediate?0:750,window.innerWidth<600?420:540);}
 function resetView(){if(!G)return;cameraYaw=POV_ANGLES[0];const projected=G.tiles.map(t=>hexPoints(t,HEX+10)).flat();const xs=projected.map(p=>p.x),ys=projected.map(p=>p.y);
  const minx=Math.min(...xs)-25,maxx=Math.max(...xs)+25,miny=Math.min(...ys)-60,maxy=Math.max(...ys)+60,asp=mapAspect();const w=Math.max(maxx-minx,(maxy-miny)*asp);setCenter((maxx+minx)/2,(maxy+miny)/2,w);renderMap();}
@@ -1512,23 +1529,20 @@ function moveCamera(tile,targetYaw=cameraYaw,duration=800,targetWidth=460){
  if(cameraMoveFrame)cancelAnimationFrame(cameraMoveFrame);
  if(cameraResolve){const previous=cameraResolve;cameraResolve=null;previous();}
  const from={yaw:cameraYaw,cx:view.x+view.w/2,cy:view.y+view.h/2,width:view.w};
+ const origin=unproject(from.cx,from.cy,from.yaw);
  const target=coords(tile),start=performance.now(),token=cpuPlaybackToken;
+ const aspect=mapAspect(),reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
  return new Promise(resolve=>{
   cameraResolve=resolve;
   const done=()=>{cameraMoveFrame=0;if(cameraResolve===resolve)cameraResolve=null;resolve();};
-  let lastDraw=-1000;function frame(now){
+  function frame(now){
    if(!G||token!==cpuPlaybackToken){done();return;}
-   const t=skipCpuPlayback||window.matchMedia('(prefers-reduced-motion: reduce)').matches||duration<=0?1:Math.min(1,(now-start)/duration),k=smooth(t);
-   const desiredYaw=blend(from.yaw,targetYaw,k),yawTravel=Math.abs(targetYaw-from.yaw);
-   // Rebuilding 169 textured SVG tiles on every animation frame caused phone lag.
-   // Pan and zoom are cheap viewBox-only updates every frame; only redraw for meaningful yaw changes.
-   if(t>=1||(yawTravel>.001&&now-lastDraw>=64)){
-    cameraYaw=desiredYaw;
-    if(yawTravel>.001)renderMap();
-    lastDraw=now;
-   }
-   const dest=project(target.x,target.y,cameraYaw);
-   setCenter(blend(from.cx,dest.x,k),blend(from.cy,dest.y,k),blend(from.width,targetWidth,k));
+   const t=skipCpuPlayback||reduce||duration<=0?1:Math.min(1,(now-start)/duration);
+   const k=smoother(t);
+   cameraYaw=blend(from.yaw,targetYaw,k);
+   const center=project(blend(origin.x,target.x,k),blend(origin.y,target.y,k),cameraYaw);
+   syncBoardRotation();
+   setCenter(center.x,center.y,blend(from.width,targetWidth,k),aspect);
    if(t<1)cameraMoveFrame=requestAnimationFrame(frame);else done();
   }
   cameraMoveFrame=requestAnimationFrame(frame);
