@@ -444,3 +444,14 @@ body.gs-playing .sheet-panel small,body.gs-playing .sheet-panel .muted,body.gs-p
   75%{transform:rotate(-.65deg) translateY(-.45px)}
 }
 @media(prefers-reduced-motion:reduce){.gs-wagon-moving{animation:none!important}}
+
+/* 0.4.12 — occupied-family housing income and itemized per-round upkeep. */
+.gs-econ-totals{display:grid;grid-template-columns:1fr;gap:5px;width:100%;padding:9px 10px;background:#102936;border:1px solid #53737b;border-radius:9px;color:#e6e5d5;font-size:12px;font-weight:750}
+.gs-econ-totals span{display:flex;justify-content:space-between;align-items:center;gap:7px}.gs-econ-totals strong{font-size:12px;color:#f5dbac}
+.gs-econ-ledger{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:6px 10px;width:100%;padding:12px 10px;background:#122b38;border:1px solid #3b5d65;border-radius:10px;font-size:11px;line-height:1.35;color:#d4e4e0}
+.gs-econ-ledger-title{grid-column:1 / -1;padding:8px 0 3px;border-bottom:1px solid #6c87905c;color:#f1d5a0;font-weight:900;text-transform:uppercase;letter-spacing:.05em;font-size:10px}
+.gs-econ-ledger b{text-align:right;white-space:nowrap}.gs-econ-ledger .positive{color:#a9dfbc}.gs-econ-ledger .negative{color:#f0b9a4}
+.gs-econ-explainer,.gs-econ-extra{width:100%;font-size:11px;line-height:1.5;color:#cad8d7;margin:5px 2px}
+.gs-household-population{width:100%;grid-column:1 / -1;background:#193744;border:1px solid #4b6b72;border-radius:8px;padding:9px 12px;font-size:11px;color:#f2ddad;font-weight:750;line-height:1.45}
+.gs-resident-revenue{font-size:11px;line-height:1.5;margin:9px 0 12px;padding:8px 10px;background:#183642;border:1px solid #46646a;border-radius:8px;color:#dbdfd0;font-weight:700}
+.gs-resident-revenue b{color:#f1dbab}
