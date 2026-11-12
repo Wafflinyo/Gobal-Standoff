@@ -1,4 +1,10 @@
-# Global Standoff — Prototype 0.4.16
+# Global Standoff — Prototype 0.4.17
+
+## Version 0.4.17 — expedition prints lead the flag
+
+- Bootprints now render ahead of the moving expedition flag along the route to its destination, rather than behind it.
+- Step animations begin nearest the flag and continue outward toward the target.
+- Short route segments clip the prints before the destination; keep the classic outline, alternating feet, orientation, and camera-aware heading intact.
 
 ## Version 0.4.16 — ground-contact depth, covered-wagon motion and falcon inbox
 
