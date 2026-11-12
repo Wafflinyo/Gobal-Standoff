@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.10 — clear action buttons and compact readable card effects. */
+/* Global Standoff 0.4.11 — directional expedition steps and covered wagons on hex borders. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -505,6 +505,7 @@ function moveCaravanToStage(job,cart,p){
  const stage=job.stage,path=job.path||[];
  if(job.step<path.length-1){
   // A wagon has two movement points per turn: paved borders cost 1, unpaved cost 2.
+  const previousStep=job.step;
   let budget=2;
   while(job.step<path.length-1){
    const a=G.tiles.find(t=>t.id===path[job.step]),b=G.tiles.find(t=>t.id===path[job.step+1]);
@@ -513,6 +514,7 @@ function moveCaravanToStage(job,cart,p){
    budget-=need;job.step++;cart.currentTileId=path[job.step];
   }
   job.remaining=Math.ceil(pathCost(job.owner,path.slice(job.step))/2);
+  if(job.step>previousStep)job.visualMove={clock:G.turnClock||0,path:[...path],fromStep:previousStep,toStep:job.step};
   return;
  }
  if(stage==='pickup'){
@@ -1911,7 +1913,8 @@ const POV_ANGLES=[-.24,.36,.92,1.48];
 const smooth=t=>t*t*(3-2*t);
 const blend=(a,b,t)=>a+(b-a)*t;
 let cameraYaw=POV_ANGLES[0],cameraMoveFrame=0,cameraResolve=null,cpuPlaybackToken=0,skipCpuPlayback=false,actionTileId=null,actionKind='';
-let boardBaseYaw=cameraYaw,boardBillboards=[],boardFootprints=[];
+let boardBaseYaw=cameraYaw,boardBillboards=[],boardFootprints=[],boardWagons=[];
+const wagonMotionSeen=new Set();
 function billboardSvg(x,y,contents){return `<g data-gs-billboard="1" data-anchor-x="${x.toFixed(2)}" data-anchor-y="${y.toFixed(2)}">${contents}</g>`;}
 // The plane rotates in camera yaw. These screen-facing sprites counter-rotate
 // around their original anchor; flags, houses and labels always remain upright.
@@ -1933,6 +1936,14 @@ function syncBoardRotation(){
   const heading=project(f.dx,f.dy,cameraYaw);
   const degrees=Math.atan2(heading.y,heading.x)*180/Math.PI-f.baseHeading;
   f.node.setAttribute('transform',`rotate(${degrees.toFixed(2)} ${f.x.toFixed(1)} ${f.y.toFixed(1)})`);
+ }
+ // Wagons are screen-facing while their directional view follows the physical
+ // road heading; changing a camera angle never requires replacing the SVG map.
+ for(const w of boardWagons){
+  const heading=project(w.dx,w.dy,cameraYaw);
+  const view=Math.abs(heading.y)>Math.abs(heading.x)*.72?(heading.y>0?'front':'rear'):'side';
+  w.node.dataset.view=view;
+  w.node.dataset.side=heading.x<0?'left':'right';
  }
 }
 function unprojectScreen(x,y,yaw){const co=Math.cos(yaw),sn=Math.sin(yaw),fy=y/VIEW_TILT;return {x:x*co+fy*sn,y:-x*sn+fy*co};}
@@ -2098,8 +2109,8 @@ function expeditionTrailVisuals(){
    const back=25-i*6,side=(i%2===0?-1:1)*3.4;
    const x=position.x-ux*back+px*side,y=position.y-uy*back+py*side+7;
    return `<g class="gs-expedition-boot" style="--step:${i}" transform="translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${degrees.toFixed(2)})">
-    <path d="M-2 4Q-4 2-3-2L-1-6Q1-8 3-5L3 1Q3 5-2 4Z" fill="#eed9ae" stroke="#304d52" stroke-width="1.1"/>
-    <path d="M-2 -4H2" stroke="#b08b5a" stroke-width="1.1"/>
+    <path d="M-1.6 5Q-3.2 4-3.1 1.4L-2.1-3Q-4.3-7-1.1-8.4Q2.1-10 4-7Q5.2-4 2.2-2.4L2.3 3Q1.4 5.6-1.6 5Z" fill="#efd8a5" stroke="#24454e" stroke-width="1"/>
+    <path d="M-2.5 -4Q0.2 -2.2 3 -4" fill="none" stroke="#aa8557" stroke-width=".85"/>
    </g>`;
   }).join('');
   const flag=`<g class="gs-expedition-banner" pointer-events="none"><ellipse cx="${position.x.toFixed(1)}" cy="${(position.y+7).toFixed(1)}" rx="8" ry="3" fill="#10252e" opacity=".4"/>
@@ -2111,14 +2122,108 @@ function expeditionTrailVisuals(){
  })).join('');
 }
 
+// A wagon's roadway follows corners of a hex perimeter. It never cuts across
+// the face of a tile. Consecutive shared-edge midpoints are connected by the
+// shorter arc of vertices on the intervening hex's boundary.
+function wagonRoadTrace(ids){
+ const tiles=(ids||[]).map(id=>G.tiles.find(t=>t.id===id));
+ if(tiles.some(t=>!t)||tiles.length<1)return {points:[],atStep:[]};
+ const corners=tile=>Array.from({length:6},(_,i)=>{const c=coords(tile),a=i*Math.PI/3+Math.PI/6;return {x:c.x+HEX*Math.cos(a),y:c.y+HEX*Math.sin(a)};});
+ const midpoint=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
+ if(tiles.length===1){const c=corners(tiles[0]);return {points:[midpoint(c[0],c[1])],atStep:[0]};}
+ const crossed=[];
+ for(let i=0;i<tiles.length-1;i++){
+  if(distance(tiles[i],tiles[i+1])!==1)return {points:[],atStep:[]};
+  const shared=domesticRoadEdge(tiles[i],tiles[i+1]);if(shared.length!==2)return {points:[],atStep:[]};
+  crossed.push(midpoint(shared[0],shared[1]));
+ }
+ function edgeIndex(tile,mid){const cs=corners(tile);for(let i=0;i<6;i++){
+  const p=midpoint(cs[i],cs[(i+1)%6]);if(Math.hypot(p.x-mid.x,p.y-mid.y)<.5)return i;
+ }return -1;}
+ function arc(tile,fromEdge,toEdge){
+  const cs=corners(tile),a=edgeIndex(tile,fromEdge),b=edgeIndex(tile,toEdge);
+  if(a<0||b<0||a===b)return [toEdge];
+  const cw=(b-a+6)%6,ccw=(a-b+6)%6,vertices=[];
+  if(cw<=ccw){for(let j=0;j<cw;j++)vertices.push(cs[(a+j+1)%6]);}
+  else{for(let j=0;j<ccw;j++)vertices.push(cs[(a-j+6)%6]);}
+  vertices.push(toEdge);return vertices;
+ }
+ // Start on a neighboring edge of the origin hex, never its center.
+ const firstCorners=corners(tiles[0]),entry=edgeIndex(tiles[0],crossed[0]);
+ const start=midpoint(firstCorners[(entry+5)%6],firstCorners[entry]);
+ const points=[start],atStep=[0];
+ points.push(...arc(tiles[0],start,crossed[0]));atStep.push(points.length-1);
+ for(let i=1;i<crossed.length;i++){
+  points.push(...arc(tiles[i],crossed[i-1],crossed[i]));atStep.push(points.length-1);
+ }
+ return {points,atStep};
+}
+function wagonViewArtwork(countryColor){
+ const ink='#263a42',wood='#855839',pale='#f1e5c9',shade='#d6c5a2';
+ // Side: short canvas-covered wagon, small wooden bed and two spoked wheels.
+ const side=`<g class="gs-wagon-side gs-wagon-view">
+  <ellipse cy="7.6" rx="14" ry="2.8" fill="#081a1f" opacity=".24"/>
+  <path d="M-13 -3.8H13L11.5 5.5H-11.5Z" fill="${wood}" stroke="${ink}" stroke-width="1.3"/>
+  <path d="M-12.7 -4Q-11 -13 0 -13.4Q11.2 -13 12.7 -4Z" fill="${pale}" stroke="${ink}" stroke-width="1.3"/>
+  <path d="M-7.7 -12Q-7.2 -8-7.4 -4M0 -13.4Q.2 -8 0 -4M7.7 -12Q7.2 -8 7.4 -4" stroke="${shade}" stroke-width="1" fill="none"/>
+  <path d="M-12.7 -4H12.7" stroke="${countryColor}" stroke-width="1.8"/>
+  <path d="M-15 4L-18 1" stroke="${wood}" stroke-width="1.4"/>
+  ${[-8.5,9].map(x=>`<g class="gs-wagon-wheel" transform="translate(${x} 6.2)"><circle r="3.7" fill="#423c34" stroke="#e5c184" stroke-width="1.25"/><path d="M0-3V3M-3 0H3" stroke="#d0a777" stroke-width=".7"/></g>`).join('')}
+ </g>`;
+ // Forward-facing three-quarter: front canvas opening and staggered wheels.
+ const front=`<g class="gs-wagon-front gs-wagon-view">
+  <ellipse cy="8.5" rx="11" ry="3" fill="#081a1f" opacity=".23"/>
+  <path d="M-10 -4L6 -6L12 3L-3 6Z" fill="${wood}" stroke="${ink}" stroke-width="1.3"/>
+  <path d="M-12 -5Q-13 -15-3 -17Q7 -16 7 -6L12 -5Q5 -11-3 -11Q-11 -10-12 -5Z" fill="${pale}" stroke="${ink}" stroke-width="1.25"/>
+  <path d="M-9 -5Q-10 -12-3 -12Q3 -12 4 -5L4 2L-8 3Z" fill="${shade}" stroke="${ink}" stroke-width="1"/>
+  <path d="M-7 -5H5" stroke="${countryColor}" stroke-width="1.7"/>
+  <g class="gs-wagon-wheel" transform="translate(-7.5 6.5)"><circle r="4" fill="#423c34" stroke="#e5c184" stroke-width="1.2"/><path d="M-2 0H2M0 -2V2" stroke="#d0a777"/></g>
+  <g class="gs-wagon-wheel" transform="translate(10 4)"><circle r="3" fill="#423c34" stroke="#e5c184" stroke-width="1.1"/></g>
+ </g>`;
+ // Rear-facing: arched canvas end and short wagon bed.
+ const rear=`<g class="gs-wagon-rear gs-wagon-view">
+  <ellipse cy="9" rx="11" ry="3" fill="#081a1f" opacity=".23"/>
+  <path d="M-10 -3H11L8.5 5H-10.5Z" fill="${wood}" stroke="${ink}" stroke-width="1.25"/>
+  <path d="M-11 -4Q-10.5 -14 0 -14Q10 -14 11 -4Z" fill="${pale}" stroke="${ink}" stroke-width="1.4"/>
+  <path d="M-6 -3Q-6.5 -10 0 -10Q6.5 -10 6 -3L6 2H-6Z" fill="#c5b38e" stroke="${ink}" stroke-width=".9"/>
+  <path d="M-10 -4H10" stroke="${countryColor}" stroke-width="1.6"/>
+  <g class="gs-wagon-wheel" transform="translate(-8 5.6)"><circle r="3.5" fill="#423c34" stroke="#e5c184" stroke-width="1.2"/><path d="M-2 0H2M0 -2V2" stroke="#d0a777"/></g>
+  <g class="gs-wagon-wheel" transform="translate(9 5.6)"><circle r="3.5" fill="#423c34" stroke="#e5c184" stroke-width="1.2"/><path d="M-2 0H2M0 -2V2" stroke="#d0a777"/></g>
+ </g>`;
+ return side+front+rear;
+}
 function caravanVisuals(){
+ const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches||false;
  return G.players.flatMap(p=>(p.caravans||[]).map(cart=>{
-  const job=G.shipments.find(s=>s.id===cart.shipmentId),path=job?.path||[],index=Math.max(0,job?.step||0);
+  const job=G.shipments.find(s=>s.id===cart.shipmentId);
   const at=G.tiles.find(t=>t.id===cart.currentTileId);if(!at)return '';
-  let pos=coords(at);
-  if(job&&index>0&&path[index-1]){const prev=G.tiles.find(t=>t.id===path[index-1]);if(prev){const a=coords(prev);pos={x:(a.x+pos.x)/2,y:(a.y+pos.y)/2};}}
-  const point=project(pos.x,pos.y);
-  return billboardSvg(point.x,point.y,`<g class="gs-caravan" transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})" pointer-events="none"><g class="gs-caravan-rock"><path d="M-18 -5L16 -5L12 9L-14 9Z" fill="#a56843" stroke="#25323b" stroke-width="2"/><path d="M-18 -5L-11 -14L11 -14L16 -5Z" fill="${p.color}" stroke="#f4d9aa" stroke-width="1.7"/><path d="M-3 -14v23M-15 0H13" stroke="#f0d5a1" stroke-width="1.7"/><circle cx="-10" cy="12" r="5.5" fill="#34444d" stroke="#f5dfb0" stroke-width="2"/><circle cx="11" cy="12" r="5.5" fill="#34444d" stroke="#f5dfb0" stroke-width="2"/></g></g>`);
+  const trace=job?.path?.length?wagonRoadTrace(job.path):wagonRoadTrace([at.id]);
+  if(!trace.points.length)return '';
+  const step=Math.min(Math.max(0,job?.step||0),trace.atStep.length-1),destination=trace.points[trace.atStep[step]],point=project(destination.x,destination.y);
+  const nextIndex=trace.atStep[Math.min(trace.atStep.length-1,step+1)];
+  const prevIndex=trace.atStep[Math.max(0,step-1)];
+  const neighbor=trace.points[step<trace.atStep.length-1?nextIndex:prevIndex]||destination;
+  const dx=(step<trace.atStep.length-1?neighbor.x-destination.x:destination.x-neighbor.x)||1;
+  const dy=(step<trace.atStep.length-1?neighbor.y-destination.y:destination.y-neighbor.y)||0;
+  const heading=project(dx,dy),direction=Math.abs(heading.y)>Math.abs(heading.x)*.72?(heading.y>0?'front':'rear'):'side',side=heading.x<0?'left':'right';
+  let motion='';
+  if(job?.visualMove?.clock===G.turnClock && job.visualMove.path?.join('|')===job.path?.join('|')){
+   const move=job.visualMove,key=`${job.id}-${move.clock}-${move.fromStep}-${move.toStep}`;
+   if(!wagonMotionSeen.has(key)&&!reduced){
+    const frm=Math.max(0,Math.min(trace.atStep.length-1,move.fromStep)),to=Math.max(frm,Math.min(trace.atStep.length-1,move.toStep));
+    const vertices=trace.points.slice(trace.atStep[frm],trace.atStep[to]+1).map(v=>project(v.x,v.y));
+    if(vertices.length>1){
+     const local=vertices.map(v=>`${(v.x-point.x).toFixed(2)},${(v.y-point.y).toFixed(2)}`);
+     motion=`<animateMotion dur=".86s" begin="0s" fill="freeze" calcMode="linear" path="M${local.join(' L')}"/>`;
+     wagonMotionSeen.add(key);
+    }
+   }
+  }
+  // The wagon is anchored on a border midpoint/corner, never a tile center.
+  const riding=!!job&&['pickup','delivery','return'].includes(job.stage),cargo=job&&job.stage==='delivery'&&job.qty>0;
+  return billboardSvg(point.x,point.y,`<g class="gs-covered-wagon" data-gs-wagon="1" data-dir-x="${dx.toFixed(2)}" data-dir-y="${dy.toFixed(2)}" data-view="${direction}" data-side="${side}" data-cargo="${cargo?1:0}" data-roadway="edge" transform="translate(${point.x.toFixed(2)} ${point.y.toFixed(2)})" pointer-events="none">${motion}
+   <g class="gs-wagon-scale" transform="scale(.68)"><g class="gs-covered-wagon-rock ${riding?'gs-wagon-moving':''}">${wagonViewArtwork(p.color)}${cargo?'<rect x="7" y="-17" width="7" height="6" rx="1.5" fill="#edcb91" stroke="#243f45" stroke-width="1"/>':''}</g></g>
+  </g>`);
  })).join('');
 }
 
@@ -2184,6 +2289,7 @@ function renderMap(){
  boardBaseYaw=cameraYaw;
  boardBillboards=[...el('mapContent').querySelectorAll('[data-gs-billboard]')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY)}));
  boardFootprints=[...el('mapContent').querySelectorAll('.gs-expedition-footprints')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY),dx:Number(node.dataset.dirX),dy:Number(node.dataset.dirY),baseHeading:Number(node.dataset.baseHeading)}));
+ boardWagons=[...el('mapContent').querySelectorAll('[data-gs-wagon]')].map(node=>({node,dx:Number(node.dataset.dirX),dy:Number(node.dataset.dirY)}));
  syncBoardRotation();
 }
 function mapAspect(){const rect=el('worldMap').getBoundingClientRect();return rect.width>0&&rect.height>0?rect.width/rect.height:1.5;}
@@ -2342,5 +2448,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
+window.GS_TEST={wagonRoadTrace,wagonViewArtwork,caravanVisuals,expeditionTrailVisuals,domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
 })();
