@@ -1,4 +1,12 @@
-# Global Standoff — Prototype 0.4.10
+# Global Standoff — Prototype 0.4.11
+
+## Version 0.4.11 — expedition footprints and covered-wagon logistics
+
+- Expeditions now use toe-forward alternating prints on the heading toward their destination. Flags remain upright during the moving camera.
+- Caravans are original compact canvas-covered wagons, with side, front-three-quarter and rear view variants chosen from the travel direction and current camera angle.
+- Physical wagon positions and their short per-turn movement animations follow the shared **edges and vertices** of adjacent hexagons, never tile centers or face-crossing shortcuts.
+- Wagons have a subtle teeter and vertical bounce, not long sliding or exaggerated swaying; loaded wagons show a tiny cargo box.
+- Existing caravan inventories, routes, saves, and the owned-road speed bonus remain unchanged.
 
 ## Version 0.4.10 — readable fanned cards and action clearance
 
