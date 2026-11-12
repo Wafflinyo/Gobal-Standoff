@@ -426,3 +426,21 @@ body.gs-playing .sheet-panel small,body.gs-playing .sheet-panel .muted,body.gs-p
   .hand-dock .card-item .card-icon .gs-glyph{width:23px;height:23px}
   .hand-dock .card-item .card-desc{font-size:8px;line-height:1.12;margin-top:3px}
 }
+
+
+/* 0.4.11: original compact covered wagon, 3 camera-aware views, subtle teeter. */
+.gs-covered-wagon{filter:drop-shadow(0 1px 2px #0b2029aa)}
+.gs-covered-wagon-view,.gs-wagon-side,.gs-wagon-front,.gs-wagon-rear{display:none}
+.gs-covered-wagon[data-view="side"] .gs-wagon-side,
+.gs-covered-wagon[data-view="front"] .gs-wagon-front,
+.gs-covered-wagon[data-view="rear"] .gs-wagon-rear{display:inline}
+.gs-covered-wagon[data-side="left"] .gs-wagon-view{transform:scaleX(-1);transform-box:fill-box;transform-origin:center}
+.gs-covered-wagon-rock{transform-box:fill-box;transform-origin:center 85%;will-change:transform}
+.gs-wagon-moving{animation:gs-wagon-teeter .92s ease-in-out infinite}
+@keyframes gs-wagon-teeter{
+  0%,100%{transform:rotate(-1.3deg) translateY(0)}
+  25%{transform:rotate(.65deg) translateY(-.45px)}
+  50%{transform:rotate(1.3deg) translateY(-.75px)}
+  75%{transform:rotate(-.65deg) translateY(-.45px)}
+}
+@media(prefers-reduced-motion:reduce){.gs-wagon-moving{animation:none!important}}
