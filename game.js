@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.6 — Silver Pents, diplomatic falcons, war phases, concealed patrols and owned-edge roads. */
+/* Global Standoff 0.4.7 — domestic roads and faster internal travel. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -173,7 +173,7 @@ function appointBuilder(p,job,tile){
  const builder=idleBuilders(p)[0];if(!builder)return null;
  const origin=G.tiles.find(t=>t.id===builder.builder.locationId)||G.tiles.find(t=>t.owner===p.id&&t.capital);
  builder.builder.projectId=job.id;
- builder.builder.travelRemaining=Math.max(0,Math.ceil(distance(origin||tile,tile)));
+ builder.builder.travelRemaining=countryTravelRoute(p.id,origin||tile,tile)?.turns??Math.ceil(distance(origin||tile,tile));
  builder.builder.destinationId=tile.id;
  job.builderIds??=[];job.builderIds.push(builder.id);
  return builder;
@@ -215,7 +215,7 @@ function progressExpeditions(){
 }
 function advanceWorldTurn(){
  G.turnClock=(G.turnClock||0)+1;
- progressExpeditions();progressProjects();progressDiplomaticFalcons();progressWarOrders();progressTradeOffers();progressTradeRoutes();progressShipments();
+ progressExpeditions();progressProjects();progressDomesticRoads();progressDiplomaticFalcons();progressWarOrders();progressTradeOffers();progressTradeRoutes();progressShipments();
  save();
 }
 
@@ -371,16 +371,91 @@ function endpointAdd(p,endpoint,item,change){
  if(change<0){const amount=-Math.min(-change,localCount(found.site,item));addLocal(found.site,item,amount);return amount;}
  return putLocalBounded(p,endpoint,item,change);
 }
-function ownedPath(owner,a,b){
- if(!a||!b||a.owner!==owner||b.owner!==owner)return null;
- const queue=[a],prev=new Map([[a.id,null]]);
- for(let i=0;i<queue.length;i++){
-  const t=queue[i];if(t.id===b.id)break;
-  for(const n of neighbors(t)){if(n.owner===owner&&!prev.has(n.id)){prev.set(n.id,t.id);queue.push(n);}}
+
+const LOCAL_ROAD_SP=3,LOCAL_ROAD_WOOD=1;
+const domesticRoadKey=(a,b)=>[a,b].sort().join('|');
+function domesticRoadExists(a,b){
+ if(!a||!b||a.owner===null||a.owner!==b.owner)return false;
+ const k=domesticRoadKey(a.id,b.id);
+ return (G.domesticRoads||[]).some(r=>r.key===k&&r.owner===a.owner);
+}
+function roadJobBetween(a,b){const k=domesticRoadKey(a.id,b.id);return (G.domesticRoadJobs||[]).find(j=>j.key===k);}
+function domesticMoveCost(a,b){return roadExistsBetween(a,b)?1:2;}
+// Paved borders cost one point; ordinary borders cost two. Every traveler has
+// two movement points each turn. The shortest route is by movement time.
+function countryTravelRoute(owner,start,end,allowNeutralDestination=false){
+ if(!start||!end||start.owner!==owner||end.terrain==='water'||(end.owner!==owner&&!(allowNeutralDestination&&end.owner===null)))return null;
+ const lookup=new Map(G.tiles.map(t=>[t.id,t])),dist=new Map([[start.id,0]]),prev=new Map(),pending=new Set([start.id]);
+ while(pending.size){
+  let at=null,best=Infinity;for(const id of pending){const d=dist.get(id);if(d<best){best=d;at=id;}}pending.delete(at);
+  if(at===end.id)break;
+  const tile=lookup.get(at);if(!tile)continue;
+  for(const n of neighbors(tile)){
+   if(n.owner!==owner&&!(allowNeutralDestination&&n.id===end.id&&n.owner===null))continue;
+   const candidate=best+domesticMoveCost(tile,n);
+   if(candidate<(dist.get(n.id)??Infinity)){dist.set(n.id,candidate);prev.set(n.id,at);pending.add(n.id);}
+  }
  }
- if(!prev.has(b.id))return null;
- const ids=[],byId=new Map(G.tiles.map(t=>[t.id,t]));for(let cur=b.id;cur!==null;cur=prev.get(cur))ids.unshift(cur);
- return ids;
+ if(!dist.has(end.id))return null;
+ const path=[end.id];while(path[0]!==start.id){const p=prev.get(path[0]);if(p==null)return null;path.unshift(p);}
+ return {path,cost:dist.get(end.id),turns:Math.ceil(dist.get(end.id)/2)};
+}
+function ownedPath(owner,a,b){return countryTravelRoute(owner,a,b)?.path||null;}
+function pathCost(owner,path){
+ let cost=0;for(let i=1;i<(path?.length||0);i++){
+  const a=G.tiles.find(t=>t.id===path[i-1]),b=G.tiles.find(t=>t.id===path[i]);
+  if(a&&b)cost+=domesticMoveCost(a,b);
+ }return cost;
+}
+function canStartDomesticRoad(a,b,owner){
+ const p=G.players[owner];
+ return !!a&&!!b&&a.owner===owner&&b.owner===owner&&a.terrain!=='water'&&b.terrain!=='water'&&distance(a,b)===1&&
+ !domesticRoadExists(a,b)&&!roadJobBetween(a,b)&&idleBuilders(p).length>0&&hasMoney(p,LOCAL_ROAD_SP)&&p.wood>=LOCAL_ROAD_WOOD;
+}
+function startDomesticRoad(aId,bId,owner=0){
+ const p=G.players[owner],a=G.tiles.find(t=>t.id===aId),b=G.tiles.find(t=>t.id===bId);
+ if(!canCountryAct(p,owner)||!canStartDomesticRoad(a,b,owner))return false;
+ const worker=idleBuilders(p)[0],origin=G.tiles.find(t=>t.id===worker.builder.locationId)||capitalOf(owner);
+ const route=countryTravelRoute(owner,origin||a,a);if(!route)return false;
+ const id=G.nextDomesticRoadId++,job={id,key:domesticRoadKey(aId,bId),owner,aId,bId,builderId:worker.id,remaining:2,startedClock:G.turnClock||0};
+ p.gold-=LOCAL_ROAD_SP;p.wood-=LOCAL_ROAD_WOOD;
+ worker.builder.projectId='domestic-'+id;worker.builder.travelRemaining=route.turns;worker.builder.destinationId=a.id;
+ G.domesticRoadJobs.push(job);
+ useAction(p,p.name+' began paving a domestic road between '+a.name+' and '+b.name+'.',{tileId:a.id,kind:'road'});
+ if(owner===0)showToast('Road crew dispatched: '+route.turns+'T travel + 2T construction');
+ return true;
+}
+function progressDomesticRoads(){
+ for(const j of [...G.domesticRoadJobs]){
+  if((G.turnClock||0)<=j.startedClock+1)continue;
+  const a=G.tiles.find(t=>t.id===j.aId),b=G.tiles.find(t=>t.id===j.bId),p=G.players[j.owner],worker=p?.citizens.find(c=>c.id===j.builderId);
+  if(!a||!b||a.owner!==j.owner||b.owner!==j.owner||!worker?.builder){
+   if(worker?.builder){worker.builder.projectId=null;worker.builder.travelRemaining=0;worker.builder.destinationId=null;}
+   G.domesticRoadJobs.splice(G.domesticRoadJobs.indexOf(j),1);continue;
+  }
+  if(worker.builder.travelRemaining>0){
+   worker.builder.travelRemaining--;if(worker.builder.travelRemaining===0)worker.builder.locationId=a.id;continue;
+  }
+  j.remaining--;if(j.remaining>0)continue;
+  G.domesticRoads.push({id:j.id,key:j.key,owner:j.owner,aId:j.aId,bId:j.bId});
+  worker.builder.projectId=null;worker.builder.destinationId=null;worker.builder.travelRemaining=0;worker.builder.locationId=a.id;
+  G.domesticRoadJobs.splice(G.domesticRoadJobs.indexOf(j),1);
+  G.completedScenes.push({projectId:'domestic-road-'+j.id,owner:j.owner,tileId:a.id,kind:'road'});
+  addLog(p.name+' opened the paved road between '+a.name+' and '+b.name+'.');
+ }
+}
+function domesticRoadVisuals(){
+ let out='';
+ for(const road of [...(G.domesticRoads||[]),...(G.domesticRoadJobs||[])]){
+  const a=G.tiles.find(t=>t.id===road.aId),b=G.tiles.find(t=>t.id===road.bId);if(!a||!b)continue;
+  const ca=coords(a),cb=coords(b),mx=(ca.x+cb.x)/2,my=(ca.y+cb.y)/2,dx=cb.x-ca.x,dy=cb.y-ca.y;
+  const len=Math.hypot(dx,dy)||1,ux=-dy/len*HEX/2,uy=dx/len*HEX/2;
+  const pa=project(mx+ux,my+uy),pb=project(mx-ux,my-uy);
+  const line='M'+pa.x.toFixed(1)+','+pa.y.toFixed(1)+' L'+pb.x.toFixed(1)+','+pb.y.toFixed(1);
+  const working=road.remaining!=null;
+  out+='<g class="gs-domestic-road '+(working?'building':'paved')+'" pointer-events="none"><path d="'+line+'" fill="none" stroke="#34484a" stroke-width="7" stroke-linecap="round"/><path d="'+line+'" fill="none" stroke="'+(working?'#c7a873':'#f1d38b')+'" stroke-width="3.4" stroke-linecap="round" '+(working?'stroke-dasharray="6 4"':'')+'/></g>';
+ }
+ return out;
 }
 // Caravans are physical, limited units housed in Caravan Warehouses, not invisible timers.
 function caravanWarehouses(p){
@@ -405,8 +480,8 @@ function availableCaravan(owner,pickup){
  const p=G.players[owner];syncCaravans(p);
  return p.caravans.filter(c=>!c.shipmentId).map(c=>{
   const from=G.tiles.find(t=>t.id===c.currentTileId),path=ownedPath(owner,from,pickup);
-  return {cart:c,path};
- }).filter(c=>c.path).sort((a,b)=>a.path.length-b.path.length)[0]||null;
+  return {cart:c,path,cost:path?pathCost(owner,path):Infinity};
+ }).filter(c=>c.path).sort((a,b)=>a.cost-b.cost)[0]||null;
 }
 function dispatchShipment(owner,from,to,item,qty,auto=false){
  const p=G.players[owner],src=siteLookup(owner,from),dst=siteLookup(owner,to),amount=Math.floor(qty);
@@ -420,7 +495,7 @@ function dispatchShipment(owner,from,to,item,qty,auto=false){
  const id=G.nextShipmentId++;
  const job={id,owner,from,to,item,qty:qtyFit,stage:'pickup',path:available.path,step:0,
   fromTileId:src.tile.id,toTileId:dst.tile.id,homeSiteId:available.cart.homeSiteId,caravanId:available.cart.id,
-  startedClock:G.turnClock||0,remaining:available.path.length-1+delivery.length};
+  startedClock:G.turnClock||0,remaining:Math.ceil((pathCost(owner,available.path)+pathCost(owner,delivery))/2)+2};
  G.shipments.push(job);available.cart.shipmentId=id;
  if(!auto)addLog(`${p.name}'s wagon left its depot for ${src.tile.name}; it will pick up ${job.qty} ${GOOD_NAMES[item]||item} before delivery.`);
  return true;
@@ -433,14 +508,14 @@ function finishCaravanJob(job,cart,p){
 function moveCaravanToStage(job,cart,p){
  // Deliveries take at least one later player turn per hex. There is no teleportation.
  const stage=job.stage,path=job.path||[];
- if(job.step<path.length-1){job.step++;cart.currentTileId=path[job.step];job.remaining=Math.max(0,path.length-1-job.step);return;}
+ if(job.step<path.length-1){let budget=2;while(job.step<path.length-1){const a=G.tiles.find(t=>t.id===path[job.step]),b=G.tiles.find(t=>t.id===path[job.step+1]);if(!a||!b)break;const need=domesticMoveCost(a,b);if(need>budget)break;budget-=need;job.step++;cart.currentTileId=path[job.step];}job.remaining=Math.ceil(pathCost(job.owner,path.slice(job.step))/2);return;}
  if(stage==='pickup'){
   const available=Math.min(job.qty,endpointCount(p,job.from,job.item));
   if(available<=0){job.qty=0;job.stage='return';}
   else {job.qty=available;endpointAdd(p,job.from,job.item,-available);job.stage='delivery';}
   const source=G.tiles.find(t=>t.id===job.fromTileId),dest=G.tiles.find(t=>t.id===job.toTileId);
   job.path=job.stage==='delivery'?ownedPath(job.owner,source,dest):ownedPath(job.owner,source,siteLookup(job.owner,job.homeSiteId)?.tile||source);
-  job.step=0;job.remaining=Math.max(1,(job.path?.length||1)-1);return;
+  job.step=0;job.remaining=Math.max(1,Math.ceil(pathCost(job.owner,job.path)/2));return;
  }
  if(stage==='delivery'||stage==='unloading'){
   const validDestination=siteLookup(job.owner,job.to);
@@ -462,10 +537,10 @@ function moveCaravanToStage(job,cart,p){
   if(canStay){cart.currentTileId=dest.id;finishCaravanJob(job,cart,p);return;}
   let alternatives=bases.map(w=>({...w,path:ownedPath(p.id,dest,w.tile)})).filter(w=>w.path&&p.caravans.filter(c=>c.id!==cart.id&&!c.shipmentId&&c.currentTileId===w.tile.id).length<w.capacity);
   if(p.caravanPolicy==='home'){alternatives.sort((a,b)=>Number(b.site.id===job.homeSiteId)-Number(a.site.id===job.homeSiteId)||a.path.length-b.path.length);}
-  else alternatives.sort((a,b)=>a.path.length-b.path.length);
+  else alternatives.sort((a,b)=>pathCost(p.id,a.path)-pathCost(p.id,b.path));
   const base=alternatives[0];
   if(!base){finishCaravanJob(job,cart,p);return;}
-  job.returnSiteId=base.site.id;job.stage='return';job.path=base.path;job.step=0;job.remaining=Math.max(1,base.path.length-1);
+  job.returnSiteId=base.site.id;job.stage='return';job.path=base.path;job.step=0;job.remaining=Math.max(1,Math.ceil(pathCost(p.id,base.path)/2));
   return;
  }
  finishCaravanJob(job,cart,p);
@@ -728,7 +803,7 @@ function createWorld(seed,name,capital,color){
  prepareMineralVeins(tiles,seed);
  const deck=Array.from({length:6},()=>CARD_POOL).flat().sort(()=>rng()-.5);
  const worldName=['The Wild Marches','The Broken Coast','The Emerald Frontier','The Hinterlands','The New Continent'][randInt(rng,5)];
- G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],diplomaticFalcons:[],warnings:[],wars:[],militaryOrders:[],nextDiplomacyId:1,nextOrderId:1,nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
+ G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],domesticRoads:[],domesticRoadJobs:[],nextDomesticRoadId:1,diplomaticFalcons:[],warnings:[],wars:[],militaryOrders:[],nextDiplomacyId:1,nextOrderId:1,nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
  for(const p of players){const citizenRng=mulberry32(hash(seed+'-people-'+p.id));for(let k=0;k<10;k++)p.citizens.push(makeCitizen(p,citizenRng,true));reallocateHousing(p);drawCard(p);drawCard(p);}
  ensureBuildingMeta(G);ensureStartingCrews(G);for(const p of G.players){reallocateHousing(p);assignWorkers(p);syncCaravans(p);}
  beginTurn(0);
@@ -757,7 +832,7 @@ function migrateGameplay(s){
  s.projects=s.projects||[];s.completedScenes=s.completedScenes||[];s.contacts=s.contacts||[];
  s.shipments??=[];s.nextShipmentId??=1; s.diplomaticFalcons??=[];s.warnings??=[];s.wars??=[];s.militaryOrders??=[];s.nextDiplomacyId??=1;s.nextOrderId??=1;
  s.logisticsRouteVersion??=0;
- s.tradeOffers=s.tradeOffers||[];s.tradeRoutes=s.tradeRoutes||[];
+ s.tradeOffers=s.tradeOffers||[];s.tradeRoutes=s.tradeRoutes||[];s.domesticRoads??=[];s.domesticRoadJobs??=[];s.nextDomesticRoadId??=1;
  s.nextProjectId=s.nextProjectId||1;s.nextTradeId=s.nextTradeId||1;
  s.nextBuildingId=s.nextBuildingId||1;
  prepareMineralVeins(s.tiles,s.seed,false);
@@ -873,7 +948,7 @@ function progressDiplomaticFalcons(){
  }
 }
 function acceptCeasefire(falconId,accept){const n=G.diplomaticFalcons.find(x=>x.id===falconId&&x.to===0&&x.kind==='peace'&&x.status==='awaiting-reply');if(!n||!active())return false;n.status=accept?'accepted':'rejected';if(accept)endWar(n.from,n.to);else addLog(`${G.players[0].name} rejected a ceasefire.`);save();render();return true;}
-function roadExistsBetween(a,b){return (G.tradeRoutes||[]).some(r=>r.status==='active'&&r.banks?.some(pair=>pair.includes(a.id)&&pair.includes(b.id)));}
+function roadExistsBetween(a,b){return domesticRoadExists(a,b)||(G.tradeRoutes||[]).some(r=>r.status==='active'&&r.banks?.some(pair=>pair.includes(a.id)&&pair.includes(b.id)));}
 // Flanks may cross neutral unowned land even when no road exists; unbuilt trails take longer.
 // Enemy-controlled hexes are not passable without a future battle/infiltration mechanic.
 function militaryTravelPath(owner,from,to){
@@ -1028,7 +1103,7 @@ function reserveRoadBuilder(p,route,side,endpoint){
  const origin=G.tiles.find(t=>t.id===citizen.builder.locationId)||capitalOf(p.id);
  citizen.builder.projectId='road-'+route.id+'-'+side;
  citizen.builder.destinationId=endpoint.id;
- citizen.builder.travelRemaining=Math.max(0,Math.ceil(distance(origin||endpoint,endpoint)));
+ citizen.builder.travelRemaining=countryTravelRoute(p.id,origin||endpoint,endpoint)?.turns??Math.ceil(distance(origin||endpoint,endpoint));
  route[side+'BuilderId']=citizen.id;
  return citizen;
 }
@@ -1211,7 +1286,7 @@ async function playMapScenePlayback(playback){
   }
   if(playback.kind==='build')showToast(`${BUILDINGS[playback.buildingType]?.name||'Building'} completed`);
   if(playback.kind==='work')showToast(`${BUILDINGS[playback.buildingType]?.name||'Building'} construction underway`);
-  else if(playback.kind==='expand')showToast(`${tile.name} claimed`);
+  else if(playback.kind==='expand')showToast(`${tile.name} claimed`);else if(playback.kind==='road')showToast('Domestic road completed near '+tile.name);
  }
 }
 
@@ -1432,7 +1507,7 @@ function doExpand(t,id=0){
  const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;
  p.gold-=cost;p.food-=2;p.discountExpand=0;p.expansionsThisTurn=(p.expansionsThisTurn||0)+1;
  const origin=G.tiles.find(v=>v.id===crew.locationId)||G.tiles.find(v=>v.owner===id&&v.capital);
- crew.targetId=t.id;crew.originId=(origin||t).id;crew.remaining=Math.max(1,Math.ceil(distance(origin||t,t)));crew.travelTotal=crew.remaining;crew.startedClock=G.turnClock||0;
+ crew.targetId=t.id;crew.originId=(origin||t).id;crew.remaining=Math.max(1,countryTravelRoute(id,origin||t,t,true)?.turns??Math.ceil(distance(origin||t,t)));crew.travelTotal=crew.remaining;crew.startedClock=G.turnClock||0;
  useAction(p,`${p.name} dispatched an expedition to ${t.name} (${crew.remaining} turn${crew.remaining===1?'':'s'} away).`,{tileId:t.id,kind:'expedition'});
  if(id===0)showToast(`Expedition en route to ${t.name}`);
  return true;
@@ -1670,6 +1745,7 @@ function runCpu(id){
  const posts=getMilitaryPosts(id);
  if(!posts.length&&G.round>=5&&tryBuild('post'))return;
  if(posts.length&&G.round%5===0&&p.marketingUntil<G.round&&doMarketing(posts[0],id))return;
+ if(G.round>=4&&p.gold>=24&&p.wood>=3&&idleBuilders(p).length&&owned.length>1){const pair=owned.flatMap(t=>neighbors(t).filter(n=>n.owner===id&&t.id<n.id).map(n=>({t,n}))).find(({t,n})=>canStartDomesticRoad(t,n,id));if(pair&&startDomesticRoad(pair.t.id,pair.n.id,id))return;}
  if(owned.length<15&&tryExpand())return;
  if(tryBuild('homes')||tryBuild('market')||tryBuild('farm')||tryBuild('academy')||tryBuild('lumber')||tryBuild('storageWarehouse')||tryBuild('post')||tryBuild('mine')||tryBuild('leatherFactory')||tryBuild('woodworks')||tryBuild('stoneworks')||tryBuild('armory')||tryBuild('foundry'))return;
  if(tryExpand())return;
@@ -1758,6 +1834,17 @@ function renderTile(t){
  else if(t.owner===null&&t.terrain==='water'){html+='<div class="feature-locked">🌊 Lakes cannot currently be claimed or built upon.</div>';}
  else if(t.owner===null){html+='<p class="empty-note">Expand from your own border to reach this territory.</p>';}
  else if(isOwn){
+  const pavedNeighbors=neighbors(t).filter(n=>n.owner===0&&n.terrain!=='water');
+  if(pavedNeighbors.length){
+   html+='<div class="gs-local-road-list"><strong>Domestic Roads</strong><small>Build a paved border for 3 Silver Pents and 1 Wood. One idle builder must travel and work for 2 turns. Roads improve internal travel.</small>';
+   for(const n of pavedNeighbors){
+    const done=domesticRoadExists(t,n),pending=roadJobBetween(t,n),possible=canStartDomesticRoad(t,n,0);
+    html+='<div class="gs-local-road-row"><span>'+esc(n.name)+' <small>'+(done?'Paved · Faster travel':pending?'Under construction · '+pending.remaining+'T work left':'Unpaved border')+'</small></span>'+
+    (!done&&!pending?'<button data-action="domestic-road" data-road-neighbor="'+esc(n.id)+'" '+(!canAct()||!possible?'disabled':'')+'>Build · 3 SP</button>':'')+'</div>';
+   }
+   html+='</div>';
+  }
+
   if(buildFree(t)>0)html+=`<button class="action-btn primary-action" data-action="open-build" ${!canAct()?'disabled':''}>Construct building <span>${buildFree(t)} space available →</span></button>`;
   else html+='<div class="feature-locked">🏘 This hex is full. Expand into another territory for more construction space.</div>';
   if(buildingCount(t,'post')){
@@ -1982,7 +2069,7 @@ function renderMap(){
    const d='M'+projected.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L');
    return `<g class="river-course" pointer-events="none"><path d="${d}" stroke="#49675b" stroke-width="12" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".82"/><path d="${d}" stroke="#398aab" stroke-width="8.2" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="${d}" stroke="#a0dbe5" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".77"/></g>`;
   }).join('');
- const tradeLines=roadVisuals();
+ const tradeLines=roadVisuals()+domesticRoadVisuals();
  const movementOverlays=falconVisuals()+diplomaticFalconVisuals()+expeditionTrailVisuals()+caravanVisuals()+visibleWarOrderMarkers();
  el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g>`;
 }
@@ -2077,7 +2164,7 @@ function bindEvents(){
   proposeTradeRoute(to,Number(select?.value||50),0,from,dest);return;}const ans=e.target.closest('[data-trade-answer]');if(ans)respondTradeOffer(Number(ans.dataset.tradeAnswer),ans.dataset.accept==='yes');});
  el('economySummary').addEventListener('change',e=>{if(e.target.matches('[data-caravan-policy]')){getCountry().caravanPolicy=e.target.value;save();render();}});
  el('tradeBody').addEventListener('change',e=>{const field=e.target.closest('[data-road-from],[data-road-to],[data-trade-share]');if(field)refreshRouteEstimate(Number(field.dataset.roadFrom||field.dataset.roadTo||field.dataset.tradeShare));});
- el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Caravan dispatched with '+(GOOD_NAMES[item]||item):'No free caravan, open road or receiving storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
+ el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Caravan dispatched with '+(GOOD_NAMES[item]||item):'No free caravan, open road or receiving storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
  el('territoryDetails').addEventListener('change',e=>{const t=getSelected();if(!t)return;const r=e.target.closest('[data-route-site]');if(r){setDeliveryRoute(t,Number(r.dataset.routeSite),r.dataset.routeGood,r.value);return;}const recipe=e.target.closest('[data-recipe-site]');if(recipe)setFactoryRecipe(t,Number(recipe.dataset.recipeSite),recipe.value);});
  el('buildOptions').addEventListener('click',e=>{const b=e.target.closest('[data-build]');if(b&&canAct())doBuild(getSelected(),b.dataset.build);});
  el('researchOptions').addEventListener('click',e=>{const b=e.target.closest('[data-tech]');if(b&&canAct())doResearch(b.dataset.tech);});
@@ -2140,5 +2227,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
+window.GS_TEST={domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
 })();
