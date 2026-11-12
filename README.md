@@ -1,4 +1,10 @@
-# Global Standoff — Prototype 0.4.17
+# Global Standoff — Prototype 0.4.18
+
+## Version 0.4.18 — expedition dispatch cinematic restored
+
+- Send Expedition now suspends the current sheet, zooms to the expedition destination, shows the moving flag and forward-animated bootprints and highlights the target, then reopens the same sheet at the saved scroll position.
+- Uses the existing scene playback logic for both player and CPU expedition dispatch. The destination remains unclaimed until the expedition completes its travel; the eventual claim retains its own animation.
+- No changes to costs, travel durations, current save files or the bootprint artwork.
 
 ## Version 0.4.17 — expedition prints lead the flag
 
