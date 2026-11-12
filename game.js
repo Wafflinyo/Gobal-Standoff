@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.15 — bounded debt and two-sided road ownership highlights. */
+/* Global Standoff 0.4.16 — physical sprite depth, wagon bump and falcon inbox. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -1961,7 +1961,7 @@ const POV_ANGLES=[-.24,.36,.92,1.48];
 const smooth=t=>t*t*(3-2*t);
 const blend=(a,b,t)=>a+(b-a)*t;
 let cameraYaw=POV_ANGLES[0],cameraMoveFrame=0,cameraResolve=null,cpuPlaybackToken=0,skipCpuPlayback=false,actionTileId=null,actionKind='';
-let boardBaseYaw=cameraYaw,boardBillboards=[],boardFootprints=[],boardWagons=[];
+let boardBaseYaw=cameraYaw,boardBillboards=[],boardFootprints=[],boardWagons=[],lastWorldDepthYaw=NaN;
 const wagonMotionSeen=new Set();
 function billboardSvg(x,y,contents){return `<g data-gs-billboard="1" data-anchor-x="${x.toFixed(2)}" data-anchor-y="${y.toFixed(2)}">${contents}</g>`;}
 // The plane rotates in camera yaw. These screen-facing sprites counter-rotate
@@ -1993,6 +1993,19 @@ function syncBoardRotation(){
   w.node.dataset.view=view;
   w.node.dataset.side=heading.x<0?'left':'right';
  }
+ if(!Number.isFinite(lastWorldDepthYaw)||Math.abs(cameraYaw-lastWorldDepthYaw)>.13){
+  sortWorldDepth();lastWorldDepthYaw=cameraYaw;
+ }
+}
+// Sort all visible sprite feet (terrain, structures and caravans), preserving
+// the existing vectors, without rebuilding the hexagon map.
+function sortWorldDepth(){
+ const parent=el('gsWorldDepth');if(!parent)return;
+ const delta=cameraYaw-boardBaseYaw,si=Math.sin(delta),co=Math.cos(delta);
+ const nodes=Array.from(parent.children);
+ const depth=node=>VIEW_TILT*si*Number(node.dataset.depthX)+co*Number(node.dataset.depthY);
+ nodes.sort((a,b)=>{const dy=depth(a)-depth(b);return Math.abs(dy)>.02?dy:Number(a.dataset.depthOrder)-Number(b.dataset.depthOrder);});
+ if(nodes.some((n,i)=>n!==parent.children[i]))parent.replaceChildren(...nodes);
 }
 function unprojectScreen(x,y,yaw){const co=Math.cos(yaw),sn=Math.sin(yaw),fy=y/VIEW_TILT;return {x:x*co+fy*sn,y:-x*sn+fy*co};}
 
