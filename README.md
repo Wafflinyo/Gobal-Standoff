@@ -167,3 +167,11 @@ The military readiness bonuses are tracked but combat is still a future system. 
 Known prototype limitations: shipments are not yet visual caravans; military combat and interception are not in the game; capital-warehouse construction purchases use stocked materials without a separate delivery animation. National trade-route negotiation from 0.3.5 remains independent of these domestic supply chains. Ore variants Copper/Silver and mining probabilities remain unchanged.
 
 The prototype currently includes a modest personal-income tax from housed adults and employed citizens to offset the increased salary pressure; wage and fixed upkeep are still fully charged. Economy balance is provisional.
+
+## v0.4.3 — Smooth camera transitions
+
+- CPU viewpoint rotation and panning now use continuous world-space interpolation with fifth-order easing.
+- The map's existing SVG shapes are transformed every frame rather than rebuilding all 169 hexagons during the movement.
+- Trees, mountains, buildings, and other miniatures remain upright while the board rotates.
+- Camera travel caches layout measurements for the duration of each move.
+- Skip-turn and reduced-motion settings remain supported.
