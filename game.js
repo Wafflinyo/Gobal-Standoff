@@ -1,4 +1,4 @@
-/* Global Standoff 0.2 — single-player 4-nation strategy sandbox. */
+/* Global Standoff 0.3 — single-player 4-nation strategy sandbox. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save';
@@ -158,8 +158,8 @@ function loadSaved(){
 function showToast(s){const t=el('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2650);}
 function showModal(html){el('modalBody').innerHTML=html;el('modalLayer').classList.remove('hidden');}
 function closeModal(){el('modalLayer').classList.add('hidden');}
-function enterGame(){el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();render();}
-function newMatch(){G=null;cpuBusy=false;el('lobby').classList.remove('hidden');el('game').classList.add('hidden');el('topMenuBtn').classList.add('hidden');el('roundBadge').textContent='SOLO TEST';closeModal();renderLobby();}
+function enterGame(){cpuPlaybackToken++;skipCpuPlayback=false;hideCpuHud();el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();focusHome(true);render();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));}
+function newMatch(){cpuPlaybackToken++;cancelAnimationFrame(cameraMoveFrame);hideCpuHud();if(cameraResolve){cameraResolve();cameraResolve=null;}G=null;cpuBusy=false;el('lobby').classList.remove('hidden');el('game').classList.add('hidden');el('topMenuBtn').classList.add('hidden');el('roundBadge').textContent='SOLO TEST';closeModal();renderLobby();}
 function renderLobby(){
  el('colorOptions').innerHTML=COLORS.map((c,i)=>`<button class="color-swatch" style="--swatch:${c}" aria-label="Choose ${['jade','amber','violet','coral'][i]}" aria-pressed="${i===selectedColor}" data-color="${i}"></button>`).join('');
  const colors=[COLORS[selectedColor],...COLORS.filter((_,i)=>i!==selectedColor)];
@@ -193,8 +193,8 @@ function getEconomy(id){
  return vals;
 }
 function useAction(p,text){p.acted=true;addLog(text);showBuild=false;showResearch=false;save();render();}
-function doExpand(t,id=0){const p=G.players[id];if(!eligibleExpansion(p,t))return false;const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;p.gold-=cost;p.food-=2;p.discountExpand=0;t.owner=id;reallocateHousing(p);useAction(p,`${p.name} expanded into ${t.name} (${TERRAIN[t.terrain].name.toLowerCase()}).`);if(id===0)showToast(`Territory claimed: ${t.name}`);return true;}
-function doBuild(t,type,id=0){const p=G.players[id],b=BUILDINGS[type];if(!b||!canBuild(p,t,b))return false;p.gold-=buildingCost(p,b);p.materials-=b.materials;p.discountBuild=0;t.buildings.push(type);reallocateHousing(p);useAction(p,`${p.name} constructed ${b.name} at ${t.name}.`);if(id===0)showToast(`${b.name} completed at ${t.name}`);return true;}
+function doExpand(t,id=0){const p=G.players[id];if(!eligibleExpansion(p,t))return false;const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;p.gold-=cost;p.food-=2;p.discountExpand=0;t.owner=id;reallocateHousing(p);useAction(p,`${p.name} expanded into ${t.name} (${TERRAIN[t.terrain].name.toLowerCase()}).`);if(id===0){showToast(`Territory claimed: ${t.name}`);flashAction(t,'expand');}return true;}
+function doBuild(t,type,id=0){const p=G.players[id],b=BUILDINGS[type];if(!b||!canBuild(p,t,b))return false;p.gold-=buildingCost(p,b);p.materials-=b.materials;p.discountBuild=0;t.buildings.push(type);reallocateHousing(p);useAction(p,`${p.name} constructed ${b.name} at ${t.name}.`);if(id===0){showToast(`${b.name} completed at ${t.name}`);flashAction(t,'build');}return true;}
 function doSell(t,idx=0,id=0){
  const p=G.players[id];if(!allowed(p,t)||!t.buildings?.[idx])return false;
  const type=t.buildings[idx],b=BUILDINGS[type];
@@ -249,7 +249,42 @@ function finishRound(){
  if(G.round>=G.maxRounds&&!G.continued){G.finished=true;save();render();showEndGame();return;}
  G.round++;beginTurn(0);cpuBusy=false;save();render();showToast(`Round ${G.round} — your turn`);
 }
-function endTurn(){if(!active())return;cpuBusy=true;G.turnIndex=1;save();render();setTimeout(cpuStep,340);}
+
+function cpuActionLocation(before,after){
+ for(let i=0;i<after.length;i++)if(before[i].owner!==after[i].owner||(before[i].buildings||0)!==(after[i].buildings||0))return G.tiles[i];
+ return null;
+}
+function showCpuHud(id,description){
+ const box=el('cpuCinematic'),p=G?.players[id];if(!box||!p)return;
+ box.classList.remove('hidden');el('cpuNation').textContent=p.name;el('cpuNation').style.color=p.color;el('cpuAction').textContent=description;
+}
+function hideCpuHud(){el('cpuCinematic')?.classList.add('hidden');}
+function cpuPause(ms,token){return new Promise(resolve=>{if(skipCpuPlayback||ms<=0){resolve();return;}let start=performance.now();function wait(now){if(token!==cpuPlaybackToken||skipCpuPlayback||now-start>=ms){resolve();return;}setTimeout(()=>requestAnimationFrame(wait),45);}requestAnimationFrame(wait);});}
+async function runCpuCinematic(token=cpuPlaybackToken){
+ if(!G||G.finished)return;
+ for(let id=1;id<=3;id++){
+  if(token!==cpuPlaybackToken||!G)return;
+  const p=G.players[id],capital=G.tiles.find(t=>t.owner===id&&t.capital)||G.tiles[0];
+  beginTurn(id);render();showCpuHud(id,'Taking command of the nation…');
+  await moveCamera(capital,POV_ANGLES[id],840,window.innerWidth<600?400:515);
+  if(token!==cpuPlaybackToken||!G)return;
+  const before=G.tiles.map(t=>({owner:t.owner,buildings:t.buildings?.length||0}));
+  const prevLog=G.log[0]?.text;runCpu(id);
+  const change=cpuActionLocation(before,G.tiles),last=G.log[0]?.text;
+  save();render();showCpuHud(id,last&&last!==prevLog?last:`${p.name} reviewed its plans.`);
+  if(change){await moveCamera(change,POV_ANGLES[id],480,window.innerWidth<600?330:415);flashAction(change,'cpu');}
+  if(token!==cpuPlaybackToken||!G)return;
+  await cpuPause(change?620:450,token);
+ }
+ if(token!==cpuPlaybackToken||!G)return;
+ finishRound();
+ if(G.finished){hideCpuHud();return;}
+ showCpuHud(0,'The next round begins — your move.');
+ const home=G.tiles.find(t=>t.owner===0&&t.capital)||G.tiles[0];
+ await moveCamera(home,POV_ANGLES[0],850,window.innerWidth<600?420:540);
+ hideCpuHud();render();
+}
+function endTurn(){if(!active())return;cpuBusy=true;skipCpuPlayback=false;cpuPlaybackToken++;G.turnIndex=1;save();render();el('mapWrap').scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>runCpuCinematic(cpuPlaybackToken).catch(e=>{console.error('CPU playback failed',e);hideCpuHud();if(G&&!G.finished){cpuBusy=false;G.turnIndex=0;save();render();showToast('CPU playback interrupted; resume your turn.');}}),200);}
 function cpuStep(){if(!G||G.finished)return;const id=G.turnIndex;if(id<1||id>3){cpuBusy=false;return;}const p=G.players[id];beginTurn(id);runCpu(id);save();render();if(id===3){setTimeout(()=>{if(G)finishRound();},400);}else{G.turnIndex=id+1;save();setTimeout(cpuStep,470);}}
 function runCpu(id){
  const p=G.players[id];let playable=p.hand.findIndex(c=>['grant','harvest','supplies','insight'].includes(c));
@@ -359,54 +394,123 @@ function renderResearch(){const p=getCountry();el('researchOptions').innerHTML=O
 function renderHand(){const p=getCountry();el('cardCount').textContent=`${p.hand.length} / 4`;el('hand').innerHTML=p.hand.map((c,i)=>`<button class="card-item" data-card="${i}" ${!active()||p.cardPlayed?'disabled':''} aria-label="Play ${CARDS[c].name}"><span class="card-icon">${CARDS[c].icon}</span><span class="card-name">${CARDS[c].name}</span><span class="card-desc">${CARDS[c].desc}</span></button>`).join('')||'<p class="empty-note">No cards in hand. Draw again next turn.</p>';}
 function renderStandings(){const sorted=[...G.players].sort((a,b)=>prosperity(b)-prosperity(a));el('standings').innerHTML=sorted.map((p,i)=>`<div class="standing"><span class="standing-rank">${i+1}</span><span class="standing-color" style="background:${p.color}"></span><span class="standing-name"><strong>${esc(p.name)}${p.id===0?' (You)':''}</strong><small>${G.tiles.filter(t=>t.owner===p.id).length} territory · ${G.tiles.filter(t=>t.owner===p.id).reduce((n,t)=>n+(t.buildings||[]).length,0)} builds · ${fmt(p.gold)} Gold</small></span><span class="standing-score">${prosperity(p)}</span></div>`).join('');}
 function renderLog(){el('gameLog').innerHTML=G.log.slice(0,10).map(l=>`<div class="log-item"><span class="log-round">R${l.round}</span><span>${esc(l.text)}</span></div>`).join('');}
+// Global Standoff: lightweight 2.5D board. All illustrations are vector primitives,
+// rendered without third-party libraries or large image downloads.
 const coords=t=>({x:HEX*Math.sqrt(3)*(t.q+t.r/2),y:HEX*1.5*t.r});
-function polygon(x,y,r){return Array.from({length:6},(_,i)=>{const a=Math.PI/3*i+Math.PI/6;return (x+r*Math.cos(a)).toFixed(2)+','+(y+r*Math.sin(a)).toFixed(2);}).join(' ');}
-function art(t,x,y){const seed=hash(t.id+'-'+G.seed);const jitter=((seed%9)-4)*.6;
- const c=(dx,dy)=>`${(x+dx).toFixed(1)} ${(y+dy).toFixed(1)}`;
+const VIEW_TILT=.68;
+const POV_ANGLES=[-.24,.36,.92,1.48];
+const smooth=t=>t*t*(3-2*t);
+const blend=(a,b,t)=>a+(b-a)*t;
+let cameraYaw=POV_ANGLES[0],cameraMoveFrame=0,cameraResolve=null,cpuPlaybackToken=0,skipCpuPlayback=false,actionTileId=null,actionKind='';
+const project=(x,y,yaw=cameraYaw)=>({x:x*Math.cos(yaw)-y*Math.sin(yaw),y:(x*Math.sin(yaw)+y*Math.cos(yaw))*VIEW_TILT});
+const sceneCoords=(tile,yaw=cameraYaw)=>{const c=coords(tile);return project(c.x,c.y,yaw);};
+function hexPoints(tile,r=HEX-1,yaw=cameraYaw){
+ const center=coords(tile);return Array.from({length:6},(_,i)=>{
+  const a=Math.PI/3*i+Math.PI/6;
+  return project(center.x+r*Math.cos(a),center.y+r*Math.sin(a),yaw);
+ });
+}
+const pts=points=>points.map(p=>p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ');
+function treeSprite(x,y,h=24,shade=0){
+ const trunk='#75543b',left=['#346e53','#28624b','#2b7258'][shade%3],right=['#4b9470','#448763','#428768'][shade%3];
+ return `<g class="map-sprite" pointer-events="none"><ellipse cx="${x}" cy="${y+2}" rx="11" ry="4.8" fill="#172b29" opacity=".19"/><path d="M${x-2} ${y+2}v-11h4v11z" fill="${trunk}"/><path d="M${x} ${y-h}L${x-12} ${y-8}L${x} ${y-4}Z" fill="${left}"/><path d="M${x} ${y-h}L${x+12} ${y-8}L${x} ${y-4}Z" fill="${right}"/><path d="M${x} ${y-h+6}L${x-9} ${y-15}L${x} ${y-11}Z" fill="#548d66" opacity=".8"/></g>`;
+}
+function mountainSprite(x,y,w=25,h=35){
+ return `<g pointer-events="none" class="map-sprite"><ellipse cx="${x}" cy="${y+3}" rx="${w*.92}" ry="6" fill="#27362f" opacity=".23"/><path d="M${x-w} ${y+4}L${x+1} ${y-h}L${x+w} ${y+4}Z" fill="#967c69"/><path d="M${x+1} ${y-h}L${x+w} ${y+4}L${x} ${y+4}Z" fill="#b1a08a"/><path d="M${x+1} ${y-h}l-${w*.34} ${h*.34}l${w*.38} -${h*.08}l${w*.22} ${h*.12}l${w*.21} -${h*.16}Z" fill="#f2e2c4"/></g>`;
+}
+function terrainSprites(t,x,y){
+ const seed=hash(G.seed+'-'+t.id),k=(seed%7)-3;
  switch(t.terrain){
-  case'forest':return `<g class="hex-icon"><path d="M${c(-13,11)} l8 -16 8 16Z" fill="#1f6954"/><path d="M${c(-13,4)} l8 -18 8 18Z" fill="#367b54"/><path d="M${c(1,13)} l8 -17 8 17Z" fill="#195d4e"/><path d="M${c(1,5)} l8 -15 8 15Z" fill="#397a54"/></g>`;
-  case'mountain':return `<g class="hex-icon"><path d="M${c(-22,15)} L${c(-3,-18)} L${c(17,15)}Z" fill="#687d8c"/><path d="M${c(-3,-18)} L${c(-13,-1)} L${c(-2,-7)} L${c(5,-1)}Z" fill="#e4e9dc"/><path d="M${c(0,15)} L${c(13,-9)} L${c(26,15)}Z" fill="#73808c"/><path d="M${c(13,-9)} L${c(8,1)} L${c(14,-2)} L${c(19,1)}Z" fill="#f4eadd"/></g>`;
-  case'hills':return `<g class="hex-icon"><ellipse cx="${x-4}" cy="${y+9}" rx="22" ry="10" fill="#ab9066"/><path d="M${c(-20,8)} Q${c(-9,-12)} ${c(5,6)} Q${c(17,-5)} ${c(25,9)}" fill="none" stroke="#ddc18c" stroke-width="3" stroke-linecap="round"/></g>`;
-  case'desert':return `<g class="hex-icon"><path d="M${c(-23,12)}q11 -17 23 -5t23 5" fill="none" stroke="#f0d9a3" stroke-width="3"/><path d="M${c(-22,1)}q11 -14 23 -4t20 6" fill="none" stroke="#dfaa6f" stroke-width="2"/></g>`;
-  case'water':return `<g class="hex-icon" fill="none" stroke="#a4d4db" stroke-width="2" stroke-linecap="round" opacity=".66"><path d="M${c(-16,-5+jitter)} q8 -5 16 0 t16 0"/><path d="M${c(-13,6+jitter)} q8 -5 16 0 t13 0"/></g>`;
-  default:return `<g class="hex-icon"><path d="M${c(-16,10)} Q${c(-12,1)} ${c(-5,5)} T${c(7,5)} T${c(21,4)}" fill="none" stroke="#e3d18f" stroke-width="2" opacity=".8"/><circle cx="${x-9}" cy="${y-9}" r="2.3" fill="#e4b65f"/><circle cx="${x+13}" cy="${y+11}" r="1.8" fill="#fbefbd"/></g>`;
+  case'forest':return treeSprite(x-13,y+3,32,seed%3)+treeSprite(x+12,y+6,29,(seed+1)%3)+treeSprite(x+1,y-4,39,(seed+2)%3);
+  case'mountain':return mountainSprite(x-10,y+5,25,37)+mountainSprite(x+14,y+4,21,29);
+  case'hills':return `<g class="map-sprite" pointer-events="none"><ellipse cx="${x-8}" cy="${y+1}" rx="23" ry="10" fill="#987a5b"/><path d="M${x-30} ${y+4}Q${x-18} ${y-21} ${x-3} ${y-1}Q${x+17} ${y-21} ${x+28} ${y+5}" fill="#bd9e74" stroke="#ddc39b" stroke-width="1.5"/><ellipse cx="${x+7}" cy="${y+5}" rx="10" ry="3" fill="#9b865f"/></g>`+treeSprite(x+20,y+5,21,seed%3);
+  case'desert':return `<g class="map-sprite" pointer-events="none"><path d="M${x-28} ${y+10}Q${x-5} ${y-8} ${x+9} ${y+4}T${x+27} ${y+9}" fill="none" stroke="#f4d49b" stroke-width="3.5"/><path d="M${x-22} ${y+3}Q${x+4} ${y-13} ${x+23} ${y+3}" fill="none" stroke="#ca9867" stroke-width="2"/><circle cx="${x+k*2}" cy="${y+3}" r="1.9" fill="#b88a5e"/></g>`;
+  case'water':return `<g pointer-events="none" stroke="#b9e8eb" stroke-width="2" stroke-linecap="round" opacity=".68" fill="none"><path d="M${x-20} ${y-4}q8 -5 16 0t16 0"/><path d="M${x-12} ${y+6}q8 -5 16 0t14 0"/></g>`;
+  default:return `<g pointer-events="none"><path d="M${x-21} ${y+7}q8 -8 19 -2t21 -3" fill="none" stroke="#e4d88a" stroke-width="2" opacity=".78"/><ellipse cx="${x-15}" cy="${y-4}" rx="3" ry="2" fill="#89ae6a"/><circle cx="${x+18}" cy="${y+7}" r="2" fill="#f2df9b"/></g>`;
  }
 }
-function buildingArt(t,x,y){const owner=G.players[t.owner];if(t.capital)return `<g class="hex-icon"><rect x="${x-16}" y="${y-1}" width="32" height="23" rx="2" fill="#f0dec0" stroke="#594838" stroke-width="2"/><rect x="${x-20}" y="${y-13}" width="11" height="23" rx="1.8" fill="#e8cfac" stroke="#6a4a3e" stroke-width="1.5"/><rect x="${x+9}" y="${y-13}" width="11" height="23" rx="1.8" fill="#e8cfac" stroke="#6a4a3e" stroke-width="1.5"/><path d="M${x-21} ${y-13} l6 -9 6 9 M${x+8} ${y-13} l6 -9 6 9 M${x-17} ${y-1} l17 -15 17 15" fill="${owner.color}" stroke="#704e39" stroke-width="1.5"/><path d="M${x-2} ${y+21}v-13a5 5 0 0110 0v13" fill="#614a3f"/><path d="M${x} ${y-17}v-16" stroke="#594838" stroke-width="2"/><path d="M${x+1} ${y-33}h17l-4 8H${x+1}Z" fill="${owner.color}"/></g>`;
- const typ=t.buildings?.[0];const color=owner.color;
- if(typ==='farm')return `<g class="hex-icon"><rect x="${x-16}" y="${y-1}" width="31" height="19" rx="2" fill="#ddbb79" stroke="#756044"/><path d="M${x-18} ${y}l18 -17 18 17Z" fill="#b85e4f" stroke="#75483a"/><path d="M${x-2} ${y+18}v-13h9v13" fill="#6e5140"/><path d="M${x-26} ${y+18}h12m-9 -6h11" stroke="#e6d477" stroke-width="3"/></g>`;
- if(typ==='mine')return `<g class="hex-icon"><path d="M${x-22} ${y+15}L${x-4} ${y-17}L${x+21} ${y+15}Z" fill="#647181"/><path d="M${x-10} ${y+14}v-13q8 -10 16 0v13" fill="#413f48" stroke="#d8b56b" stroke-width="3"/><path d="M${x+13} ${y-17}l10 16m-5 -21l-10 21" stroke="#d5a96d" stroke-width="3"/></g>`;
- if(typ==='lumber')return `<g class="hex-icon"><path d="M${x-13} ${y+9}l9 -23 9 23Z" fill="#265d43"/><rect x="${x-3}" y="${y+7}" width="5" height="12" fill="#744b30"/><rect x="${x+4}" y="${y+9}" width="19" height="7" rx="3" fill="#9d6b3e" stroke="#e5bb82"/><rect x="${x+1}" y="${y+15}" width="19" height="7" rx="3" fill="#9d6b3e" stroke="#e5bb82"/></g>`;
- if(typ==='post')return `<g class="hex-icon"><rect x="${x-17}" y="${y-8}" width="34" height="28" fill="#d0c4ae" stroke="#4b5357" stroke-width="2"/><path d="M${x-20} ${y-8}h40l-4 -11h-32z" fill="#63768a"/><path d="M${x} ${y-18}v-17" stroke="#eee" stroke-width="2"/><path d="M${x+1} ${y-35}h15l-3 9H${x+1}" fill="${color}"/><path d="M${x-4} ${y+20}v-12a5 5 0 0110 0v12" fill="#4f5253"/></g>`;
- return `<g class="hex-icon"><rect x="${x-18}" y="${y-1}" width="36" height="23" rx="3" fill="#decfae" stroke="#735541" stroke-width="2"/><path d="M${x-21} ${y-1}l21 -20 21 20Z" fill="${typ==='academy'?'#6b8aa1':typ==='market'?'#c68b5e':'#9c785d'}" stroke="#745343" stroke-width="2"/><rect x="${x-3}" y="${y+7}" width="9" height="15" fill="#7d6650"/><path d="M${x-12} ${y+6}h6v6h-6z M${x+10} ${y+6}h6v6h-6z" fill="#6f9c9d"/></g>`;
+function hutSprite(x,y,roof='#b96e53',w=20,h=16){
+ return `<g class="map-sprite" pointer-events="none"><ellipse cx="${x}" cy="${y+2}" rx="${w*.72}" ry="5" fill="#233a30" opacity=".25"/><path d="M${x-w/2} ${y-h+5}L${x} ${y-h+10}L${x} ${y+2}L${x-w/2} ${y-3}Z" fill="#bea883"/><path d="M${x} ${y-h+10}L${x+w/2} ${y-h+5}L${x+w/2} ${y-3}L${x} ${y+2}Z" fill="#f1dfb7"/><path d="M${x-w/2-3} ${y-h+5}L${x} ${y-h-7}L${x} ${y-h+10}Z" fill="#915a48"/><path d="M${x} ${y-h-7}L${x+w/2+3} ${y-h+5}L${x} ${y-h+10}Z" fill="${roof}"/><path d="M${x+2} ${y-3}v-7h5v7" fill="#796650"/></g>`;
+}
+function buildingSprite(type,x,y,color){
+ if(type==='homes')return hutSprite(x-5,y+4,'#ae7154',16,15)+hutSprite(x+9,y-2,'#d9a16d',14,13);
+ if(type==='farm')return `<g pointer-events="none" class="map-sprite"><path d="M${x-22} ${y+9}l20 -9 23 8 -20 10z" fill="#c3a265" stroke="#9f8151" stroke-width="1.2"/><path d="M${x-15} ${y+8}l15 -7m-7 12l16 -8m-17 4l15 -7" stroke="#f2d277" stroke-width="2"/></g>`+hutSprite(x+8,y-7,'#c66647',16,15);
+ if(type==='lumber')return treeSprite(x-8,y,27,1)+hutSprite(x+8,y+5,'#8c6951',15,12)+`<path d="M${x-20} ${y+11}h18m-17 4h16" stroke="#9e6d41" stroke-width="4" pointer-events="none"/>`;
+ if(type==='mine')return mountainSprite(x,y+5,24,28)+`<g pointer-events="none"><path d="M${x-12} ${y+8}v-11q12 -12 24 0v11z" fill="#383e43" stroke="#d5b077" stroke-width="2.2"/></g>`;
+ if(type==='post')return `<g pointer-events="none" class="map-sprite"><ellipse cx="${x}" cy="${y+7}" rx="22" ry="7" fill="#26372f" opacity=".2"/><path d="M${x-22} ${y+8}v-15l8 -4v17m28 -1v-16l8 4v15" fill="none" stroke="#82643f" stroke-width="4" stroke-dasharray="3 2"/><path d="M${x-16} ${y+6}l16 -21 16 21z" fill="#f3dbc0" stroke="#94695c"/><path d="M${x} ${y-15}l16 21H${x}Z" fill="#d78365"/><path d="M${x} ${y-15}v-19m1 0h18l-4 8H${x+1}Z" fill="${color}" stroke="#775343" stroke-width="1"/></g>`;
+ if(type==='academy')return `<g pointer-events="none" class="map-sprite"><ellipse cx="${x}" cy="${y+5}" rx="22" ry="6" fill="#22352d" opacity=".25"/><path d="M${x-20} ${y+4}v-19h40v19Z" fill="#ead6b2"/><path d="M${x-24} ${y-15}l24 -17 24 17Z" fill="#6f90a2"/><path d="M${x-13} ${y-14}v18m13 -18v18m13 -18v18" stroke="#7d8b8a" stroke-width="4"/></g>`;
+ if(type==='market')return `<g pointer-events="none" class="map-sprite"><ellipse cx="${x}" cy="${y+7}" rx="23" ry="6" fill="#22352d" opacity=".2"/><path d="M${x-19} ${y-7}h38v15h-38z" fill="#f5e3be"/><path d="M${x-23} ${y-7}l9 -18h28l9 18Z" fill="#cf795c"/><path d="M${x-14} ${y-25}l-5 18m19 -18v18m14 -18l5 18" stroke="#f9e4ba" stroke-width="3"/></g>`;
+ return hutSprite(x,y,'#af7457');
+}
+function capitalSprite(t,x,y){
+ const color=G.players[t.owner].color;
+ return `<g class="map-sprite" pointer-events="none"><ellipse cx="${x}" cy="${y+8}" rx="29" ry="7" fill="#22362f" opacity=".24"/><path d="M${x-20} ${y-18}h40v24h-40z" fill="#e8d2ad" stroke="#927755" stroke-width="1.2"/><path d="M${x-25} ${y-28}h12v34h-12zM${x+13} ${y-28}h12v34h-12z" fill="#c9b58f"/><path d="M${x-28} ${y-28}h18l-9 -13Z M${x+10} ${y-28}h18l-9 -13Z" fill="#bb6b55"/><path d="M${x-9} ${y-20}h18v26H${x-9}z" fill="#f2ddba"/><path d="M${x-12} ${y-20}l12 -16 12 16Z" fill="#bc7455"/><path d="M${x-5} ${y+6}v-11q5 -8 10 0v11" fill="#72614d"/><path d="M${x} ${y-36}v-21" stroke="#6b5037" stroke-width="2.3"/><path d="M${x+1} ${y-57}h20l-6 10H${x+1}Z" fill="${color}" stroke="#8c664f" stroke-width="1.5"/></g>`;
+}
+function tileMiniatures(t,x,y){
+ let s=terrainSprites(t,x,y);
+ if(t.capital)s+=capitalSprite(t,x,y);
+ const buildings=t.buildings||[];
+ // Show multiple buildings in one hex instead of displaying only the first.
+ const offsets=t.capital?[[-22,10],[21,11],[2,18]]:[[-16,5],[16,5],[0,-8]];
+ for(let i=0;i<Math.min(3,buildings.length);i++){
+  const [dx,dy]=offsets[i];s+=`<g transform="translate(${(x+dx).toFixed(1)} ${(y+dy).toFixed(1)}) scale(${t.capital?'.57':'.74'}) translate(${(-x).toFixed(1)} ${(-y).toFixed(1)})">${buildingSprite(buildings[i],x,y,G.players[t.owner].color)}</g>`;
+ }
+ if(buildings.length>3)s+=`<g pointer-events="none"><rect x="${x+10}" y="${y-36}" width="28" height="16" rx="8" fill="#182e36" stroke="#e5c994"/><text x="${x+24}" y="${y-25}" font-size="10" font-weight="bold" fill="#fff2d3" text-anchor="middle">+${buildings.length-3}</text></g>`;
+ return s;
 }
 function renderMap(){
+ if(!G)return;
  const svg=el('worldMap');svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
- const out=G.tiles.map(t=>{const {x,y}=coords(t),owner=t.owner===null?null:G.players[t.owner],selected=t.id===G.selectedId;
- const bg=t.terrain==='water'?'#357c9d':TERRAIN[t.terrain].color,border=owner?owner.color:'#e5e0bb68';
- const num=t.buildings?.length||0;
- const multi=num?`<g class="hex-building-count" pointer-events="none"><circle cx="${x+23}" cy="${y-22}" r="10" fill="#172b35" stroke="#e7cd91" stroke-width="1.5"/><text x="${x+23}" y="${y-18}" text-anchor="middle" font-size="10" fill="#fff1cc" font-weight="bold">${num}</text></g>`:'';
- return `<g class="hex ${selected?'hex-selected':''}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}" data-hex="${t.id}"><polygon class="hex-bg" points="${polygon(x,y,HEX-1)}" fill="${bg}" stroke="${border}" stroke-width="${owner?'3.5':'1.8'}"/><polygon points="${polygon(x,y,HEX-5)}" fill="${owner?owner.color:'#fff'}" opacity="${owner?'.14':'.04'}" pointer-events="none"/>${num||t.capital?buildingArt(t,x,y):art(t,x,y)}${multi}${owner?`<circle cx="${x-23}" cy="${y-22}" r="7" fill="${owner.color}" stroke="#f6eedb" stroke-width="1.2"/>`:''}${selected?`<polygon class="hex-highlight" points="${polygon(x,y,HEX-2)}" fill="none" stroke="#ffefb1" stroke-width="3"/>`:''}</g>`;
- });
- const streams=(G.rivers||[]).map(path=>{
-  const pts=path.map(id=>G.tiles.find(t=>t.id===id)).filter(Boolean).map(coords);
-  if(pts.length<2)return '';
-  const d='M '+pts.map(p=>`${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ');
-  return `<path d="${d}" stroke="#275d82" stroke-width="11" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity=".68"/><path d="${d}" stroke="#92dbe3" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" fill="none" opacity=".83"/>`;
+ const sorted=G.tiles.map(t=>({t,c:sceneCoords(t)})).sort((a,b)=>a.c.y-b.c.y||a.c.x-b.c.x);
+ const bases=[],decorations=[];
+ for(const {t,c:{x,y}} of sorted){
+  const owner=t.owner===null?null:G.players[t.owner],selected=t.id===G.selectedId;
+  const top=hexPoints(t,HEX-1),lower=top.map(p=>({x:p.x,y:p.y+10}));
+  const fill=t.terrain==='water'?'#478aa8':TERRAIN[t.terrain].color;
+  const border=owner?owner.color:'#6b775d';
+  const faces=top.map((p,i)=>{const n=(i+1)%6;return `<polygon points="${pts([p,top[n],lower[n],lower[i]])}" fill="${i<3?'#6d6549':'#514e3c'}" opacity=".9"/>`;}).join('');
+  bases.push(`<g class="tile-base" pointer-events="none"><polygon points="${pts(lower)}" fill="#202f2b" opacity=".33" transform="translate(2 2)"/>${faces}<polygon points="${pts(top)}" fill="${fill}" stroke="${border}" stroke-width="${owner?'2.5':'1.4'}"/><polygon points="${pts([top[4],top[5],top[0]])}" fill="#fff3c9" opacity=".07"/><polygon points="${pts([top[1],top[2],top[3]])}" fill="#2d312f" opacity=".08"/>${owner?`<polygon points="${pts(top)}" fill="${owner.color}" opacity=".14"/>`:''}${selected?`<polygon points="${pts(top)}" fill="none" stroke="#fff6c7" stroke-width="3.6"/>`:''}</g>`);
+  const action=t.id===actionTileId;
+  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/>${tileMiniatures(t,x,y)}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}</g>`);
+ }
+ const waterways=(G.rivers||[]).map(path=>{const points=path.map(id=>G.tiles.find(t=>t.id===id)).filter(Boolean).map(sceneCoords);if(points.length<2)return '';
+  const d='M'+points.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L');return `<path d="${d}" stroke="#387b99" stroke-width="9" stroke-linejoin="round" fill="none" stroke-linecap="round" opacity=".8"/><path d="${d}" stroke="#9fdae0" stroke-width="3.8" stroke-linejoin="round" fill="none" stroke-linecap="round" opacity=".9"/>`;
  }).join('');
- el('mapContent').innerHTML=out.join('')+`<g pointer-events="none" aria-hidden="true">${streams}</g>`;
+ el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}</g><g class="world-features">${decorations.join('')}</g>`;
 }
-function resetView(){
- const largest=Math.max(...G.tiles.map(t=>Math.abs(coords(t).x))),tallest=Math.max(...G.tiles.map(t=>Math.abs(coords(t).y)));
- const w=Math.max(850,2*(largest+55)),h=Math.max(710,2*(tallest+55));
- view={x:-w/2,y:-h/2,w,h};el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
+function mapAspect(){const rect=el('worldMap').getBoundingClientRect();return rect.width>0&&rect.height>0?rect.width/rect.height:1.5;}
+function setCenter(cx,cy,width){const aspect=mapAspect();view.w=width;view.h=width/aspect;view.x=cx-width/2;view.y=cy-view.h/2;el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);}
+function focusHome(immediate=true){if(!G)return;const t=G.tiles.find(t=>t.owner===0&&t.capital)||G.tiles[0];return moveCamera(t,POV_ANGLES[0],immediate?0:750,window.innerWidth<600?420:540);}
+function resetView(){if(!G)return;cameraYaw=POV_ANGLES[0];const projected=G.tiles.map(t=>hexPoints(t,HEX+10)).flat();const xs=projected.map(p=>p.x),ys=projected.map(p=>p.y);
+ const minx=Math.min(...xs)-25,maxx=Math.max(...xs)+25,miny=Math.min(...ys)-60,maxy=Math.max(...ys)+60,asp=mapAspect();const w=Math.max(maxx-minx,(maxy-miny)*asp);setCenter((maxx+minx)/2,(maxy+miny)/2,w);renderMap();}
+function zoom(f){const cx=view.x+view.w/2,cy=view.y+view.h/2;setCenter(cx,cy,Math.min(2400,Math.max(210,view.w*f)));}
+function moveCamera(tile,targetYaw=cameraYaw,duration=800,targetWidth=460){
+ if(!G||!tile)return Promise.resolve();
+ if(cameraMoveFrame)cancelAnimationFrame(cameraMoveFrame);
+ if(cameraResolve){const previous=cameraResolve;cameraResolve=null;previous();}
+ const from={yaw:cameraYaw,cx:view.x+view.w/2,cy:view.y+view.h/2,width:view.w};
+ const target=coords(tile),start=performance.now(),token=cpuPlaybackToken;
+ return new Promise(resolve=>{
+  cameraResolve=resolve;
+  const done=()=>{cameraMoveFrame=0;if(cameraResolve===resolve)cameraResolve=null;resolve();};
+  let lastDraw=-1000;function frame(now){
+   if(!G||token!==cpuPlaybackToken){done();return;}
+   const t=skipCpuPlayback||window.matchMedia('(prefers-reduced-motion: reduce)').matches||duration<=0?1:Math.min(1,(now-start)/duration),k=smooth(t);
+   cameraYaw=blend(from.yaw,targetYaw,k);
+   const dest=project(target.x,target.y,cameraYaw);
+   setCenter(blend(from.cx,dest.x,k),blend(from.cy,dest.y,k),blend(from.width,targetWidth,k));
+   if(now-lastDraw>34||t>=1){renderMap();lastDraw=now;}
+   if(t<1)cameraMoveFrame=requestAnimationFrame(frame);else done();
+  }
+  cameraMoveFrame=requestAnimationFrame(frame);
+ });
 }
-function zoom(f){
- const cx=view.x+view.w/2,cy=view.y+view.h/2,ratio=view.h/view.w;
- view.w=Math.min(2300,Math.max(235,view.w*f));view.h=view.w*ratio;
- view.x=cx-view.w/2;view.y=cy-view.h/2;
- el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
+function flashAction(tile,kind='action'){
+ if(!tile)return;actionTileId=tile.id;actionKind=kind;renderMap();
+ const marker=el('mapContent').querySelector(`[data-hex="${tile.id}"]`);if(marker)marker.classList.add('hex-action-pop');
+ setTimeout(()=>{if(actionTileId===tile.id){actionTileId=null;renderMap();}},1250);
 }
+
 function showEndGame(){const ranking=[...G.players].sort((a,b)=>prosperity(b)-prosperity(a));showModal(`<div class="section-kicker">END OF THE TEST</div><h2>World economy review</h2><p>After ${G.maxRounds} rounds, these countries have built the strongest economies. This is a sandbox score, <b>not</b> the final four-category victory system.</p><div class="modal-summary">${ranking.map((p,i)=>`<div class="mini-row"><span>${i===0?'🏆 ':''}${i+1}. ${esc(p.name)}</span><b>${prosperity(p)} pts</b></div>`).join('')}</div><div class="button-stack"><button class="primary" data-modal="continue">Continue playing this world</button><button class="secondary" data-modal="new-confirm">Generate a new world</button></div>`);}
 function openMenu(){showModal(`<div class="section-kicker">MATCH SETTINGS</div><h2>${esc(G.worldName)}</h2><p>Round ${G.round}. World seed: <b>${esc(G.seed)}</b><br>Progress saves automatically in this browser.</p><div class="button-stack"><button class="secondary" data-modal="close">Return to match</button><button class="secondary" data-modal="new-confirm">Start a new world</button>${G.finished?'<button class="primary" data-modal="continue">Continue past the round limit</button>':''}</div>`);}
 function confirmNew(){showModal(`<div class="section-kicker">NEW WORLD</div><h2>Abandon this match?</h2><p>This will replace the current saved match. Your CPU opponents and map will be generated again.</p><div class="button-stack"><button class="primary" data-modal="new">Yes, start a new match</button><button class="secondary" data-modal="close">Keep playing</button></div>`);}
@@ -427,7 +531,7 @@ function bindEvents(){
    error.classList.remove('hidden');button.disabled=false;button.innerHTML='TRY GENERATING AGAIN <span>→</span>';
   }
  });
- el('resumeBtn').addEventListener('click',()=>{const saved=loadSaved();if(!saved)return;G=saved;enterGame();if(G.finished)showEndGame();else if(G.turnIndex!==0){cpuBusy=true;setTimeout(cpuStep,400);}});
+ el('resumeBtn').addEventListener('click',()=>{const saved=loadSaved();if(!saved)return;G=saved;enterGame();if(G.finished)showEndGame();else if(G.turnIndex!==0){cpuBusy=true;cpuPlaybackToken++;skipCpuPlayback=true;setTimeout(()=>{for(let i=G.turnIndex;i<=3;i++){beginTurn(i);runCpu(i);}finishRound();focusHome(true);render();},80);}});
  el('topMenuBtn').addEventListener('click',openMenu);
  el('endTurnBtn').addEventListener('click',endTurn);
  el('levyBtn').addEventListener('click',()=>{if(canAct())doLevy(0);});
@@ -441,7 +545,7 @@ function bindEvents(){
  el('rosterCitizensBtn').addEventListener('click',()=>{rosterTab='citizens';renderRoster();});
  el('rosterTroopsBtn').addEventListener('click',()=>{rosterTab='troops';renderRoster();});
  el('rosterList').addEventListener('change',e=>{const select=e.target.closest('[data-move-soldier]');if(select?.value)moveSoldier(select.dataset.moveSoldier,select.value);});
- el('zoomIn').addEventListener('click',()=>zoom(.78));el('zoomOut').addEventListener('click',()=>zoom(1.28));el('zoomReset').addEventListener('click',resetView);
+ el('zoomIn').addEventListener('click',()=>zoom(.78));el('zoomOut').addEventListener('click',()=>zoom(1.28));el('zoomReset').addEventListener('click',resetView);el('focusHomeBtn').addEventListener('click',()=>{if(!cpuBusy)focusHome(false);});el('skipCpuBtn').addEventListener('click',()=>{skipCpuPlayback=true;el('cpuAction').textContent='Finishing remaining turns…';});
  const svg=el('worldMap');
  const pointers=new Map();let pinchLast=null;
  svg.addEventListener('pointerdown',e=>{
@@ -482,5 +586,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={getState:()=>G,select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree};
+window.GS_TEST={getState:()=>G,select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords};
 })();
