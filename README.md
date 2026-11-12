@@ -1,4 +1,13 @@
-# Global Standoff — Prototype 0.4.11
+# Global Standoff — Prototype 0.4.12
+
+## Version 0.4.12 — family-home revenue, operating costs and classic footprints
+
+- Each occupied household earns 2 Silver Pents per round; one household holds up to four residents, regardless of age or employment. Empty housing and homeless citizens do not earn household rent.
+- Fixed upkeep applies to all completed farms, factories and workshops even if unstaffed, with salaries for actual workers charged separately. Upgrades raise upkeep.
+- The Nation & Economy panel breaks down household rent, capital revenue, marketplaces, farms, factories, other buildings, worker/builder wages, military and net SP per round.
+- The population and territory panels show occupied-home revenue. Existing saved games automatically use the new economy rules.
+- Reverted expedition bootprints to the earlier simple outline while preserving directional movement and the animated stepping sequence.
+
 
 ## Version 0.4.11 — expedition footprints and covered-wagon logistics
 
