@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.8 — custom icon atlas, billboarded expeditions, consistent 3D map depth. */
+/* Global Standoff 0.4.9 — corrected icon sizing and effect descriptions in the fanned hand. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -1895,9 +1895,10 @@ function renderHand(){
   return;
  }
  el('opponentDeck')?.classList.add('hidden');
+ const handEffects={grant:'Gain 6 SP',harvest:'Gain 5 Food',supplies:'Gain 3 Wood + 2 Iron',insight:'Gain 3 Knowledge',charter:'Next claim costs 3 SP less',permit:'Next build costs 3 SP less'};
  el('hand').innerHTML=p.hand.map((c,i)=>{
   const fan=i-(n-1)/2,angle=fan*9;
-  return `<button type="button" class="card-item" data-card="${i}" style="--fan:${fan};--angle:${angle}deg" aria-label="Inspect ${esc(CARDS[c].name)}"><span class="card-icon">${CARDS[c].icon}</span><span class="card-name">${esc(CARDS[c].name)}</span><span class="card-desc">TAP TO VIEW</span></button>`;
+  return `<button type="button" class="card-item" data-card="${i}" style="--fan:${fan};--angle:${angle}deg" aria-label="Enlarge ${esc(CARDS[c].name)} — ${esc(CARDS[c].desc)}"><span class="card-icon">${CARDS[c].icon}</span><span class="card-name">${esc(CARDS[c].name)}</span><span class="card-desc">${esc(handEffects[c]||CARDS[c].desc)}</span></button>`;
  }).join('')||'<p class="hand-empty">No cards in hand. Draw again next turn.</p>';
 }
 function renderStandings(){const sorted=[...G.players].sort((a,b)=>prosperity(b)-prosperity(a));el('standings').innerHTML=sorted.map((p,i)=>`<div class="standing"><span class="standing-rank">${i+1}</span><span class="standing-color" style="background:${p.color}"></span><span class="standing-name"><strong>${esc(p.name)}${p.id===0?' (You)':''}</strong><small>${G.tiles.filter(t=>t.owner===p.id).length} territory · ${G.tiles.filter(t=>t.owner===p.id).reduce((n,t)=>n+(t.buildings||[]).length,0)} builds · ${fmt(p.gold)} SP</small></span><span class="standing-score">${prosperity(p)}</span></div>`).join('');}
