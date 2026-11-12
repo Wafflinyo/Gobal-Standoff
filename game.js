@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.12 — occupied-household Silver Pents, transparent upkeep, restored classic bootprints. */
+/* Global Standoff 0.4.13 — classic expedition footprints facing corrected by 180 degrees. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -2136,9 +2136,10 @@ function expeditionTrailVisuals(){
   const position=project(a.x+(b.x-a.x)*progress,a.y+(b.y-a.y)*progress);
   const dest=project(b.x,b.y),dx=dest.x-position.x,dy=dest.y-position.y;
   const length=Math.max(1,Math.hypot(dx,dy)),ux=dx/length,uy=dy/length;
-  // Each print points along the heading and advances in sequence toward the target.
+  // Keep the original classic bootprint shape. Flip its orientation 180 degrees
+  // so the steps point ahead instead of appearing to walk backwards.
   const px=-uy,py=ux;
-  const degrees=Math.atan2(uy,ux)*180/Math.PI+90;
+  const degrees=Math.atan2(uy,ux)*180/Math.PI-90;
   const boots=Array.from({length:4},(_,i)=>{
    const back=25-i*6,side=(i%2===0?-1:1)*3.4;
    const x=position.x-ux*back+px*side,y=position.y-uy*back+py*side+7;
