@@ -50,3 +50,23 @@
 .roster-transfer select:disabled{opacity:.5}
 #worldMap{touch-action:none;overscroll-behavior:contain}
 @media(max-width:520px){.capacity-grid b{font-size:12px}.capacity-grid small{font-size:9px}.map-hint{white-space:normal;text-align:center;min-width:60%;}.world-options{grid-template-columns:1fr 1fr;gap:10px}}
+
+/* v0.3: illustrated faux-isometric board and cinematic turn presentation */
+.map-wrap{background:radial-gradient(ellipse at 45% 39%,#285c65 0%,#173b45 62%,#102e39 100%)}
+.map-wrap:before{background-image:radial-gradient(#e7ecd3 .65px,transparent .65px);opacity:.14;background-size:22px 22px}
+.world-terrain,.world-features{will-change:contents}
+.hex .hex-hit{cursor:pointer;pointer-events:all}
+.hex:hover .hex-hit{stroke:#f2e6ba;stroke-width:2}
+.hex-action-pop .map-sprite{animation:gs-pop .46s cubic-bezier(.2,1.8,.4,1) both;transform-box:fill-box;transform-origin:center bottom}
+.tile-spotlight{animation:gs-beacon 1s ease-out infinite;transform-box:fill-box;transform-origin:center;pointer-events:none}
+@keyframes gs-beacon{0%{opacity:1;transform:scale(.45)}100%{opacity:0;transform:scale(1.6)}}
+@keyframes gs-pop{0%{opacity:.5;transform:translateY(12px) scale(.6)}70%{opacity:1;transform:translateY(-3px) scale(1.08)}100%{opacity:1;transform:translateY(0) scale(1)}}
+.view-badge{position:absolute;left:14px;top:13px;font-size:9px;letter-spacing:.15em;font-weight:900;padding:8px 11px;border-radius:10px;color:#ffe7ba;background:#203a40db;border:1px solid #e0c88c7a;pointer-events:none;box-shadow:0 3px 15px #081a2190}
+.cpu-cinematic{position:absolute;left:12px;bottom:46px;width:min(420px,calc(100% - 74px));padding:12px 14px;background:linear-gradient(120deg,#142d38f5,#1f4148f2);border:1px solid #deb981;border-radius:12px;box-shadow:0 10px 40px #05151dbb;z-index:5;display:grid;gap:3px;backdrop-filter:blur(5px)}
+.cpu-cinematic .cpu-now{font-size:9px;color:#e5c38f;letter-spacing:.15em;font-weight:850}
+.cpu-cinematic strong{font-family:Georgia,serif;font-size:19px}
+.cpu-cinematic #cpuAction{font-size:11px;color:#e7e6d7;line-height:1.4}
+.cpu-cinematic button{margin-top:7px;width:max-content;border:1px solid #b9a17d;border-radius:7px;background:#334b4b;color:#fff1d1;padding:6px 10px;font-size:10px;font-weight:700}
+.map-actions{z-index:6;right:10px;top:10px}.map-actions button{background:#193940ee;width:36px;height:36px;border:1px solid #a4bfb7b0}
+@media(max-width:520px){.view-badge{font-size:8px;top:10px;left:10px}.map-actions button{width:32px;height:32px;font-size:20px}.cpu-cinematic{bottom:38px;width:calc(100% - 56px);left:9px;padding:9px 11px}.cpu-cinematic strong{font-size:17px}.map-wrap{height:min(55vh,450px)}}
+@media(prefers-reduced-motion:reduce){.hex-action-pop .map-sprite,.tile-spotlight{animation:none!important}}
