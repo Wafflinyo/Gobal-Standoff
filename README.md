@@ -1,4 +1,4 @@
-# Global Standoff — Prototype 0.3.5
+# Global Standoff — Prototype 0.3.6
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
@@ -9,6 +9,15 @@ Enable **Settings → Pages → Deploy from a branch → main → /(root)** once
 https://wafflinyo.github.io/Gobal-Standoff/
 
 The page uses plain HTML, CSS, and JavaScript: no build pipeline or external dependencies. All progress is saved in the same browser using `localStorage`.
+
+## 0.3.6 — One deposit per mountain / finite mining and military gear
+
+- **Every mountain holds at most one mineral deposit, or none at all.** World generation assigns a fixed mineral vein deterministically by map seed: Coal 26%, Iron 20%, Copper 9%, Silver 5%, Gold Ore 3%, Diamond 1%, and 36% of mountain hexes are barren. A mountain never generates all ore types.
+- **Only a mountain with a mineral vein can host a new Mine.** Mining a vein yields only that mineral. Deposits have finite reserves and can be exhausted. Coal produces frequently and Diamonds are rare both as deposits and as successful extractions (12% chance per mining round, 1 unit if successful).
+- **Steel is made, not mined:** Smelt Steel using 2 Iron + 1 Coal + 1 Gold coin, taking one major action. Each country tracks Coal, Iron, Copper, Silver, Gold Ore, Diamonds and Steel. Gold Ore is *not* the same as spendable Gold coins.
+- **Mineral Exchange:** The Nation overlay lists mineral holdings. Sell any raw mineral to the Global Bank for Gold, or import common minerals at a premium; each purchase/sale takes an action. Diamonds have the highest bank sale value (40 Gold). Direct mineral cargo trading between countries is still planned.
+- **Troop equipment:** Named soldiers can be issued Iron Gear, Gold Gear (made with Steel and Gold Ore), or Diamond Gear (made with Steel and Diamonds). Equipment persists on the soldier and increases their readiness score. Combat resolution is not yet implemented, so bonuses are tracked for future battles.
+- **Old saved worlds:** Their terrain, buildings and citizens are preserved. The previous generic Ore inventory is converted to Iron. Mountains gain a single deterministic vein or none; older working Mines on otherwise barren mountains receive an Iron vein to prevent breaking existing builds.
 
 ## New in 0.2.0
 
@@ -101,7 +110,7 @@ This is **2.5D illustrative artwork**, not actual 3D geometry, textured models, 
 - **Timed construction:** starting a building spends its resources and reserves space. A worksite with looping cartoon dust is visible until the project has completed its 1–3 round build time. Only completed buildings generate resources, housing, or military posts. At the beginning of your next turn, newly completed buildings receive a dust-cloud/spring-up reveal before ordinary play continues.
 - **International trade routes:** first contact happens when two countries' claimed territories come within two hexes. After contact, countries can propose a route and agree on the cost split (25/75, 50/50, or 75/25). CPU countries consider offers after a delay. Human players can accept or reject incoming offers in the World overlay. Accepted routes draw along **shared land-hex edges**, like rivers, and grow in length during their construction period. Longer routes take more rounds and cost more Gold. Once active, both countries earn 2 Gold per round. Trade goods and caravan interception remain future extensions.
 - **Voluntary military enlistment:** finished military posts can accept up to 12 soldiers each. Citizens roll a chance to enlist each round based on age, health and morale; marketing costs 4 Gold and increases the chance for two rounds. Training and soldier transfers remain manual. Very old citizens have a very low (not zero) chance to join.
-- **Materials split:** the old Materials balance becomes **Wood** and **Ore**. Forest hexes yield Wood and only forests can host Lumber Camps. Mountain hexes yield Ore and only mountains can host Mines. Hills, deserts, and plains cannot host either extraction building. Construction costs use specific combinations of Wood and Ore.
+- **Materials split:** the old Materials balance becomes **Wood** and **Ore**. Forest hexes yield Wood and only forests can host Lumber Camps. In 0.3.5 mountains yielded generic Ore; as of 0.3.6 only mineral-bearing mountains can host Mines and they extract their own single deposit. Hills, deserts, and plains cannot host either extraction building. Construction costs use specific combinations of Wood and Ore.
 - **Save migration:** v0.3.x saves retain map, player ownership, citizens, buildings, and progress. Old Materials holdings become approximately 60% Wood and 40% Ore. On old existing worlds, legacy extraction buildings remain where they were, but only newly constructed ones obey the terrain-specific rules.
 
 This update keeps the equal **3 major actions per turn** rule for all countries. Trade proposals and recruitment marketing each consume one major action; accepting an incoming diplomatic proposal does not.
