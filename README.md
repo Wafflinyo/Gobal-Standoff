@@ -1,5 +1,14 @@
 # Global Standoff — Prototype 0.4.0
 
+## Version 0.4.8 — unified visual identity and camera consistency
+
+- All in-game emoji icons are replaced by a custom 43-symbol inline SVG atlas: Silver Pents, minerals, food, housing, construction, military, research, cards, and action controls. No system emoji fonts required.
+- The 2.5D world retains a fixed pitched projection and raised, beveled hex walls through all CPU viewpoint rotations. Camera turns apply a lightweight scene transformation frame-by-frame and reproject geometry once when settled, rather than redrawing 169 tile meshes every frame.
+- Miniature buildings, trees, expedition flags, moving caravans, and labels are screen-facing; the scene itself changes yaw without tilting those silhouettes.
+- Expedition footprints alternate left/right, appear in sequence, and point along the projected travel direction. Their heading adjusts when the camera moves. Expedition flags remain vertical.
+- Construction timers, expedition counters, and route progress appear in dark, bold, outlined foreground plates, above other map objects.
+- Original economy, diplomatic, construction, logistics, and round rules remain unchanged. Existing saved countries continue using the same save key.
+
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
 ## Play online
@@ -185,13 +194,12 @@ The prototype currently includes a modest personal-income tax from housed adults
 - War orders support border patrols of owned frontier tiles, and slower flanking via unowned hexes without roads. Troops are drawn from real military post rosters. Each country has one military logistics order per turn. Troop positions are hidden from the enemy; CPU camera does not reveal confidential orders.
 - International road proposals can still be sent for remote territories, but builders may only lay border segments on edges adjoining hexes owned by their own country. Neutral stretches remain **waiting for land** until claimed. No road may be physically constructed through unclaimed land.
 - Military battles, recon visibility, battle results and occupation are future systems; this version models the war phase and maneuvering, not combat resolution.
-## 0.4.7 — Domestic paved roads
 
-- On any owned hex, open the territory overlay to construct a road along the shared border with an adjacent owned hex.
-- Each road segment costs **3 Silver Pents and 1 Wood**, one major action and an available builder. The builder must reach the site and spend **two subsequent work turns**. The initiating turn does not count.
-- Completed roads are rendered along the hex borders. A paved border has movement cost 1; unpaved borders cost 2.
-- Caravans can traverse **two paved borders per turn** instead of one unpaved border. Their pickup, delivery and return trips benefit automatically.
-- Builders and expeditions use the fastest route through their own nation when traveling. Military patrols and flanking parties recognize paved edges and adjust travel times.
-- CPU countries can construct roads under the same costs, labor requirements and action limits.
-- Domestic roads do not need a messenger falcon or foreign approval. They are separate from cross-border trade-route agreements.
-- Existing saves migrate automatically with empty domestic-road collections until roads are built.
+
+## 0.4.7 — Domestic paved roads
+- On any owned hex, open its territory sheet and build a road on the shared border with an adjacent owned hex. Roads cost **3 Silver Pents and 1 Wood per border**. One available builder must travel to the site and then spend two working turns; builders cannot be double-booked.
+- The road becomes visible as a paved border segment when completed. Unfinished edges are marked as worksites, not usable roads. The same actions are available to CPU nations.
+- Completed domestic roads reduce movement cost from 2 to 1 point per border. Caravans have 2 movement points per player turn and can travel up to 2 paved borders per turn instead of 1 unpaved border; their pickup, delivery, and return travel all benefit.
+- Builders and expeditions calculate expected arrival time using the fastest traversable route through their country; military patrols and flanking parties already use weighted road movement.
+- Domestic roads are separate from international negotiated routes; no foreign territory is needed and no falcon agreement is required.
+- Existing saved games receive empty domestic-road collections without resetting territory, inventory, or construction.
