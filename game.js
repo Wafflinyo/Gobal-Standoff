@@ -2061,6 +2061,43 @@ function constructionDustSprite(x,y){
  const circles=puffs.map(([dx,dy,endX,endY,delay],i)=>`<circle class="gs-build-puff" cx="${x+dx}" cy="${y+dy}" r="${7+i%3*2}" style="--drift-x:${endX-dx}px;--drift-y:${endY-dy}px;--puff-delay:${delay}ms"/>`).join('');
  return `<g class="gs-building-dust" pointer-events="none">${circles}<path class="gs-build-spark" d="M${x-17} ${y-18}l-3 -7m21 -13v-9m18 22l7 -5" fill="none" stroke="#f5dfa6" stroke-width="3" stroke-linecap="round"/></g>`;
 }
+function tileDepthSprites(t,x,y){
+ const result=[],seed=hash(G.seed+'-'+t.id);
+ const add=(ax,ay,html)=>{if(html)result.push({x:ax,y:ay,html:billboardSvg(ax,ay,html)});};
+ if(t.terrain==='forest'){
+  add(x-13,y+3,treeSprite(x-13,y+3,32,seed%3));
+  add(x+12,y+6,treeSprite(x+12,y+6,29,(seed+1)%3));
+  add(x+1,y-4,treeSprite(x+1,y-4,39,(seed+2)%3));
+ }else if(t.terrain==='mountain'){
+  add(x-10,y+5,mountainSprite(x-10,y+5,25,37));
+  add(x+14,y+4,mountainSprite(x+14,y+4,21,29));
+ }else add(x,y,terrainSprites(t,x,y));
+ if(t.capital)add(x,y+8,capitalSprite(t,x,y));
+ const builds=t.buildings||[],offsets=t.capital?[[-22,-9],[21,10],[2,19]]:[[-16,-10],[16,5],[0,18]],scale=t.capital?.57:.74;
+ for(let i=0;i<Math.min(3,builds.length);i++){
+  const [dx,dy]=offsets[i];
+  const arriving=scenePlayback?.kind==='build'&&scenePlayback.tileId===t.id&&scenePlayback.buildingIndex===i;
+  const queued=G.completedScenes?.some(j=>j.tileId===t.id&&j.buildingIndex===i);
+  if((queued&&!arriving)||(arriving&&scenePlayback.phase==='prepare'))continue;
+  const growing=arriving&&scenePlayback.phase==='play';
+  const sprite=buildingSprite(builds[i],x,y,G.players[t.owner].color);
+  const transform=`translate(${(x+dx).toFixed(1)} ${(y+dy).toFixed(1)}) scale(${scale}) translate(${(-x).toFixed(1)} ${(-y).toFixed(1)})`;
+  add(x+dx,y+dy+scale*8,`<g transform="${transform}">${growing?'<g class="gs-construction-rise">'+sprite+'</g>':sprite}</g>`);
+  if(growing)add(x+dx,y+dy+2,constructionDustSprite(x+dx,y+dy));
+ }
+ const extra=scenePlayback?.kind==='build'&&scenePlayback.tileId===t.id&&scenePlayback.phase==='prepare'&&scenePlayback.buildingIndex>2?builds.length-1:builds.length;
+ if(extra>3)add(x+24,y-26,`<g pointer-events="none"><rect x="${x+10}" y="${y-36}" width="28" height="16" rx="8" fill="#182e36" stroke="#e5c994"/><text x="${x+24}" y="${y-25}" font-size="10" font-weight="bold" fill="#fff2d3" text-anchor="middle">+${extra-3}</text></g>`);
+ if(scenePlayback?.kind==='build'&&scenePlayback.tileId===t.id&&scenePlayback.buildingIndex>2&&scenePlayback.phase==='play')add(x,y,constructionDustSprite(x,y));
+ const jobs=(G.projects||[]).filter(j=>j.tileId===t.id);
+ if(jobs.length){
+  const working=jobs.some(j=>assignedBuilders(G.players[j.owner],j.id).some(c=>c.builder.travelRemaining===0));
+  add(x,y+7,`<g class="gs-worksite" pointer-events="none"><ellipse cx="${x}" cy="${y+6}" rx="23" ry="8" fill="#bd9164"/>
+   <path d="M${x-15} ${y+6}v-20h30v20m-30 -20l30 20m-30 0l30 -20" stroke="#654934" stroke-width="2.6" fill="none"/>
+   <use href="#gs-i-builder" x="${x-8}" y="${y-31}" width="16" height="16"/>
+   ${working?`<g class="gs-work-dust"><circle cx="${x-16}" cy="${y-9}" r="8"/><circle cx="${x+8}" cy="${y-16}" r="9"/><circle cx="${x+18}" cy="${y-6}" r="6"/></g>`:''}</g>`);
+ }
+ return result;
+}
 function tileMiniatures(t,x,y){
  let s=terrainSprites(t,x,y);
  if(t.capital)s+=capitalSprite(t,x,y);
