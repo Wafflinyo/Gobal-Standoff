@@ -1,8 +1,12 @@
-/* Global Standoff 0.4.5 — Messenger Falcons, cooperative roads, physical caravans and distributed storage. */
+/* Global Standoff 0.4.6 — Silver Pents, diplomatic falcons, war phases, concealed patrols and owned-edge roads. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
 const OLD_SAVE_KEY='global_standoff_v01_save';
+// Original silver five-sided coin: the currency is Silver Pents (SP), not SP.
+const silverPentIcon=(size=21)=>`<svg class="gs-silver-pent" width="${size}" height="${size}" viewBox="0 0 40 40" aria-label="Silver Pents" role="img"><path d="M20 2L37 14L30.5 35H9.5L3 14Z" fill="#dbe2e7" stroke="#617889" stroke-width="2.4"/><path d="M20 7L31.5 16L27 30H13L8.5 16Z" fill="#a8b9c4" stroke="#f4f9fa" stroke-width="1.5"/><path d="M20 11L20 29M12 17L28 17M14 26L26 26" stroke="#465d6d" stroke-width="1.5" opacity=".4"/><text x="20" y="25.5" text-anchor="middle" font-size="14" font-weight="900" fill="#203e4e" stroke="#edf2f2" stroke-width=".6" paint-order="stroke">SP</text></svg>`;
+const moneyLabel=amount=>`${amount} SP`;
+
 const RADIUS=7, HEX=40, MAX_ROUNDS=24, MAJOR_ACTIONS=3; // 169 hexes; three major actions per turn
 const COLORS=['#7ed0b7','#e6af79','#b7a1e9','#f08b87'];
 const NPCS=[{name:'Alder Union',capital:'Oakspire',sigil:'♣'},{name:'Coral Dominion',capital:'Sunport',sigil:'◆'},{name:'Vesper Republic',capital:'Duskfall',sigil:'✧'}];
@@ -86,20 +90,20 @@ const BUILDINGS={
  lumber:{name:'Lumber Camp',icon:'🌲',gold:4,wood:1,iron:0,space:2,rounds:2,upkeep:1,jobs:[2,4,6],production:{},allow:['forest'],text:'Workers harvest Timber Logs · ship logs to Woodworks'},
  mine:{name:'Mine',icon:'⛏',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['mountain'],text:'Produces Stone on EVERY mountain plus any mineral veins'},
  homes:{name:'Homes',icon:'🏘',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces · caretakers employed for upkeep'},
- market:{name:'Marketplace',icon:'⚖',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'Gold income scales with worker staffing and morale'},
+ market:{name:'Marketplace',icon:'⚖',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'Silver Pents income scales with worker staffing and morale'},
  academy:{name:'Academy',icon:'📚',gold:8,wood:2,iron:2,space:2,rounds:3,upkeep:2,jobs:[2,3,4],production:{knowledge:3},allow:['plains','forest','hills','desert','mountain'],text:'Research output requires staffed teachers'},
  caravanWarehouse:{name:'Caravan Warehouse',icon:'▣',gold:8,wood:5,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert'],text:'Houses 1 / 2 / 3 caravans by level; shipments require an available wagon'},
- storageWarehouse:{name:'Storage Warehouse',icon:'▤',gold:7,wood:4,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'40 / 80 / 140 units of local goods storage at levels 1 / 2 / 3'},
+ storageWarehouse:{name:'Storage Warehouse',icon:'▤',gold:7,wood:4,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Holds 40 / 80 / 140 goods at levels 1 / 2 / 3. Nearby factories can collect supplies here.'},
  builderBunk:{name:'Builders’ Bunk',icon:'🛖',gold:8,wood:3,iron:0,space:1,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Houses 1 / 2 / 3 active builders by level. Builders travel before working'},
  post:{name:'Military Post',icon:'🛡',gold:8,wood:2,iron:2,space:2,rounds:2,upkeep:2,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Administrative staff support recruitment and the 12-troop garrison'},
  foundry:{name:'Steelworks Factory',icon:'🏭',gold:10,wood:3,iron:3,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Receives Iron + Coal shipments and smelts Steel'},
  leatherFactory:{name:'Leather Factory',icon:'🧵',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Raw Leather → Leather Armor; send gear to a military post'},
  woodworks:{name:'Woodworks Factory',icon:'🪚',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['forest','plains','hills'],text:'Timber Logs → Construction Wood or Wooden Shields'},
  stoneworks:{name:'Stone Workshop',icon:'🪓',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['plains','hills','mountain'],text:'Stone + Wood → axes, pickaxes, swords or clubs'},
- armory:{name:'Armory',icon:'⚒',gold:10,wood:2,iron:2,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Produces Iron, Steel, Gold and Diamond armor from delivered metal'}
+ armory:{name:'Armory',icon:'⚒',gold:10,wood:2,iron:2,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Produces Iron, Steel, SP and Diamond armor from delivered metal'}
 };
-const TECHS={irrigation:{name:'Irrigation',icon:'💧',gold:3,knowledge:4,desc:'+1 Food per Farm, every round.'},commerce:{name:'Commerce',icon:'⚜',gold:4,knowledge:5,desc:'+1 Gold per Marketplace, every round.'},cartography:{name:'Cartography',icon:'🧭',gold:4,knowledge:5,desc:'Expansion costs 2 less Gold.'}};
-const CARDS={grant:{name:'Royal Grant',icon:'🪙',desc:'Gain 6 Gold.'},harvest:{name:'Great Harvest',icon:'🌽',desc:'Gain 5 Food.'},supplies:{name:'Supply Caravan',icon:'📦',desc:'Gain 3 Wood and 2 Iron.'},insight:{name:'Discovery',icon:'📜',desc:'Gain 3 Knowledge.'},charter:{name:'Frontier Charter',icon:'🗺',desc:'Next expansion costs 3 less Gold.'},permit:{name:'Building Permit',icon:'🏛',desc:'Next building costs 3 less Gold.'}};
+const TECHS={irrigation:{name:'Irrigation',icon:'💧',gold:3,knowledge:4,desc:'+1 Food per Farm, every round.'},commerce:{name:'Commerce',icon:'⚜',gold:4,knowledge:5,desc:'+1 Silver Pent per Marketplace, every round.'},cartography:{name:'Cartography',icon:'🧭',gold:4,knowledge:5,desc:'Expansion costs 2 less SP.'}};
+const CARDS={grant:{name:'Royal Grant',icon:'SP',desc:'Gain 6 SP.'},harvest:{name:'Great Harvest',icon:'🌽',desc:'Gain 5 Food.'},supplies:{name:'Supply Caravan',icon:'📦',desc:'Gain 3 Wood and 2 Iron.'},insight:{name:'Discovery',icon:'📜',desc:'Gain 3 Knowledge.'},charter:{name:'Frontier Charter',icon:'🗺',desc:'Next expansion costs 3 less SP.'},permit:{name:'Building Permit',icon:'🏛',desc:'Next building costs 3 less SP.'}};
 const CARD_POOL=['grant','harvest','supplies','grant','insight','charter','permit','supplies','harvest','grant','insight','permit'];
 const CAPITAL_SPOTS=[[-5,-1],[5,1],[-1,5],[1,-5]];
 const PREFIX=['Silver','Oak','Raven','Stone','High','Dawn','West','Green','Amber','Cinder','Iron','Sun','River','Frost','Moss','Ash','Bright','Elder','Wolf','Pine','Star','Cloud'];
@@ -202,7 +206,7 @@ function progressExpeditions(){
   if(crew.remaining>0)continue;
   const tile=G.tiles.find(t=>t.id===crew.targetId);
   if(tile&&tile.owner===null&&tile.terrain!=='water'&&neighbors(tile).some(n=>n.owner===p.id)){
-   tile.owner=p.id;reallocateHousing(p);discoverContacts();
+   tile.owner=p.id;reallocateHousing(p);discoverContacts();checkWarningViolation(tile,p.id);
    G.completedScenes.push({projectId:`claim-${p.id}-${tile.id}-${G.turnClock}`,owner:p.id,tileId:tile.id,kind:'expand'});
    addLog(`${p.name}'s expedition established control of ${tile.name}.`);
   }
@@ -211,7 +215,7 @@ function progressExpeditions(){
 }
 function advanceWorldTurn(){
  G.turnClock=(G.turnClock||0)+1;
- progressExpeditions();progressProjects();progressTradeOffers();progressTradeRoutes();progressShipments();
+ progressExpeditions();progressProjects();progressDiplomaticFalcons();progressWarOrders();progressTradeOffers();progressTradeRoutes();progressShipments();
  save();
 }
 
@@ -291,8 +295,9 @@ function upgradeBuilding(t,index,id=0){
  useAction(p,`${p.name} began upgrading ${BUILDINGS[t.buildings[index]].name} to Level ${meta.level+1} at ${t.name}.`,{tileId:t.id,kind:'upgrade'});
  if(id===0)showToast('Upgrade underway');return true;
 }
-// Every physical resource lives at its producer, in a shipment, at another worksite,
-// or in the national capital warehouse. Gold/Knowledge are immaterial accounting.
+// Goods exist only in a site's bounded inventory, in a physical caravan, or in storage.
+// Storage Warehouses have independent inventories; the capital warehouse remains available.
+// Gold/Knowledge are accounting values, not cargo.
 function siteLookup(owner,siteId){
  if(siteId==='depot')return {tile:G.tiles.find(t=>t.owner===owner&&t.capital),site:null,kind:'depot'};
  for(const t of G.tiles.filter(t=>t.owner===owner))for(let i=0;i<t.buildings.length;i++){
@@ -302,35 +307,49 @@ function siteLookup(owner,siteId){
 }
 function localCount(site,item){return Math.max(0,Math.floor(site?.stock?.[item]||0));}
 function addLocal(site,item,n){site.stock??={};site.stock[item]=Math.max(0,localCount(site,item)+n);}
-
 function siteStorageCapacity(kind,level=1){
  const lvl=Math.max(1,Math.min(3,level||1));
  if(kind==='storageWarehouse')return [40,80,140][lvl-1];
  if(FACTORY_RECIPES[kind])return [12,24,42][lvl-1];
  if(['farm','lumber','mine'].includes(kind))return [16,32,54][lvl-1];
  if(kind==='post')return [32,56,88][lvl-1];
- return 0;
+ return 0; // Bunks, markets, academies, and caravan garages are not goods stores.
 }
 function stockUsed(site){return Object.values(site?.stock||{}).reduce((n,v)=>n+Math.max(0,Number(v)||0),0);}
+function endpointStorageCapacity(p,endpoint){
+ if(endpoint==='depot')return Infinity; // Legacy treasury/warehouse storage remains valid.
+ const found=siteLookup(p.id,endpoint);
+ return found?siteStorageCapacity(found.kind,found.site?.level):0;
+}
 function endpointStorageFree(p,endpoint){
  if(endpoint==='depot')return Infinity;
  const found=siteLookup(p.id,endpoint);
- return found?Math.max(0,siteStorageCapacity(found.kind,found.site?.level)-stockUsed(found.site)):0;
+ return Math.max(0,endpointStorageCapacity(p,endpoint)-stockUsed(found?.site));
 }
 function incomingReserved(owner,endpoint){
  return G.shipments.filter(j=>j.owner===owner&&String(j.to)===String(endpoint)&&j.stage!=='return').reduce((n,j)=>n+(j.qty||0),0);
 }
-function endpointDeliverySpace(p,endpoint){return endpoint==='depot'?Infinity:Math.max(0,endpointStorageFree(p,endpoint)-incomingReserved(p.id,endpoint));}
+function endpointDeliverySpace(p,endpoint){
+ return endpoint==='depot'?Infinity:Math.max(0,endpointStorageFree(p,endpoint)-incomingReserved(p.id,endpoint));
+}
+function putLocalBounded(p,siteId,item,amount){
+ const found=siteLookup(p.id,siteId);if(!found)return 0;
+ const fit=Math.min(Math.max(0,amount),endpointStorageFree(p,siteId));
+ if(fit>0)addLocal(found.site,item,fit);
+ return fit;
+}
 function storedAt(p,item){
  const stores=[{id:'depot',tile:siteLookup(p.id,'depot')?.tile,count:depotCount(p,item)}];
- for(const tile of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<tile.buildings.length;i++)if(tile.buildings[i]==='storageWarehouse')
+ for(const tile of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<tile.buildings.length;i++){
+  if(tile.buildings[i]!=='storageWarehouse')continue;
   stores.push({id:tile.buildingMeta?.[i]?.id,tile,count:localCount(tile.buildingMeta?.[i],item)});
- return stores.filter(x=>x.tile&&x.count>0);
+ }
+ return stores.filter(o=>o.tile&&o.count>0);
 }
-function nearbyStorage(p,tile){
- const stores=[{id:'depot',tile:siteLookup(p.id,'depot')?.tile},
- ...G.tiles.filter(t=>t.owner===p.id).flatMap(t=>t.buildings.map((kind,i)=>kind==='storageWarehouse'?{id:t.buildingMeta?.[i]?.id,tile:t}:null).filter(Boolean))];
- return stores.map(o=>({...o,path:o.tile&&ownedPath(p.id,tile,o.tile)})).filter(o=>o.path&&endpointDeliverySpace(p,o.id)>0).sort((a,b)=>a.path.length-b.path.length)[0]||null;
+function nearbyStorage(p,tile,item){
+ const stores=[{id:'depot',tile:siteLookup(p.id,'depot')?.tile},...G.tiles.filter(t=>t.owner===p.id).flatMap(t=>t.buildings.map((kind,i)=>kind==='storageWarehouse'?{id:t.buildingMeta?.[i]?.id,tile:t}:null).filter(Boolean))];
+ return stores.map(o=>({...o,path:o.tile&&ownedPath(p.id,tile,o.tile)})).filter(o=>o.path&&endpointDeliverySpace(p,o.id)>0)
+  .sort((a,b)=>a.path.length-b.path.length)[0]||null;
 }
 
 function depotCount(p,item){
@@ -349,10 +368,8 @@ function endpointCount(p,endpoint,item){
 function endpointAdd(p,endpoint,item,change){
  if(endpoint==='depot'){addDepot(p,item,change);return change;}
  const found=siteLookup(p.id,endpoint);if(!found?.site)return 0;
- if(change<0){const used=-Math.min(-change,localCount(found.site,item));addLocal(found.site,item,used);return used;}
- const fit=Math.min(change,endpointStorageFree(p,endpoint));
- if(fit>0)addLocal(found.site,item,fit);
- return fit;
+ if(change<0){const amount=-Math.min(-change,localCount(found.site,item));addLocal(found.site,item,amount);return amount;}
+ return putLocalBounded(p,endpoint,item,change);
 }
 function ownedPath(owner,a,b){
  if(!a||!b||a.owner!==owner||b.owner!==owner)return null;
@@ -395,7 +412,8 @@ function dispatchShipment(owner,from,to,item,qty,auto=false){
  const p=G.players[owner],src=siteLookup(owner,from),dst=siteLookup(owner,to),amount=Math.floor(qty);
  if(!p||!src?.tile||!dst?.tile||String(from)===String(to)||amount<1)return false;
  const reservedFrom=G.shipments.filter(j=>j.owner===owner&&String(j.from)===String(from)&&j.item===item&&j.stage==='pickup').reduce((n,j)=>n+j.qty,0);
- const qtyFit=Math.min(10,amount,Math.max(0,endpointCount(p,from,item)-reservedFrom),endpointDeliverySpace(p,to));
+ const freeSource=Math.max(0,endpointCount(p,from,item)-reservedFrom);
+ const qtyFit=Math.min(10,amount,freeSource,endpointDeliverySpace(p,to));
  if(qtyFit<1)return false;
  const delivery=ownedPath(owner,src.tile,dst.tile);if(!delivery)return false;
  const available=availableCaravan(owner,src.tile);if(!available)return false;
@@ -425,17 +443,19 @@ function moveCaravanToStage(job,cart,p){
   job.step=0;job.remaining=Math.max(1,(job.path?.length||1)-1);return;
  }
  if(stage==='delivery'||stage==='unloading'){
-  if(!siteLookup(job.owner,job.to)){
-   const home=siteLookup(job.owner,'depot'),here=G.tiles.find(t=>t.id===cart.currentTileId);
-   job.to='depot';job.toTileId=home?.tile?.id;
-   job.path=ownedPath(job.owner,here,home?.tile)||[here?.id].filter(Boolean);
+  const validDestination=siteLookup(job.owner,job.to);
+  if(!validDestination){
+   // A demolished site does not magically teleport cargo home; carry it to the capital.
+   const capital=siteLookup(job.owner,'depot');
+   job.to='depot';job.toTileId=capital?.tile?.id;
+   const from=G.tiles.find(t=>t.id===cart.currentTileId);
+   job.path=ownedPath(job.owner,from,capital?.tile)||[from?.id].filter(Boolean);
    job.step=0;job.stage='delivery';return;
   }
   const unloaded=endpointAdd(p,job.to,job.item,job.qty);
-  job.delivered=(job.delivered||0)+unloaded;
   job.qty-=unloaded;
   if(job.qty>0){job.stage='unloading';job.remaining=0;return;}
-  if(job.owner===0)addLog(`${job.delivered} ${GOOD_NAMES[job.item]||job.item} arrived at ${G.tiles.find(t=>t.id===job.toTileId)?.name}.`);
+  if(job.owner===0)addLog(`${unloaded} ${GOOD_NAMES[job.item]||job.item} arrived at ${G.tiles.find(t=>t.id===job.toTileId)?.name}.`);
   const dest=G.tiles.find(t=>t.id===job.toTileId),bases=caravanWarehouses(p);
   const destinationBase=bases.find(w=>w.tile.id===dest?.id);
   const canStay=destinationBase&&(p.caravanPolicy==='stay')&&p.caravans.filter(c=>c.id!==cart.id&&!c.shipmentId&&c.currentTileId===dest.id).length<destinationBase.capacity;
@@ -474,8 +494,8 @@ function runAgricultureAndForestry(){
    const food=Math.max(1,Math.round((4+(t.river?1:0)+(p.tech.includes('irrigation')?1:0))*factor));
    const leather=Math.max(1,Math.round(1.5*factor));
    const free=endpointStorageFree(p,site.id);
-   if(free>0){const foodAdded=Math.min(food,free);addLocal(site,'food',foodAdded);if(free>foodAdded)addLocal(site,'leather',Math.min(leather,free-foodAdded));}
-  }else{const free=endpointStorageFree(p,site.id);if(free>0)addLocal(site,'logs',Math.min(free,Math.max(1,Math.round(3*factor))));}
+   if(free>=1){addLocal(site,'food',Math.min(food,free));addLocal(site,'leather',Math.min(leather,free-Math.min(food,free)));}
+  }else{const free=endpointStorageFree(p,site.id);if(free>=1)addLocal(site,'logs',Math.min(free,Math.max(1,Math.round(3*factor))));}
  }
 }
 function processFactories(){
@@ -486,6 +506,7 @@ function processFactories(){
   const attempts=Math.min(q.level,Math.max(1,Math.ceil(q.count/2)));
   for(let n=0;n<attempts;n++){
    if(!Object.entries(chosen.input).every(([item,amount])=>localCount(site,item)>=amount))break;
+   // Output must have actual storage room. A full factory stops until a wagon unloads it.
    if(endpointStorageFree(p,site.id)<(chosen.amount||1))break;
    const successChance=Math.min(.98,.55+.32*q.efficiency+.08*(q.level-1));
    const rng=mulberry32(hash(G.seed+':factory:'+site.id+':'+G.round+':'+n));
@@ -502,7 +523,7 @@ function autoDispatchOutputs(){
    const count=localCount(site,item);if(count<1)continue;
    let to=site.routes?.[item]??null;
    if(p.id!==0&&to===null&&(['woodShield','leatherArmor','ironArmor','steelArmor','goldArmor','diamondArmor'].includes(item)||item.startsWith('stone'))){const post=getMilitaryPosts(p.id)[0];if(post)to=postStock(p,post.id)?.id||'depot';}
-   if(to===null)to=nearbyStorage(p,t)?.id||'depot';
+   if(to===null)to=nearbyStorage(p,t,item)?.id||'depot';
    if(String(to)===String(site.id)||!siteLookup(p.id,to))continue;
    dispatchShipment(p.id,site.id,to,item,Math.min(10,count),true);
   }
@@ -515,10 +536,10 @@ function autoRequestFactoryInputs(){
   for(const [item,amount] of Object.entries(rec.input)){
    const queued=G.shipments.filter(j=>j.owner===p.id&&j.to===site.id&&j.item===item).reduce((n,j)=>n+j.qty,0);
    const needed=Math.max(0,amount*(site.level||1)*2-localCount(site,item)-queued);
-   const free=endpointDeliverySpace(p,site.id);
+   const free=Math.max(0,endpointDeliverySpace(p,site.id));
    if(needed>0&&free>0){
     const sources=storedAt(p,item).map(source=>({...source,path:ownedPath(p.id,source.tile,t)})).filter(o=>o.path&&String(o.id)!==String(site.id)).sort((a,b)=>a.path.length-b.path.length);
-    for(const source of sources)if(dispatchShipment(p.id,source.id,site.id,item,Math.min(10,needed,free,source.count),true))break;
+    for(const source of sources){if(dispatchShipment(p.id,source.id,site.id,item,Math.min(10,needed,free,source.count),true))break;}
    }
   }
  }
@@ -707,7 +728,7 @@ function createWorld(seed,name,capital,color){
  prepareMineralVeins(tiles,seed);
  const deck=Array.from({length:6},()=>CARD_POOL).flat().sort(()=>rng()-.5);
  const worldName=['The Wild Marches','The Broken Coast','The Emerald Frontier','The Hinterlands','The New Continent'][randInt(rng,5)];
- G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
+ G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],diplomaticFalcons:[],warnings:[],wars:[],militaryOrders:[],nextDiplomacyId:1,nextOrderId:1,nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
  for(const p of players){const citizenRng=mulberry32(hash(seed+'-people-'+p.id));for(let k=0;k<10;k++)p.citizens.push(makeCitizen(p,citizenRng,true));reallocateHousing(p);drawCard(p);drawCard(p);}
  ensureBuildingMeta(G);ensureStartingCrews(G);for(const p of G.players){reallocateHousing(p);assignWorkers(p);syncCaravans(p);}
  beginTurn(0);
@@ -734,7 +755,7 @@ function upgradeSavedWaterways(s){
 }
 function migrateGameplay(s){
  s.projects=s.projects||[];s.completedScenes=s.completedScenes||[];s.contacts=s.contacts||[];
- s.shipments??=[];s.nextShipmentId??=1;
+ s.shipments??=[];s.nextShipmentId??=1; s.diplomaticFalcons??=[];s.warnings??=[];s.wars??=[];s.militaryOrders??=[];s.nextDiplomacyId??=1;s.nextOrderId??=1;
  s.logisticsRouteVersion??=0;
  s.tradeOffers=s.tradeOffers||[];s.tradeRoutes=s.tradeRoutes||[];
  s.nextProjectId=s.nextProjectId||1;s.nextTradeId=s.nextTradeId||1;
@@ -797,6 +818,150 @@ function discoverContacts(){
   }
  }
 }
+// A warning doesn't start a battle. A delivered war declaration starts a war PHASE.
+// Its troop deployments are secret to the opposing country until real reconnaissance exists.
+const warPair=(a,b)=>[a,b].sort((x,y)=>x-y).join(':');
+function currentWar(a,b){return (G.wars||[]).find(w=>w.key===warPair(a,b)&&w.status==='war');}
+function opponentsAtWar(id){return (G.wars||[]).filter(w=>w.status==='war'&&(w.a===id||w.b===id)).map(w=>w.a===id?w.b:w.a);}
+function startWar(a,b,cause='A war declaration arrived by messenger falcon'){
+ if(a===b||currentWar(a,b))return false;
+ const entry={key:warPair(a,b),a,b,status:'war',startedClock:G.turnClock||0,cause};
+ G.wars.push(entry);for(const warning of G.warnings||[])if(warning.status==='active'&&warPair(warning.from,warning.to)===entry.key)warning.status='escalated';
+ for(const id of [a,b])for(const c of G.players[id].citizens){if(!c.military)c.morale=Math.max(0,(c.morale??50)-4);}
+ addLog(`${G.players[a].name} and ${G.players[b].name} entered the WAR PHASE. Troops may patrol, guard borders and flank. No battle begins automatically.`);
+ return true;
+}
+function endWar(a,b){const w=currentWar(a,b);if(!w)return false;w.status='peace';w.endedClock=G.turnClock||0;addLog(`${G.players[a].name} and ${G.players[b].name} signed a ceasefire.`);return true;}
+function diplomaticMessageText(note){const from=G.players[note.from],t=G.tiles.find(t=>t.id===note.tileId);return note.kind==='warning'?`If you expand into ${t?.name||'the warned territory'}, ${from.name} will declare war.`:note.kind==='war'?`${from.name} declares war. A war phase now begins; battles are not automatic.`:`${from.name} proposes a ceasefire.`;}
+function sendDiplomaticFalcon(to,kind,tileId=null,id=0,automatic=false){
+ const from=G.players[id],other=G.players[to];if(!from||!other||id===to||!['warning','war','peace'].includes(kind))return false;
+ if(!automatic&&!canCountryAct(from,id))return false;
+ if(kind==='warning'&&(!tileId||!G.tiles.some(t=>t.id===tileId&&t.terrain!=='water'&&t.owner===null)))return false;
+ if(kind==='war'&&currentWar(id,to))return false;
+ if(kind==='peace'&&!currentWar(id,to))return false;
+ if(!automatic&&!hasMoney(from,1))return false;
+ if(!automatic)from.gold-=1;
+ const dist=distance(capitalOf(id),capitalOf(to)),trip=Math.max(1,Math.ceil(dist/5));
+ const note={id:G.nextDiplomacyId++,kind,from:id,to,tileId,createdClock:G.turnClock||0,travelTotal:trip,remaining:trip,status:'flying',automatic};
+ G.diplomaticFalcons.push(note);
+ if(!automatic)useAction(from,`${from.name} launched a messenger falcon to ${other.capital} carrying a ${kind==='war'?'declaration of war':kind==='peace'?'ceasefire proposal':'territorial warning'}.`);
+ else addLog(`${from.name} dispatched a falcon after a territorial warning was violated.`);
+ if(id===0)showToast(`Falcon dispatched to ${other.capital}`);
+ return true;
+}
+function checkWarningViolation(tile,newOwner){
+ for(const w of G.warnings.filter(x=>x.to===newOwner&&x.tileId===tile.id&&x.status==='active')){
+  w.status='violated';
+  if(!currentWar(w.from,newOwner)&&!G.diplomaticFalcons.some(f=>f.kind==='war'&&f.from===w.from&&f.to===newOwner&&f.status==='flying'))
+   sendDiplomaticFalcon(newOwner,'war',tile.id,w.from,true);
+ }
+}
+function progressDiplomaticFalcons(){
+ for(const note of G.diplomaticFalcons.filter(x=>x.status==='flying')){
+  if((G.turnClock||0)<=note.createdClock+1)continue; // A 1T order never completes on the sender's own turn.
+  note.remaining=Math.max(0,note.remaining-1);if(note.remaining)continue;
+  note.status='arrived';const recipient=G.players[note.to];
+  const relation=warPair(note.from,note.to);if(!G.contacts.includes(relation))G.contacts.push(relation);
+  if(note.kind==='warning'){
+   G.warnings.push({id:note.id,from:note.from,to:note.to,tileId:note.tileId,status:'active',deliveredClock:G.turnClock});
+   addLog(`Messenger falcon delivered a warning to ${recipient.capital}: ${diplomaticMessageText(note)}`);
+  }else if(note.kind==='war'){startWar(note.from,note.to,`War declaration delivered to ${recipient.capital}`);}
+  else if(note.kind==='peace'){
+   if(note.to===0){note.status='awaiting-reply';addLog(`${G.players[note.from].name} requested a ceasefire. Review World Affairs.`);}
+   else {const r=mulberry32(hash(G.seed+':ceasefire:'+note.id)); if(r()>.28)endWar(note.from,note.to);else addLog(`${recipient.name} refused the ceasefire proposal.`);}
+  }
+ }
+}
+function acceptCeasefire(falconId,accept){const n=G.diplomaticFalcons.find(x=>x.id===falconId&&x.to===0&&x.kind==='peace'&&x.status==='awaiting-reply');if(!n||!active())return false;n.status=accept?'accepted':'rejected';if(accept)endWar(n.from,n.to);else addLog(`${G.players[0].name} rejected a ceasefire.`);save();render();return true;}
+function roadExistsBetween(a,b){return (G.tradeRoutes||[]).some(r=>r.status==='active'&&r.banks?.some(pair=>pair.includes(a.id)&&pair.includes(b.id)));}
+// Flanks may cross neutral unowned land even when no road exists; unbuilt trails take longer.
+// Enemy-controlled hexes are not passable without a future battle/infiltration mechanic.
+function militaryTravelPath(owner,from,to){
+ if(!from||!to||from.terrain==='water'||to.terrain==='water')return null;
+ const cost=new Map([[from.id,0]]),prev=new Map(),pending=new Set([from.id]);
+ while(pending.size){let best=null,d=Infinity;for(const id of pending){const c=cost.get(id);if(c<d){best=id;d=c;}}pending.delete(best);if(best===to.id)break;
+  const t=G.tiles.find(t=>t.id===best);for(const next of neighbors(t)){
+   if(next.terrain==='water'||(next.owner!==null&&next.owner!==owner))continue;
+   const travel=roadExistsBetween(t,next)?1:(next.owner===owner?2:3)+(next.terrain==='mountain'?1:0);
+   const cand=d+travel;if(cand<(cost.get(next.id)??Infinity)){cost.set(next.id,cand);prev.set(next.id,best);pending.add(next.id);}
+  }
+ }
+ if(!cost.has(to.id))return null;
+ const path=[to.id];while(path[0]!==from.id){const p=prev.get(path[0]);if(!p)return null;path.unshift(p);}
+ return {path,points:cost.get(to.id)};
+}
+function orderMilitary(to,enemy,postId,qty,kind='patrol',id=0){
+ const p=G.players[id],post=G.tiles.find(t=>t.id===postId),target=G.tiles.find(t=>t.id===to);
+ if(!p||!target||!post||!currentWar(id,enemy)||p.logisticsUsed||G.turnIndex!==id)return false;
+ if(id===0&&!active())return false;
+ if(post.owner!==id||!buildingCount(post,'post')||target.terrain==='water')return false;
+ if(kind==='patrol'&&(target.owner!==id||!neighbors(target).some(n=>n.owner===null||n.owner===enemy)))return false;
+ if(kind==='flank'&&(target.owner!==null||!G.tiles.some(t=>t.owner===enemy&&distance(t,target)<=3)))return false;
+ const soldiers=postGarrison(p,postId).filter(c=>!c.military.missionId).slice(0,Number(qty));
+ if(!soldiers.length||soldiers.length!==Number(qty)||soldiers.length>12)return false;
+ const route=militaryTravelPath(id,post,target);if(!route)return false;
+ const mission={id:G.nextOrderId++,owner:id,enemy,originPostId:post.id,targetTileId:target.id,kind,troopIds:soldiers.map(c=>c.id),path:route.path,index:0,stepSpent:0,totalPoints:route.points,startedClock:G.turnClock||0,status:'traveling'};
+ G.militaryOrders.push(mission);for(const c of soldiers)c.military.missionId=mission.id;
+ p.logisticsUsed=true;addLog(`${p.name} issued confidential military orders during the war phase.`);
+ if(id===0){showToast(`Dispatched ${soldiers.length} troops; off-road travel is slower.`);save();render();}
+ return true;
+}
+function recallMilitary(id,owner=0){const m=G.militaryOrders.find(x=>x.id===id&&x.owner===owner&&x.status!=='returned');if(!m||owner===0&&!active())return false;
+ const p=G.players[owner],origin=G.tiles.find(t=>t.id===m.originPostId),here=G.tiles.find(t=>t.id===m.path[m.index]);if(!origin||!here)return false;
+ const route=militaryTravelPath(owner,here,origin);if(!route)return false;
+ m.path=route.path;m.index=0;m.stepSpent=0;m.totalPoints=route.points;m.targetTileId=origin.id;m.kind='return';m.status='returning';m.startedClock=G.turnClock||0;
+ addLog(`${p.name} recalled a patrol.`);save();render();return true;
+}
+function progressWarOrders(){
+ for(const m of G.militaryOrders.filter(m=>['traveling','returning'].includes(m.status))){
+  if((G.turnClock||0)<=m.startedClock+1)continue;
+  if(m.index>=m.path.length-1){m.status=m.kind==='return'?'returned':'patrolling';continue;}
+  const t=G.tiles.find(t=>t.id===m.path[m.index]),next=G.tiles.find(t=>t.id===m.path[m.index+1]);if(!t||!next)continue;
+  const need=roadExistsBetween(t,next)?1:(next.owner===m.owner?2:3)+(next.terrain==='mountain'?1:0);
+  m.stepSpent++;if(m.stepSpent>=need){m.index++;m.stepSpent=0;}
+  if(m.index>=m.path.length-1){m.status=m.kind==='return'?'returned':'patrolling';
+   if(m.status==='returned'){const p=G.players[m.owner];for(const c of p.citizens)if(c.military?.missionId===m.id)c.military.missionId=null;}
+   else if(m.owner===0)addLog(`Your ${m.kind==='flank'?'flanking party':'border patrol'} reached its assigned position.`);
+  }
+ }
+}
+function visibleWarOrderMarkers(){
+ if(!G||cpuBusy||G.turnIndex!==0)return '';
+ return G.militaryOrders.filter(m=>m.owner===0&&m.status!=='returned').map(m=>{
+  const t=G.tiles.find(t=>t.id===m.path[m.index]);if(!t)return '';
+  const c=sceneCoords(t),foe=capitalOf(m.enemy);const n=m.troopIds.length;
+  const target=foe?sceneCoords(foe):{x:c.x,y:c.y-30},degrees=Math.atan2(target.y-c.y,target.x-c.x)*180/Math.PI+90;
+  return `<g class="gs-war-marker" pointer-events="none" transform="translate(${c.x.toFixed(1)} ${c.y.toFixed(1)})"><path d="M0 -22L14 -15L11 0Q0 12 -11 0L-14 -15Z" fill="#1b3542" stroke="#f7df9f" stroke-width="2"/><path d="M0 -17V3M-7 -9H7" stroke="#f7df9f" stroke-width="2"/><path d="M0 -37L6 -25L0 -29L-6 -25Z" fill="#f6a77b" stroke="#122e3d" stroke-width="1.5" transform="rotate(${degrees.toFixed(1)})"/><text y="-25" text-anchor="middle">${n}</text></g>`;
+ }).join('');
+}
+function renderWarPanel(){
+ const panel=el('warBody');if(!panel||!G)return;const me=G.players[0],wars=opponentsAtWar(0),incoming=G.diplomaticFalcons.filter(n=>n.to===0&&n.status==='awaiting-reply');
+ let html=`<p class="gs-war-intro">Falcons carry territorial warnings, declarations and ceasefire proposals. Declaring war begins a <b>war phase</b>, not combat. Enemy troop movements are concealed. Civilian morale suffers while war continues.</p>`;
+ if(wars.length)html+=`<div class="gs-war-alert"><strong>WAR PHASE ACTIVE</strong><span>${wars.map(id=>esc(G.players[id].name)).join(' · ')} · Civilians lose 2 morale per round</span></div>`;
+ for(const f of incoming)html+=`<div class="gs-war-order"><b>${esc(G.players[f.from].name)} requests a ceasefire</b><div class="gs-war-actions"><button data-peace-answer="${f.id}" data-accept="yes">Accept</button><button data-peace-answer="${f.id}" data-accept="no">Reject</button></div></div>`;
+ const owned=G.tiles.filter(t=>t.owner===0),warnable=G.tiles.filter(t=>t.owner===null&&t.terrain!=='water');
+ const flights=G.diplomaticFalcons.filter(f=>(f.from===0||f.to===0)&&['flying','awaiting-reply'].includes(f.status));
+ if(flights.length)html+=`<div class="gs-war-order"><strong>Messenger Falcons</strong>${flights.map(f=>`<div class="gs-war-unit"><b>${esc(G.players[f.from].name)} → ${esc(G.players[f.to].capital)}</b><small>${esc(f.kind.toUpperCase())} · ${f.status==='flying'?`${f.remaining}T until delivery`:'Awaiting your response'}${f.tileId?` · ${esc(G.tiles.find(t=>t.id===f.tileId)?.name||'')}`:''}</small></div>`).join('')}</div>`;
+ for(const other of G.players.filter(p=>p.id!==0)){
+  const atWar=!!currentWar(0,other.id),capital=capitalOf(other.id),warnings=G.warnings.filter(w=>w.status==='active'&&w.to===0&&w.from===other.id);
+  html+=`<div class="gs-war-order"><strong>${esc(other.name)} ${atWar?'<span class="gs-war-state">AT WAR</span>':'<span class="gs-war-peace">PEACE</span>'}</strong><small>Falcon destination: ${esc(capital?.name||other.capital)}. Courier cost: 1 SP.</small>`;
+  for(const w of warnings){const t=G.tiles.find(x=>x.id===w.tileId);html+=`<p class="gs-warning-text">WARNING RECEIVED: If you take ${esc(t?.name||'the specified land')}, war may be declared.</p>`;}
+  if(!atWar){
+   html+=`<label class="gs-war-field">Disputed territory<select data-warning-land="${other.id}">${warnable.slice().sort((a,b)=>Math.min(...owned.map(o=>distance(a,o)))-Math.min(...owned.map(o=>distance(b,o)))).map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label><div class="gs-war-actions"><button data-send-warning="${other.id}" ${!canAct()?'disabled':''}>Send Warning</button><button data-send-war="${other.id}" ${!canAct()?'disabled':''}>Declare War by Falcon</button></div>`;
+  }else html+=`<div class="gs-war-actions"><button data-send-peace="${other.id}" ${!canAct()?'disabled':''}>Send Ceasefire Proposal</button></div>`;
+  html+='</div>';
+ }
+ const posts=getMilitaryPosts(0);
+ if(wars.length&&posts.length){
+  const borderOptions=G.tiles.filter(t=>t.owner===0&&neighbors(t).some(n=>n.owner===null||wars.includes(n.owner)));
+  const flankOptions=G.tiles.filter(t=>t.owner===null&&t.terrain!=='water'&&wars.some(w=>G.tiles.some(e=>e.owner===w&&distance(t,e)<=3))).slice(0,45);
+  html+=`<div class="gs-war-order"><strong>Confidential Troop Orders</strong><small>One military logistics order per turn. Patrol owned frontier hexes or flank through neutral land. Roads shorten travel. Enemies cannot view the positions.</small><label class="gs-war-field">Enemy<select id="warEnemy">${wars.map(id=>`<option value="${id}">${esc(G.players[id].name)}</option>`).join('')}</select></label><label class="gs-war-field">Military Post<select id="warPost">${posts.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} (${postGarrison(me,t.id).filter(c=>!c.military.missionId).length} ready)</option>`).join('')}</select></label><label class="gs-war-field">Order<select id="warKind"><option value="patrol">Border patrol</option><option value="flank">Flanking through neutral land</option></select></label><label class="gs-war-field">Destination<select id="warDestination">${borderOptions.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label><label class="gs-war-field">Soldiers<select id="warQuantity">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===1?'selected':''}>${i+1}</option>`).join('')}</select></label><button data-order-war="1" ${!active()||me.logisticsUsed?'disabled':''}>Dispatch Troops</button><div class="gs-war-hidden" data-patrol-options="${esc(JSON.stringify(borderOptions.map(t=>[t.id,t.name])))}" data-flank-options="${esc(JSON.stringify(flankOptions.map(t=>[t.id,t.name])))}"></div></div>`;
+ }
+ const own=G.militaryOrders.filter(m=>m.owner===0&&m.status!=='returned');
+ if(own.length)html+=`<div class="gs-war-order"><strong>Your Military Orders</strong>${own.map(m=>{const tile=G.tiles.find(t=>t.id===m.path[m.index]),target=G.tiles.find(t=>t.id===m.targetTileId);return `<div class="gs-war-unit"><b>${m.troopIds.length} troops · ${m.kind.toUpperCase()}</b><small>${esc(tile?.name||'Traveling')} → ${esc(target?.name||'Unknown')} · ${m.status}</small><button data-recall-war="${m.id}" ${!active()?'disabled':''}>Recall</button></div>`;}).join('')}</div>`;
+ panel.innerHTML=html;
+}
+
 const tradePlanCache=new Map();
 const ROUTE_SHARE_OPTIONS=[10,20,25,30,40,50,60,70,75,80,90];
 const capitalOf=id=>G.tiles.find(t=>t.owner===id&&t.capital);
@@ -855,7 +1020,7 @@ function proposeTradeRoute(to,share,id=0,fromTileId=null,toTileId=null){
  const trip=Math.max(1,Math.ceil(distance(capitalOf(id),capitalOf(to))/4));
  G.tradeOffers.push({id:G.nextTradeId++,from:id,to,share:percent,costA:split.costA,costB:split.costB,fromTileId:from.id,toTileId:dest.id,
   plan,split,status:'falcon',createdClock:G.turnClock||0,travelTotal:trip,travelRemaining:trip});
- useAction(p,`${p.name} sent a messenger falcon to ${target.capital}, proposing a border road from ${from.name} to ${dest.name} (${split.costA}/${split.costB} Gold).`);
+ useAction(p,`${p.name} sent a messenger falcon to ${target.capital}, proposing a border road from ${from.name} to ${dest.name} (${split.costA}/${split.costB} SP).`);
  if(id===0)showToast('Messenger falcon dispatched · awaiting delivery');return true;
 }
 function reserveRoadBuilder(p,route,side,endpoint){
@@ -881,7 +1046,7 @@ function decideTradeOffer(offer,accepted){
  const a=G.players[offer.from],b=G.players[offer.to];
  if(!accepted){offer.status='rejected';addLog(`${b.name} declined the road proposal from ${a.name}.`);return true;}
  if(!hasMoney(a,offer.costA)||!hasMoney(b,offer.costB)||!idleBuilders(a).length||!idleBuilders(b).length){
-  if(offer.to===0)showToast('Both countries need available Gold and one idle builder to accept.');return false;
+  if(offer.to===0)showToast('Both countries need available SP and one idle builder to accept.');return false;
  }
  const route={id:offer.id,a:a.id,b:b.id,fromTileId:offer.fromTileId,toTileId:offer.toTileId,
   points:offer.plan.points,banks:offer.plan.banks,length:offer.plan.length,split:offer.split,
@@ -922,6 +1087,11 @@ function progressTradeRoutes(){
    if(worker.builder.travelRemaining>0){worker.builder.travelRemaining--;if(worker.builder.travelRemaining===0)worker.builder.locationId=(side==='a'?route.fromTileId:route.toTileId);continue;}
    const completed=side==='a'?route.aDone:route.bDone,assigned=route.split[side==='a'?'aSegments':'bSegments'];
    if(completed>=assigned)continue;
+   const edgeIndex=side==='a'?completed:route.length-1-completed;
+   const shared=route.banks?.[edgeIndex]||[];
+   // No nation may build along unclaimed or foreign-owned borders, even with an accepted deal.
+   if(!shared.some(id=>G.tiles.find(t=>t.id===id)?.owner===p.id)){route[side+'WaitingForLand']=true;continue;}
+   route[side+'WaitingForLand']=false;
    route[side+'Done']++;
    if(route[side+'Done']===assigned)releaseRoadBuilder(route,side);
   }
@@ -940,7 +1110,7 @@ function respondTradeOffer(id,yes){
 function renderTradePanel(){
  const node=el('tradeBody');if(!node||!G)return;
  const mine=G.tiles.filter(t=>t.owner===0),allOffers=G.tradeOffers.filter(o=>o.from===0||o.to===0),roads=G.tradeRoutes.filter(r=>r.a===0||r.b===0);
- let html='<p class="gs-trade-caption">Choose named territories. A messenger falcon flies to the other capital; the two countries must agree and assign one idle builder each. Routes may cross neutral land, never third-party territory without permission.</p>';
+ let html='<p class="gs-trade-caption">Choose named territories. Falcons can propose a route across unknown land, but builders may ONLY construct border segments adjoining their own controlled hexes. Unclaimed segments wait until territory is secured. Each side completes its paid share.</p>';
  for(const partner of G.players.filter(p=>p.id!==0)){
   const theirs=G.tiles.filter(t=>t.owner===partner.id);
   const defaultA=mine[0],defaultB=theirs[0];
@@ -954,12 +1124,12 @@ function renderTradePanel(){
  }
  for(const o of allOffers){const other=G.players[o.from===0?o.to:o.from];
   const start=G.tiles.find(t=>t.id===o.fromTileId),end=G.tiles.find(t=>t.id===o.toTileId);
-  html+=`<div class="gs-trade-row"><strong>Messenger · ${esc(other.name)}</strong><small>${esc(start?.name||'Capital')} → ${esc(end?.name||'Capital')} · ${o.status==='falcon'?o.travelRemaining+'T in flight':o.status.toUpperCase()} · ${o.costA}/${o.costB} Gold</small>${o.status==='pending'&&o.to===0?`<div class="gs-trade-controls"><button class="primary" data-trade-answer="${o.id}" data-accept="yes">Accept & assign builder</button><button class="small-outline" data-trade-answer="${o.id}" data-accept="no">Decline</button></div>`:''}</div>`;
+  html+=`<div class="gs-trade-row"><strong>Messenger · ${esc(other.name)}</strong><small>${esc(start?.name||'Capital')} → ${esc(end?.name||'Capital')} · ${o.status==='falcon'?o.travelRemaining+'T in flight':o.status.toUpperCase()} · ${o.costA}/${o.costB} SP</small>${o.status==='pending'&&o.to===0?`<div class="gs-trade-controls"><button class="primary" data-trade-answer="${o.id}" data-accept="yes">Accept & assign builder</button><button class="small-outline" data-trade-answer="${o.id}" data-accept="no">Decline</button></div>`:''}</div>`;
  }
  for(const r of roads){
   const start=G.tiles.find(t=>t.id===r.fromTileId),end=G.tiles.find(t=>t.id===r.toTileId);
-  const progress=r.status==='active'?r.length:(r.aDone||0)+(r.bDone||0);
-  html+=`<div class="gs-trade-row"><strong>Border Road · ${esc(start?.name||G.players[r.a].name)} ↔ ${esc(end?.name||G.players[r.b].name)}</strong><small>${r.status==='active'?'OPEN · +2 Gold/round to each':'BUILDING · '+progress+'/'+r.length+' edges complete'} · ${r.costA??0}/${r.costB??0} Gold paid by each nation</small></div>`;
+  const progress=r.status==='active'?r.length:(r.aDone||0)+(r.bDone||0);const waiting=r.aWaitingForLand||r.bWaitingForLand;
+  html+=`<div class="gs-trade-row"><strong>Border Road · ${esc(start?.name||G.players[r.a].name)} ↔ ${esc(end?.name||G.players[r.b].name)}</strong><small>${r.status==='active'?'OPEN · +2 SP/round to each':(waiting?'WAITING FOR OWNED BORDER · ':'BUILDING · ')+progress+'/'+r.length+' edges complete'} · ${r.costA??0}/${r.costB??0} SP paid by each nation</small></div>`;
  }
  node.innerHTML=html;
  for(const partner of G.players.filter(p=>p.id!==0))refreshRouteEstimate(partner.id);
@@ -969,7 +1139,7 @@ function refreshRouteEstimate(partnerId){
  const share=Number(panel?.querySelector(`[data-trade-share="${partnerId}"]`)?.value||50);
  const label=panel?.querySelector(`[data-road-estimate="${partnerId}"]`);if(!label)return;
  const plan=tradePlan(0,partnerId,a,b),split=routeCostSplit(plan,share);
- label.textContent=plan&&split?`${plan.length} shared hex edges · you pay ${split.costA} Gold and build ${split.aSegments} edges; ${G.players[partnerId].name} pays ${split.costB} Gold and builds ${split.bSegments}.`:'No valid neutral-land border route found.';
+ label.textContent=plan&&split?`${plan.length} shared hex edges · you pay ${split.costA} SP and build ${split.aSegments} edges; ${G.players[partnerId].name} pays ${split.costB} SP and builds ${split.bSegments}.`:'No valid neutral-land border route found.';
 }
 function showToast(s){const t=el('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2650);}
 function showModal(html){el('modalBody').innerHTML=html;el('modalLayer').classList.remove('hidden');}
@@ -977,7 +1147,8 @@ function closeModal(){el('modalLayer').classList.add('hidden');}
 function mountMapUi(){
  // Reparent the existing, fully functional panels. No duplicated actions or game state.
  const sheet=el('sheetBody');
- const mineralPanel=document.createElement('div');mineralPanel.id='mineralPanel';mineralPanel.className='gs-mineral-panel';mineralPanel.innerHTML='<h3>⛏ Mineral Exchange</h3><p class="gs-mineral-caption">Sell minerals for Gold coins. Essential Coal and Iron can also be imported at a premium. Trading uses one major action.</p><div id="mineralBody"></div>';el('economySummary').after(mineralPanel);
+ const mineralPanel=document.createElement('div');mineralPanel.id='mineralPanel';mineralPanel.className='gs-mineral-panel';mineralPanel.innerHTML='<h3>⛏ Mineral Exchange</h3><p class="gs-mineral-caption">Sell minerals for Silver Pents. Essential Coal and Iron can also be imported at a premium. Trading uses one major action.</p><div id="mineralBody"></div>';el('economySummary').after(mineralPanel);
+ const war=document.createElement('section');war.id='warPanel';war.className='panel gs-war-panel';war.innerHTML='<div class="panel-heading"><h2>Falcon Diplomacy & War Room</h2></div><div id="warBody"></div>';sheet.appendChild(war);
  const trade=document.createElement('section');trade.id='tradePanel';trade.className='panel gs-trade-panel';trade.innerHTML='<div class="panel-heading"><h2>Diplomacy & Trade Routes</h2></div><div id="tradeBody"></div>';sheet.appendChild(trade);
  for(const selector of ['.territory-panel','.build-panel','.research-panel','.treasury-panel','.population-panel','.roster-panel','.feed-panel','.standings-panel']){
   const panel=document.querySelector('#game '+selector);if(panel)sheet.appendChild(panel);
@@ -1190,7 +1361,7 @@ function extractMinesForRound(p){
    if(t.buildings[index]!=='mine')continue;
    const meta=worksite(t,index),q=workQuality(p,meta,'mine');if(!q.count)continue;
    // Stone is available from ALL mountains, even mountains with no ore veins.
-   const free=endpointStorageFree(p,meta.id);if(free>0)addLocal(meta,'stone',Math.min(free,Math.max(1,Math.round(2*q.ratio*q.efficiency*(1+.5*(q.level-1))))));
+   const freeStone=endpointStorageFree(p,meta.id);if(freeStone>=1)addLocal(meta,'stone',Math.min(freeStone,Math.max(1,Math.round(2*q.ratio*q.efficiency*(1+.5*(q.level-1))))));
    for(const vein of [t.vein,t.coalVein]){
     if(!vein||vein.remaining<=0)continue;
     const cfg=MINERALS[vein.kind];if(!cfg)continue;
@@ -1239,15 +1410,15 @@ function mineralTrade(key,direction,id=0){
  if(importing&&!hasMoney(p,cost))return false;
  if(!importing&&mineralCount(p,key)<1)return false;
  if(importing){p.gold-=cost;p.minerals[key]++;}else{p.gold+=mineral.price;p.minerals[key]--;}
- useAction(p,`${p.name} ${importing?'imported':'sold'} 1 ${mineral.name} for ${importing?cost:mineral.price} Gold at the Global Exchange.`);
- if(id===0)showToast(`${importing?'Imported':'Sold'} ${mineral.name} · ${importing?'-':'+'}${importing?cost:mineral.price} Gold`);
+ useAction(p,`${p.name} ${importing?'imported':'sold'} 1 ${mineral.name} for ${importing?cost:mineral.price} SP at the Global Exchange.`);
+ if(id===0)showToast(`${importing?'Imported':'Sold'} ${mineral.name} · ${importing?'-':'+'}${importing?cost:mineral.price} SP`);
  return true;
 }
 function renderMineralMarket(){
  const node=el('mineralBody');if(!node||!G)return;
  const p=getCountry();
  node.innerHTML=MINERAL_KEYS.map(key=>{const m=MINERALS[key],q=mineralCount(p,key),buy=Math.ceil(m.price*2.1);
-  return `<div class="gs-mineral-item"><span class="gs-mineral-symbol">${m.icon}</span><div class="gs-mineral-copy"><strong>${m.name} × ${q}</strong><small>Sell: ${m.price} 🪙${['coal','iron','copper','silver'].includes(key)?` · Buy: ${buy} 🪙`: ' · Mine or trade to acquire'}</small></div><div class="gs-mineral-actions"><button data-mineral="${key}" data-direction="sell" ${!canAct()||q<=0?'disabled':''}>Sell</button>${['coal','iron','copper','silver'].includes(key)?`<button data-mineral="${key}" data-direction="buy" ${!canAct()||!hasMoney(p,buy)?'disabled':''}>Buy</button>`:''}</div></div>`;
+  return `<div class="gs-mineral-item"><span class="gs-mineral-symbol">${m.icon}</span><div class="gs-mineral-copy"><strong>${m.name} × ${q}</strong><small>Sell: ${m.price} SP${['coal','iron','copper','silver'].includes(key)?` · Buy: ${buy} SP`: ' · Mine or trade to acquire'}</small></div><div class="gs-mineral-actions"><button data-mineral="${key}" data-direction="sell" ${!canAct()||q<=0?'disabled':''}>Sell</button>${['coal','iron','copper','silver'].includes(key)?`<button data-mineral="${key}" data-direction="buy" ${!canAct()||!hasMoney(p,buy)?'disabled':''}>Buy</button>`:''}</div></div>`;
  }).join('')+`<div class="gs-mineral-item"><span class="gs-mineral-symbol">⚙️</span><div class="gs-mineral-copy"><strong>Steel × ${mineralCount(p,'steel')}</strong><small>Delivered Steel in capital warehouse · manufacture in staffed Steelworks from 2 Iron + 1 Coal</small></div><div class="gs-mineral-actions"><small>Factory only</small></div></div>`;
 }
 function useAction(p,text,visual=null){
@@ -1283,8 +1454,8 @@ function doSell(t,idx=0,id=0){
  if(type==='post'&&getMilitaryPosts(id).length&&postGarrison(p,t.id).length>0){if(id===0)showToast('Move troops before selling this post.');return false;}
  const stock=worksite(t,idx)?.stock||{};for(const [item,amount] of Object.entries(stock)){if(amount>0)dispatchShipment(id,siteId,'depot',item,amount,true);}
  const refund=Math.max(2,Math.floor(b.gold*.6));p.gold+=refund;t.buildings.splice(idx,1);t.buildingMeta?.splice(idx,1);for(const citizen of p.citizens){if(citizen.job?.siteId===siteId)citizen.job=null;}reallocateHousing(p);syncBuilders(p);assignWorkers(p);syncCaravans(p);
- useAction(p,`${p.name} sold a ${b.name} at ${t.name} to the Global Bank for ${refund} Gold.`,{tileId:t.id,kind:'sell'});
- if(id===0)showToast(`${b.name} sold for ${refund} Gold`);return true;
+ useAction(p,`${p.name} sold a ${b.name} at ${t.name} to the Global Bank for ${refund} SP.`,{tileId:t.id,kind:'sell'});
+ if(id===0)showToast(`${b.name} sold for ${refund} SP`);return true;
 }
 function doRecruit(t,id=0){return doMarketing(t,id);}
 function doTrain(t,id=0){
@@ -1300,12 +1471,12 @@ function moveSoldier(citizenId,destinationId){
  if(!active())return false;const p=getCountry();if(p.logisticsUsed)return false;
  const citizen=p.citizens.find(c=>c.id===citizenId);
  const destination=G.tiles.find(t=>t.id===destinationId);
- if(!citizen?.military||!destination||destination.owner!==0||!buildingCount(destination,'post'))return false;
+ if(!citizen?.military||citizen.military.missionId||!destination||destination.owner!==0||!buildingCount(destination,'post'))return false;
  if(citizen.military.postId===destinationId||postGarrison(p,destinationId).length>=12)return false;
  citizen.military.postId=destinationId;p.logisticsUsed=true;
  addLog(`${citizen.name} reassigned to ${destination.name}.`);save();render();showToast(`${citizen.name} transferred to ${destination.name}`);return true;
 }
-function doLevy(id=0){const p=G.players[id];if(!canCountryAct(p,id)||p.levyUsed)return false;const foodCost=Math.min(2,p.food);p.gold+=6;p.food-=foodCost;p.levyUsed=true;useAction(p,`${p.name} raised emergency taxes: +6 Gold, −${foodCost} Food.`);if(id===0)showToast('Emergency taxes collected: +6 Gold');return true;}
+function doLevy(id=0){const p=G.players[id];if(!canCountryAct(p,id)||p.levyUsed)return false;const foodCost=Math.min(2,p.food);p.gold+=6;p.food-=foodCost;p.levyUsed=true;useAction(p,`${p.name} raised emergency taxes: +6 SP, −${foodCost} Food.`);if(id===0)showToast('Emergency taxes collected: +6 Silver Pents');return true;}
 function doResearch(type,id=0){const p=G.players[id],t=TECHS[type];if(!canCountryAct(p,id)||!t||p.tech.includes(type)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge)return false;p.gold-=t.gold;p.knowledge-=t.knowledge;p.tech.push(type);useAction(p,`${p.name} completed research: ${t.name}.`);if(id===0)showToast(`${t.name} researched`);return true;}
 function playCard(id,idx){const p=G.players[id];if(!p||p.cardPlayed||idx<0||idx>=p.hand.length||G.turnIndex!==id||G.finished)return false;const type=p.hand[idx];p.cardPlayed=true;p.hand.splice(idx,1);
  switch(type){case'grant':p.gold+=6;break;case'harvest':p.food+=5;break;case'supplies':p.wood+=3;p.minerals.iron+=2;break;case'insight':p.knowledge+=3;break;case'charter':p.discountExpand+=3;break;case'permit':p.discountBuild+=3;break;}
@@ -1314,6 +1485,7 @@ function finishRound(){
  for(const p of G.players){
   const e=getEconomy(p.id),oldGold=p.gold;
   p.gold+=e.netGold;p.food=Math.max(0,p.food+e.netFood);p.wood+=e.wood;p.knowledge+=e.knowledge;
+  const wars=opponentsAtWar(p.id).length;for(const c of p.citizens){if(c.military)continue;c.morale=Math.max(0,Math.min(100,(c.morale??50)-(wars?Math.min(4,wars*2):0)));}
   if(p.gold<0&&oldGold>=0)addLog(`${p.name} has entered debt. It must repair its treasury to construct or recruit.`);
   if(p.food===0&&e.netFood<0)addLog(`${p.name} is experiencing a food shortage. Population growth paused.`);
   if(G.round%4===0)for(const c of p.citizens)c.age++;
@@ -1351,6 +1523,7 @@ async function runCpuCinematic(token=cpuPlaybackToken){
   if(token!==cpuPlaybackToken||!G)return;
   const p=G.players[id],capital=G.tiles.find(t=>t.owner===id&&t.capital)||G.tiles[0];
   actionTileId=null;beginTurn(id);render();showCpuHud(id,`Viewing ${p.name}'s turn`);
+  cpuSecretWarOrder(id);
   // A longer, ease-in/ease-out camera sweep introduces the next country.
   await moveCamera(capital,POV_ANGLES[id],1250,window.innerWidth<600?435:560);
   if(token!==cpuPlaybackToken||!G)return;
@@ -1422,9 +1595,27 @@ function playCpuOpeningCard(id){
  if(playable<0)playable=p.hand.findIndex(c=>c==='charter');if(playable<0)playable=p.hand.findIndex(c=>c==='permit');
  return playable>=0?playCard(id,playable):false;
 }
+function cpuSecretWarOrder(id){
+ const enemies=opponentsAtWar(id);if(!enemies.length)return;
+ const p=G.players[id],post=getMilitaryPosts(id).find(t=>postGarrison(p,t.id).filter(c=>!c.military.missionId).length>=1);
+ if(!post||p.logisticsUsed)return;
+ const target=G.tiles.filter(t=>t.owner===id&&neighbors(t).some(n=>n.owner===null||enemies.includes(n.owner)))
+  .sort((a,b)=>Math.min(...enemies.map(e=>distance(a,capitalOf(e))))-Math.min(...enemies.map(e=>distance(b,capitalOf(e)))))[0];
+ if(target)orderMilitary(target.id,enemies[0],post.id,Math.min(2,postGarrison(p,post.id).filter(c=>!c.military.missionId).length),'patrol',id);
+}
+
 function runCpu(id){
  const p=G.players[id];
  if(!p.cardPlayed)playCpuOpeningCard(id);
+ // CPU nations may warn rivals when their frontiers converge; players can respond by expanding or backing off.
+ if(id!==0&&G.round>=3&&!currentWar(id,0)&&p.gold>=5){
+  const sent=G.warnings.some(w=>w.from===id&&w.to===0&&['active','violated','escalated'].includes(w.status))||G.diplomaticFalcons.some(f=>f.from===id&&f.to===0&&f.kind==='warning');
+  if(!sent&&G.round%3===id%3){
+   const contested=G.tiles.filter(t=>t.owner===null&&t.terrain!=='water'&&
+    G.tiles.some(v=>v.owner===0&&distance(v,t)<=2)&&G.tiles.some(v=>v.owner===id&&distance(v,t)<=2));
+   if(contested.length&&sendDiplomaticFalcon(0,'warning',contested[0].id,id))return;
+  }
+ }
  if(G.round>=4&&G.round%4===id%4&&actionsRemaining(p)>0){
   const available=G.players.filter(v=>v.id!==id&&!alreadyLinked(id,v.id)&&idleBuilders(p).length&&idleBuilders(v).length);
   if(available.length&&p.gold>18&&proposeTradeRoute(available[0].id,50,id))return;
@@ -1498,20 +1689,20 @@ function render(){if(!G)return;
  el('capitalFlag').textContent=p.sigil;
  el('turnCounter').textContent=`Round ${G.round} of ${G.maxRounds} · ${G.tiles.length} hexes · ${G.tiles.filter(t=>t.owner===0).length} owned`;
  el('turnLabel').textContent=G.finished?'TEST COMPLETE':G.turnIndex===0&&!cpuBusy?'YOUR TURN':'CPU TURN';el('turnLabel').classList.toggle('cpu-turn',G.turnIndex!==0||cpuBusy);
- el('resources').innerHTML=[['gold','🪙','Gold'],['food','🌾','Food'],['wood','🪵','Wood'],['iron','🔩','Iron'],['knowledge','✦','Knowledge']].map(([field,icon,name])=>`<div class="resource ${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
- el('quickStats').innerHTML=[['gold','🪙'],['food','🌾'],['wood','🪵'],['iron','🔩'],['knowledge','✦']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</b></span>`).join('');
- el('economySummary').innerHTML=`<span>Gold income <strong>+${e.gold}</strong></span> · <span>Upkeep <strong>−${e.upkeep}</strong></span> · <span>Net <strong class="${e.netGold>=0?'positive':'negative'}">${e.netGold>=0?'+':''}${e.netGold}</strong>/round</span><span> · Wages <strong>−${e.wages}</strong>/round</span><span> · Employed <strong>${workforceSummary(p).employed}</strong> / Available <strong>${workforceSummary(p).available}</strong></span><span> · Food <strong class="${e.netFood>=0?'positive':'negative'}">${e.netFood>=0?'+':''}${e.netFood}</strong>/round</span>${p.gold<0?'<div class="economy-alert">⚠ In debt: building and recruitment are locked until the treasury recovers.</div>':''}`;
+ el('resources').innerHTML=[['gold',silverPentIcon(23),'Silver Pents'],['food','🌾','Food'],['wood','🪵','Wood'],['iron','🔩','Iron'],['knowledge','✦','Knowledge']].map(([field,icon,name])=>`<div class="resource ${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
+ el('quickStats').innerHTML=[['gold',silverPentIcon(16)],['food','🌾'],['wood','🪵'],['iron','🔩'],['knowledge','✦']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</b></span>`).join('');
+ el('economySummary').innerHTML=`<span>Silver Pents income <strong>+${e.gold}</strong></span> · <span>Upkeep <strong>−${e.upkeep}</strong></span> · <span>Net <strong class="${e.netGold>=0?'positive':'negative'}">${e.netGold>=0?'+':''}${e.netGold}</strong>/round</span><span> · Wages <strong>−${e.wages}</strong>/round</span><span> · Employed <strong>${workforceSummary(p).employed}</strong> / Available <strong>${workforceSummary(p).available}</strong></span><span> · Food <strong class="${e.netFood>=0?'positive':'negative'}">${e.netFood>=0?'+':''}${e.netFood}</strong>/round</span>${p.gold<0?'<div class="economy-alert">⚠ In debt: building and recruitment are locked until the treasury recovers.</div>':''}`;
  el('economySummary').innerHTML+=`<div class="gs-depot-note">🏛 Capital warehouse: ${Object.entries(p.warehouse||{}).filter(([k,v])=>v>0).map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · ')||'No crafted goods yet'}</div>`+shippingDashboard();
   el('populationSummary').innerHTML=`<div class="population-stat"><strong>${people.count}</strong><span>Citizens</span></div><div class="population-stat"><strong>${people.housed} / ${people.housing}</strong><span>Housed / Beds</span></div><div class="population-stat ${people.homeless?'population-warning':''}"><strong>${people.homeless}</strong><span>Homeless</span></div><div class="population-stat"><strong>${people.soldiers}</strong><span>Troops</span></div>`;
  el('populationAdvice').textContent=people.homeless>0?`${people.homeless} citizens need homes. Build on an owned tile with open space, or expand to make room.`:people.housing<=people.count+2?'Housing is nearly full. Consider additional homes before the next population increase.':'Each round can bring new citizens when Food is available. Homes need building space, and terrain limits residents.';
- renderMap();renderTile(tile);renderHand();renderResearch();renderStandings();renderLog();renderRoster();renderTradePanel();renderMineralMarket();
+ renderMap();renderTile(tile);renderHand();renderResearch();renderStandings();renderLog();renderRoster();renderTradePanel();renderWarPanel();renderMineralMarket();
  el('buildPanel').classList.toggle('hidden',!showBuild);el('researchPanel').classList.toggle('hidden',!showResearch);
  el('endTurnBtn').disabled=!active();el('levyBtn').disabled=!canAct()||!!p.levyUsed;el('researchBtn').disabled=!active();el('levySheetBtn')?.toggleAttribute('disabled',!canAct()||!!p.levyUsed);
  el('endTurnBtn').innerHTML=G.finished?'TEST COMPLETE':scenePlayback?'ANIMATING…':active()?`END TURN <span>→</span>`:'CPU THINKING…';
  const remaining=actionsRemaining(p);
  el('mapActionCounter').innerHTML=G.finished?'TEST COMPLETE':cpuBusy?'◈ CPU ACTIONS':`<span class="action-dots">${Array.from({length:MAJOR_ACTIONS},(_,i)=>`<i class="${i<remaining?'ready':'spent'}"></i>`).join('')}</span><b>${remaining}/${MAJOR_ACTIONS}</b> ACTIONS LEFT`;
  el('actionNotice').innerHTML=G.finished?'Prototype match complete. Review the results or start another world.':scenePlayback?'Construction in progress…':cpuBusy?'Three CPU nations are taking their turns…':remaining===0?'All 3 major actions used. You can still play a card or transfer troops.':`<b>${remaining} major action${remaining===1?'':'s'} remaining.</b> Expand, build, market enlistment, govern or research.`;
- el('turnFoot').textContent=p.discountBuild||p.discountExpand?`Active discounts: Build −${p.discountBuild} Gold · Expand −${p.discountExpand} Gold`:'3 major actions + 1 troop transfer per turn · 1 optional card';
+ el('turnFoot').textContent=p.discountBuild||p.discountExpand?`Active discounts: Build −${p.discountBuild} SP · Expand −${p.discountExpand} SP`:'3 major actions + 1 troop transfer per turn · 1 optional card';
 }
 function renderTile(t){
  const container=el('territoryDetails');
@@ -1532,16 +1723,13 @@ function renderTile(t){
   const upgrade=upgradePrice(t,i),inProgress=G.projects.some(job=>job.upgradeSiteId===meta?.id);
   html+=`<div class="gs-job-card"><div class="gs-job-head"><strong>${b.icon} ${b.name} · Lvl ${meta?.level||1}</strong><small>${type==='homes'?`${8+4*((meta?.level||1)-1)} housing capacity · no employees required`:type==='builderBunk'?`${meta?.level||1} builder position${(meta?.level||1)===1?'':'s'} · provides specialized builders`:type==='caravanWarehouse'?`${meta?.level||1} caravan berth${(meta?.level||1)===1?'':'s'} · stores transport wagons`: `${q?.count||0}/${q?.slots||0} workers · Morale ${q?.count?Math.round(q.morale):'—'}/100`} · ${(b.upkeep+(meta.level-1)*Math.ceil(b.upkeep*.8))} base upkeep${q.slots?' + '+q.count+' wages':''}${type==='post'?` · ${occupied}/12 troops`:''}</small></div>`;
   const stockList=Object.entries(meta?.stock||{}).filter(([k,v])=>v>0);
-
   const storageLimit=siteStorageCapacity(type,meta.level),stored=stockUsed(meta);
-  if(storageLimit>0)html+=`<div class="gs-storage-gauge"><b>Storage: ${stored}/${storageLimit} units</b>${stored>=storageLimit?' · FULL — production paused until collected':''}<div class="gs-storage-track"><span style="width:${Math.min(100,100*stored/storageLimit)}%"></span></div><small>Upgrading this building increases its capacity.</small></div>`;
-
+  if(storageLimit>0)html+=`<div class="gs-storage-gauge"><b>Storage:</b> ${stored}/${storageLimit} units${stored>=storageLimit?' · FULL — production halted until collected':''}<div class="gs-storage-track"><span style="width:${Math.min(100,100*stored/storageLimit)}%"></span></div><small>Higher building levels increase storage capacity.</small></div>`;
   const outgoing=G.shipments.filter(job=>job.owner===p.id&&job.from===meta.id);
-  html+=`<div class="gs-site-inventory"><small>📦 On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>🚚 Shipped: ${outgoing.slice(0,4).map(job=>`${job.qty} ${GOOD_NAMES[job.item]||job.item} (${job.remaining}r)`).join(' · ')}`:''}</small></div>`;
-
+  html+=`<div class="gs-site-inventory"><small>📦 On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>On the road: ${outgoing.slice(0,4).map(job=>`${job.qty} ${GOOD_NAMES[job.item]||job.item} (${job.remaining}T)`).join(' · ')}`:''}</small></div>`;
   if(isOwn&&type==='storageWarehouse'&&stockList.length){
    const targets=routingTargets(p,meta.id);
-   html+=`<div class="gs-storage-actions"><strong>Ship stored goods by caravan</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship up to 10</button></div>`).join('')}</div>`;
+   html+=`<div class="gs-storage-actions"><strong>Send stored goods with an available caravan</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship up to 10</button></div>`).join('')}</div>`;
   }
   if(isOwn&&FACTORY_RECIPES[type])html+=`<label class="gs-routing-label">Manufacture <select data-recipe-site="${i}">${FACTORY_RECIPES[type].map(recipe=>`<option value="${recipe}" ${meta.recipe===recipe?'selected':''}>${RECIPES[recipe].name}</option>`).join('')}</select></label>`;
   if(isOwn&&OUTPUTS[type]?.length){const targets=routingTargets(p,meta.id);
@@ -1550,8 +1738,8 @@ function renderTile(t){
     html+=`<label class="gs-routing-label">🚚 ${GOOD_NAMES[item]||item} destination <select data-route-site="${i}" data-route-good="${item}">${targets.map(target=>`<option value="${target.id}" ${String(route)===String(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>`;}
   }
   if(isOwn){html+=`<div class="gs-job-controls">${q.slots?`<button data-action="hire-worker" data-index="${i}" ${!active()||q.count>=q.slots||!p.citizens.some(c=>eligibleWorker(c)&&!c.job)?'disabled':''}>Hire</button><button data-action="release-worker" data-index="${i}" ${!active()||!q.count?'disabled':''}>Release</button><button data-action="auto-workers" data-index="${i}" ${!active()?'disabled':''}>Auto ${meta.autoHire?'ON':'OFF'}</button>`:''}`;
-   if(upgrade)html+=`<button data-action="upgrade" data-index="${i}" ${!canAct()||!idleBuilders(p).length||inProgress||!hasMoney(p,upgrade.gold)||p.wood<upgrade.wood||mineralCount(p,'iron')<upgrade.iron?'disabled':''}>${inProgress?'Upgrading…':`Upgrade L${meta.level+1}: ${upgrade.gold} 🪙 ${upgrade.wood} 🪵 ${upgrade.iron} 🔩`}</button>`;
-   html+=`<button data-action="sell" data-index="${i}" ${!canAct()||occupied>0||inProgress?'disabled':''}>Sell +${Math.max(2,Math.floor(b.gold*.6))} 🪙</button></div>`;
+   if(upgrade)html+=`<button data-action="upgrade" data-index="${i}" ${!canAct()||!idleBuilders(p).length||inProgress||!hasMoney(p,upgrade.gold)||p.wood<upgrade.wood||mineralCount(p,'iron')<upgrade.iron?'disabled':''}>${inProgress?'Upgrading…':`Upgrade L${meta.level+1}: ${upgrade.gold} SP ${upgrade.wood} 🪵 ${upgrade.iron} 🔩`}</button>`;
+   html+=`<button data-action="sell" data-index="${i}" ${!canAct()||occupied>0||inProgress?'disabled':''}>Sell +${Math.max(2,Math.floor(b.gold*.6))} SP</button></div>`;
   }
   html+='</div>';
  });html+='</div>';}
@@ -1565,7 +1753,7 @@ function renderTile(t){
  if(isOwn){const b=buildersSummary(p),exp=(p.expeditions||[])[0];html+=`<div class="gs-crew-status">🛠 Builders: ${b.free}/${b.total} available (capacity ${b.capacity}) · 🧭 Expedition: ${exp?.targetId?'traveling ('+exp.remaining+' turns)':'ready'}</div>`;}
 
  html+='<div class="tile-actions">';
- if(frontier){const cost=expansionCost(p),afford=hasMoney(p,cost)&&p.food>=2;html+=`<button class="action-btn primary-action" data-action="expand" ${!canAct()||!afford?'disabled':''}>Send expedition <span>${cost} 🪙 + 2 🌾 · travel required</span></button>`;if(!afford)html+='<div class="disabled-help">Not enough Gold or Food to expand.</div>';}
+ if(frontier){const cost=expansionCost(p),afford=hasMoney(p,cost)&&p.food>=2;html+=`<button class="action-btn primary-action" data-action="expand" ${!canAct()||!afford?'disabled':''}>Send expedition <span>${cost} SP + 2 🌾 · travel required</span></button>`;if(!afford)html+='<div class="disabled-help">Not enough Silver Pents or Food to expand.</div>';}
  else if(t.owner===null&&pendingClaim(t.id)){const exp=expeditionForTile(t.id);html+=`<div class="feature-locked">🧭 ${esc(G.players[exp.owner].name)} expedition approaching · ${exp.remaining} turn${exp.remaining===1?'':'s'} remaining</div>`;}
  else if(t.owner===null&&t.terrain==='water'){html+='<div class="feature-locked">🌊 Lakes cannot currently be claimed or built upon.</div>';}
  else if(t.owner===null){html+='<p class="empty-note">Expand from your own border to reach this territory.</p>';}
@@ -1574,7 +1762,7 @@ function renderTile(t){
   else html+='<div class="feature-locked">🏘 This hex is full. Expand into another territory for more construction space.</div>';
   if(buildingCount(t,'post')){
    const count=postGarrison(p,t.id).length,available=p.citizens.filter(c=>c.age>=18&&!c.military).length;
-   html+=`<div class="post-actions"><strong>🛡 Military post · ${count}/12 stationed</strong><button class="action-btn" data-action="recruit" ${!canAct()||count>=12||!available||!hasMoney(p,4)?'disabled':''}>Recruitment marketing <span>4 🪙 · 2 rounds boost</span></button><button class="action-btn" data-action="train" ${!canAct()||!count||!hasMoney(p,3)||p.food<1?'disabled':''}>Train up to 3 troops <span>3 🪙 + 1 🌾</span></button></div>`;
+   html+=`<div class="post-actions"><strong>🛡 Military post · ${count}/12 stationed</strong><button class="action-btn" data-action="recruit" ${!canAct()||count>=12||!available||!hasMoney(p,4)?'disabled':''}>Recruitment marketing <span>4 SP · 2 rounds boost</span></button><button class="action-btn" data-action="train" ${!canAct()||!count||!hasMoney(p,3)||p.food<1?'disabled':''}>Train up to 3 troops <span>3 SP + 1 🌾</span></button></div>`;
   }
   if(!idleBuilders(p).length)html+='<div class="disabled-help">🛠 All builders are assigned. Finish a project or upgrade/build another Builders’ Bunk.</div>';
    if(peopleSummary(p).homeless>0)html+='<div class="disabled-help">💡 Build Homes here if space allows. Each adds 8 housing spaces, up to the terrain population ceiling.</div>';
@@ -1583,7 +1771,7 @@ function renderTile(t){
  if(showBuild){if(!isOwn||buildFree(t)<=0){showBuild=false;el('buildPanel').classList.add('hidden');}else renderBuildOptions(t);}
 }
 function renderBuildOptions(t){
- const p=getCountry();el('buildOptions').innerHTML=Object.entries(BUILDINGS).filter(([k,b])=>b.allow.includes(t.terrain)).map(([k,b])=>`<button class="build-option" data-build="${k}" ${!canAct()||!canBuild(p,t,b)?'disabled':''}><span class="build-symbol">${b.icon}</span><span class="build-main"><span class="build-name">${b.name}</span><span class="build-desc" style="display:block">${b.text} · ${b.space} space · ${Math.max(2,b.rounds*2)} work turns + builder travel · −${b.upkeep} Gold upkeep</span></span><span class="build-cost">${buildingCost(p,b)} 🪙<br>${b.wood} 🪵 · ${b.iron} 🔩</span></button>`).join('');
+ const p=getCountry();el('buildOptions').innerHTML=Object.entries(BUILDINGS).filter(([k,b])=>b.allow.includes(t.terrain)).map(([k,b])=>`<button class="build-option" data-build="${k}" ${!canAct()||!canBuild(p,t,b)?'disabled':''}><span class="build-symbol">${b.icon}</span><span class="build-main"><span class="build-name">${b.name}</span><span class="build-desc" style="display:block">${b.text} · ${b.space} space · ${Math.max(2,b.rounds*2)} work turns + builder travel · −${b.upkeep} Silver Pents upkeep</span></span><span class="build-cost">${buildingCost(p,b)} SP<br>${b.wood} 🪵 · ${b.iron} 🔩</span></button>`).join('');
 }
 function renderRoster(){
  const p=getCountry(),posts=getMilitaryPosts(0),troops=p.citizens.filter(c=>!!c.military);
@@ -1603,7 +1791,7 @@ function renderRoster(){
   }).join(''):`<p class="empty-note">No troops enlisted yet. Build a Military Post, then eligible adults can volunteer each round. Run a marketing campaign to increase interest.</p>`;
  }
 }
-function renderResearch(){const p=getCountry();el('researchOptions').innerHTML=Object.entries(TECHS).map(([k,t])=>`<button class="build-option" data-tech="${k}" ${!canAct()||p.tech.includes(k)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge?'disabled':''}><span class="build-symbol">${t.icon}</span><span class="build-main"><span class="build-name">${t.name} ${p.tech.includes(k)?'✓':''}</span><span class="build-desc" style="display:block">${t.desc}</span></span><span class="build-cost">${t.gold} 🪙<br>${t.knowledge} ✦</span></button>`).join('');}
+function renderResearch(){const p=getCountry();el('researchOptions').innerHTML=Object.entries(TECHS).map(([k,t])=>`<button class="build-option" data-tech="${k}" ${!canAct()||p.tech.includes(k)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge?'disabled':''}><span class="build-symbol">${t.icon}</span><span class="build-main"><span class="build-name">${t.name} ${p.tech.includes(k)?'✓':''}</span><span class="build-desc" style="display:block">${t.desc}</span></span><span class="build-cost">${t.gold} SP<br>${t.knowledge} ✦</span></button>`).join('');}
 function renderHand(){
  const p=getCountry(),n=p.hand.length;el('cardCount').textContent=cpuBusy?'YOUR HAND':`${n} / 4`;
  if(cpuBusy){
@@ -1618,7 +1806,7 @@ function renderHand(){
   return `<button type="button" class="card-item" data-card="${i}" style="--fan:${fan};--angle:${angle}deg" aria-label="Inspect ${esc(CARDS[c].name)}"><span class="card-icon">${CARDS[c].icon}</span><span class="card-name">${esc(CARDS[c].name)}</span><span class="card-desc">TAP TO VIEW</span></button>`;
  }).join('')||'<p class="hand-empty">No cards in hand. Draw again next turn.</p>';
 }
-function renderStandings(){const sorted=[...G.players].sort((a,b)=>prosperity(b)-prosperity(a));el('standings').innerHTML=sorted.map((p,i)=>`<div class="standing"><span class="standing-rank">${i+1}</span><span class="standing-color" style="background:${p.color}"></span><span class="standing-name"><strong>${esc(p.name)}${p.id===0?' (You)':''}</strong><small>${G.tiles.filter(t=>t.owner===p.id).length} territory · ${G.tiles.filter(t=>t.owner===p.id).reduce((n,t)=>n+(t.buildings||[]).length,0)} builds · ${fmt(p.gold)} Gold</small></span><span class="standing-score">${prosperity(p)}</span></div>`).join('');}
+function renderStandings(){const sorted=[...G.players].sort((a,b)=>prosperity(b)-prosperity(a));el('standings').innerHTML=sorted.map((p,i)=>`<div class="standing"><span class="standing-rank">${i+1}</span><span class="standing-color" style="background:${p.color}"></span><span class="standing-name"><strong>${esc(p.name)}${p.id===0?' (You)':''}</strong><small>${G.tiles.filter(t=>t.owner===p.id).length} territory · ${G.tiles.filter(t=>t.owner===p.id).reduce((n,t)=>n+(t.buildings||[]).length,0)} builds · ${fmt(p.gold)} SP</small></span><span class="standing-score">${prosperity(p)}</span></div>`).join('');}
 function renderLog(){el('gameLog').innerHTML=G.log.slice(0,10).map(l=>`<div class="log-item"><span class="log-round">R${l.round}</span><span>${esc(l.text)}</span></div>`).join('');}
 // Global Standoff: lightweight 2.5D board. All illustrations are vector primitives,
 // rendered without third-party libraries or large image downloads.
@@ -1626,22 +1814,9 @@ const coords=t=>({x:HEX*Math.sqrt(3)*(t.q+t.r/2),y:HEX*1.5*t.r});
 const VIEW_TILT=.68;
 const POV_ANGLES=[-.24,.36,.92,1.48];
 const smooth=t=>t*t*(3-2*t);
-const smoother=t=>t*t*t*(t*(t*6-15)+10);
 const blend=(a,b,t)=>a+(b-a)*t;
 let cameraYaw=POV_ANGLES[0],cameraMoveFrame=0,cameraResolve=null,cpuPlaybackToken=0,skipCpuPlayback=false,actionTileId=null,actionKind='';
 const project=(x,y,yaw=cameraYaw)=>({x:x*Math.cos(yaw)-y*Math.sin(yaw),y:(x*Math.sin(yaw)+y*Math.cos(yaw))*VIEW_TILT});
-const unproject=(x,y,yaw=cameraYaw)=>{const c=Math.cos(yaw),sn=Math.sin(yaw),fy=y/VIEW_TILT;return {x:x*c+fy*sn,y:-x*sn+fy*c};};
-let boardTileVisuals=[];
-function syncBoardRotation(){
- const content=el('mapContent');if(!content)return;
- const d=cameraYaw-POV_ANGLES[0],c=Math.cos(d),sn=Math.sin(d);
- content.setAttribute('transform','matrix('+c.toFixed(7)+' '+(VIEW_TILT*sn).toFixed(7)+' '+(-sn/VIEW_TILT).toFixed(7)+' '+c.toFixed(7)+' 0 0)');
- const invB=-VIEW_TILT*sn,invC=sn/VIEW_TILT;
- for(const {node,x,y} of boardTileVisuals){
-  const tx=x-(c*x+invC*y),ty=y-(invB*x+c*y);
-  node.setAttribute('transform','matrix('+c.toFixed(7)+' '+invB.toFixed(7)+' '+invC.toFixed(7)+' '+c.toFixed(7)+' '+tx.toFixed(3)+' '+ty.toFixed(3)+')');
- }
-}
 const sceneCoords=(tile,yaw=cameraYaw)=>{const c=coords(tile);return project(c.x,c.y,yaw);};
 function hexPoints(tile,r=HEX-1,yaw=cameraYaw){
  const center=coords(tile);return Array.from({length:6},(_,i)=>{
@@ -1672,7 +1847,7 @@ function hutSprite(x,y,roof='#b96e53',w=20,h=16){
  return `<g class="map-sprite" pointer-events="none"><ellipse cx="${x}" cy="${y+2}" rx="${w*.72}" ry="5" fill="#233a30" opacity=".25"/><path d="M${x-w/2} ${y-h+5}L${x} ${y-h+10}L${x} ${y+2}L${x-w/2} ${y-3}Z" fill="#bea883"/><path d="M${x} ${y-h+10}L${x+w/2} ${y-h+5}L${x+w/2} ${y-3}L${x} ${y+2}Z" fill="#f1dfb7"/><path d="M${x-w/2-3} ${y-h+5}L${x} ${y-h-7}L${x} ${y-h+10}Z" fill="#915a48"/><path d="M${x} ${y-h-7}L${x+w/2+3} ${y-h+5}L${x} ${y-h+10}Z" fill="${roof}"/><path d="M${x+2} ${y-3}v-7h5v7" fill="#796650"/></g>`;
 }
 function buildingSprite(type,x,y,color){
- if(type==='storageWarehouse')return `<g class="map-sprite" pointer-events="none"><ellipse cx="${x}" cy="${y+10}" rx="25" ry="7" fill="#1b2b2c" opacity=".25"/><path d="M${x-23} ${y-14}h46v25h-46Z" fill="#dbc8a4" stroke="#695a49" stroke-width="2"/><path d="M${x-28} ${y-14}l28 -20 28 20Z" fill="#916d56" stroke="#5a4640" stroke-width="2"/><rect x="${x-14}" y="${y-5}" width="28" height="16" fill="#9b7957" stroke="#e3cda4" stroke-width="2"/><path d="M${x-16} ${y+3}h32m-16 -8v16" stroke="#69523e" stroke-width="2.5"/><rect x="${x-23}" y="${y-24}" width="9" height="9" fill="${color}"/></g>`;
+ if(type==='storageWarehouse')return `<g pointer-events="none" class="map-sprite"><ellipse cx="${x}" cy="${y+10}" rx="25" ry="7" fill="#1b2b2c" opacity=".25"/><path d="M${x-23} ${y-14}h46v25h-46Z" fill="#dbc8a4" stroke="#695a49" stroke-width="2"/><path d="M${x-28} ${y-14}l28 -20 28 20Z" fill="#916d56" stroke="#5a4640" stroke-width="2"/><rect x="${x-14}" y="${y-5}" width="28" height="16" fill="#9b7957" stroke="#e3cda4" stroke-width="2"/><path d="M${x-16} ${y+3}h32m-16 -8v16" stroke="#69523e" stroke-width="2.5"/><rect x="${x-23}" y="${y-24}" width="9" height="9" fill="${color}"/></g>`;
  if(type==='homes')return hutSprite(x-5,y+4,'#ae7154',16,15)+hutSprite(x+9,y-2,'#d9a16d',14,13);
  if(type==='farm')return `<g pointer-events="none" class="map-sprite"><path d="M${x-22} ${y+9}l20 -9 23 8 -20 10z" fill="#c3a265" stroke="#9f8151" stroke-width="1.2"/><path d="M${x-15} ${y+8}l15 -7m-7 12l16 -8m-17 4l15 -7" stroke="#f2d277" stroke-width="2"/></g>`+hutSprite(x+8,y-7,'#c66647',16,15);
  if(type==='lumber')return treeSprite(x-8,y,27,1)+hutSprite(x+8,y+5,'#8c6951',15,12)+`<path d="M${x-20} ${y+11}h18m-17 4h16" stroke="#9e6d41" stroke-width="4" pointer-events="none"/>`;
@@ -1773,14 +1948,21 @@ function caravanVisuals(){
  })).join('');
 }
 
+function diplomaticFalconVisuals(){
+ return (G.diplomaticFalcons||[]).filter(f=>f.status==='flying').map(f=>{
+  const origin=capitalOf(f.from),dest=capitalOf(f.to);if(!origin||!dest)return '';
+  const a=sceneCoords(origin),b=sceneCoords(dest),t=1-(f.remaining/f.travelTotal);
+  const x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t-25;
+  return `<g class="gs-messenger-falcon gs-diplomatic-falcon" pointer-events="none" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><path class="gs-falcon-wing" d="M0 0Q-18 -19 -25 -7Q-8 -10 -2 2Z" fill="#e2d6bd" stroke="#263d4e" stroke-width="2"/><path class="gs-falcon-wing right" d="M0 0Q18 -19 25 -7Q8 -10 2 2Z" fill="#d4af74" stroke="#263d4e" stroke-width="2"/><path d="M-5 0Q0 -8 5 0L2 11H-2Z" fill="#faf1d8" stroke="#263d4e" stroke-width="1.5"/><circle cx="0" cy="10" r="3" fill="#8f4e4b"/></g>`;
+ }).join('');
+}
+
 function renderMap(){
  if(!G)return;
  const svg=el('worldMap');svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
- const savedYaw=cameraYaw;cameraYaw=POV_ANGLES[0];
  const sorted=G.tiles.map(t=>({t,c:sceneCoords(t)})).sort((a,b)=>a.c.y-b.c.y||a.c.x-b.c.x);
- const bases=[],decorations=[],visualAnchors=[];
+ const bases=[],decorations=[];
  for(const {t,c:{x,y}} of sorted){
-  visualAnchors.push({x,y});
   const claiming=scenePlayback?.tileId===t.id&&scenePlayback.kind==='expand';
   const owner=(t.owner===null||(claiming&&scenePlayback.phase==='prepare'))?null:G.players[t.owner],selected=!cpuBusy&&t.id===G.selectedId;
   const top=hexPoints(t,HEX-1),lower=top.map(p=>({x:p.x,y:p.y+10}));
@@ -1790,7 +1972,7 @@ function renderMap(){
   bases.push(`<g class="tile-base" pointer-events="none"><polygon points="${pts(lower)}" fill="#202f2b" opacity=".33" transform="translate(2 2)"/>${faces}<polygon points="${pts(top)}" fill="${fill}" stroke="${border}" stroke-width="${owner?'2.5':'1.4'}"/><polygon points="${pts([top[4],top[5],top[0]])}" fill="#fff3c9" opacity=".07"/><polygon points="${pts([top[1],top[2],top[3]])}" fill="#2d312f" opacity=".08"/>${owner?`<polygon points="${pts(top)}" fill="${owner.color}" opacity=".14"/>`:''}${selected?`<polygon points="${pts(top)}" fill="none" stroke="#fff6c7" stroke-width="3.6"/>`:''}</g>`);
   const action=t.id===actionTileId;
   const scout=expeditionForTile(t.id);
-  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/><g class="tile-visual">${tileMiniatures(t,x,y)}${scout?`<g pointer-events="none"><path d="M${x} ${y-21}v-22" stroke="#203945" stroke-width="2"/><path d="M${x} ${y-43}l13 4 -13 5z" fill="${G.players[scout.owner]?.color||'#eac585'}"/></g>`:''}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}</g>${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}</g>`);
+  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/>${tileMiniatures(t,x,y)}${scout?`<g pointer-events="none"><path d="M${x} ${y-21}v-22" stroke="#203945" stroke-width="2"/><path d="M${x} ${y-43}l13 4 -13 5z" fill="${G.players[scout.owner]?.color||'#eac585'}"/></g>`:''}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}</g>`);
  }
   const waterways=(G.rivers||[]).map(river=>{
    // Vertices are shared by two land hexes; project AFTER camera yaw/tilt.
@@ -1801,13 +1983,11 @@ function renderMap(){
    return `<g class="river-course" pointer-events="none"><path d="${d}" stroke="#49675b" stroke-width="12" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".82"/><path d="${d}" stroke="#398aab" stroke-width="8.2" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="${d}" stroke="#a0dbe5" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".77"/></g>`;
   }).join('');
  const tradeLines=roadVisuals();
- const movementOverlays=falconVisuals()+expeditionTrailVisuals()+caravanVisuals();
+ const movementOverlays=falconVisuals()+diplomaticFalconVisuals()+expeditionTrailVisuals()+caravanVisuals()+visibleWarOrderMarkers();
  el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g>`;
- boardTileVisuals=[...el('mapContent').querySelectorAll('.tile-visual')].map((node,i)=>({node,...visualAnchors[i]}));
- cameraYaw=savedYaw;syncBoardRotation();
 }
 function mapAspect(){const rect=el('worldMap').getBoundingClientRect();return rect.width>0&&rect.height>0?rect.width/rect.height:1.5;}
-function setCenter(cx,cy,width,aspect=mapAspect()){view.w=width;view.h=width/aspect;view.x=cx-width/2;view.y=cy-view.h/2;el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);}
+function setCenter(cx,cy,width){const aspect=mapAspect();view.w=width;view.h=width/aspect;view.x=cx-width/2;view.y=cy-view.h/2;el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);}
 function focusHome(immediate=true){if(!G)return;const t=G.tiles.find(t=>t.owner===0&&t.capital)||G.tiles[0];return moveCamera(t,POV_ANGLES[0],immediate?0:750,window.innerWidth<600?420:540);}
 function resetView(){if(!G)return;cameraYaw=POV_ANGLES[0];const projected=G.tiles.map(t=>hexPoints(t,HEX+10)).flat();const xs=projected.map(p=>p.x),ys=projected.map(p=>p.y);
  const minx=Math.min(...xs)-25,maxx=Math.max(...xs)+25,miny=Math.min(...ys)-60,maxy=Math.max(...ys)+60,asp=mapAspect();const w=Math.max(maxx-minx,(maxy-miny)*asp);setCenter((maxx+minx)/2,(maxy+miny)/2,w);renderMap();}
@@ -1817,20 +1997,23 @@ function moveCamera(tile,targetYaw=cameraYaw,duration=800,targetWidth=460){
  if(cameraMoveFrame)cancelAnimationFrame(cameraMoveFrame);
  if(cameraResolve){const previous=cameraResolve;cameraResolve=null;previous();}
  const from={yaw:cameraYaw,cx:view.x+view.w/2,cy:view.y+view.h/2,width:view.w};
- const origin=unproject(from.cx,from.cy,from.yaw);
  const target=coords(tile),start=performance.now(),token=cpuPlaybackToken;
- const aspect=mapAspect(),reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
  return new Promise(resolve=>{
   cameraResolve=resolve;
   const done=()=>{cameraMoveFrame=0;if(cameraResolve===resolve)cameraResolve=null;resolve();};
-  function frame(now){
+  let lastDraw=-1000;function frame(now){
    if(!G||token!==cpuPlaybackToken){done();return;}
-   const t=skipCpuPlayback||reduce||duration<=0?1:Math.min(1,(now-start)/duration);
-   const k=smoother(t);
-   cameraYaw=blend(from.yaw,targetYaw,k);
-   const center=project(blend(origin.x,target.x,k),blend(origin.y,target.y,k),cameraYaw);
-   syncBoardRotation();
-   setCenter(center.x,center.y,blend(from.width,targetWidth,k),aspect);
+   const t=skipCpuPlayback||window.matchMedia('(prefers-reduced-motion: reduce)').matches||duration<=0?1:Math.min(1,(now-start)/duration),k=smooth(t);
+   const desiredYaw=blend(from.yaw,targetYaw,k),yawTravel=Math.abs(targetYaw-from.yaw);
+   // Rebuilding 169 textured SVG tiles on every animation frame caused phone lag.
+   // Pan and zoom are cheap viewBox-only updates every frame; only redraw for meaningful yaw changes.
+   if(t>=1||(yawTravel>.001&&now-lastDraw>=64)){
+    cameraYaw=desiredYaw;
+    if(yawTravel>.001)renderMap();
+    lastDraw=now;
+   }
+   const dest=project(target.x,target.y,cameraYaw);
+   setCenter(blend(from.cx,dest.x,k),blend(from.cy,dest.y,k),blend(from.width,targetWidth,k));
    if(t<1)cameraMoveFrame=requestAnimationFrame(frame);else done();
   }
   cameraMoveFrame=requestAnimationFrame(frame);
@@ -1879,21 +2062,22 @@ function bindEvents(){
  el('researchBtn').addEventListener('click',()=>{if(G)showSheet('research');});
  el('closeResearchBtn').addEventListener('click',closeSheet);
  el('closeBuildBtn').addEventListener('click',()=>{showBuild=false;render();});
+ el('warBody').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;const panel=el('warBody');
+  if(b.dataset.sendWarning!=null){const to=Number(b.dataset.sendWarning),tile=panel.querySelector(`[data-warning-land="${to}"]`)?.value;sendDiplomaticFalcon(to,'warning',tile);return;}
+  if(b.dataset.sendWar!=null){sendDiplomaticFalcon(Number(b.dataset.sendWar),'war');return;}
+  if(b.dataset.sendPeace!=null){sendDiplomaticFalcon(Number(b.dataset.sendPeace),'peace');return;}
+  if(b.dataset.peaceAnswer!=null){acceptCeasefire(Number(b.dataset.peaceAnswer),b.dataset.accept==='yes');return;}
+  if(b.dataset.orderWar!=null){orderMilitary(panel.querySelector('#warDestination')?.value,Number(panel.querySelector('#warEnemy')?.value),panel.querySelector('#warPost')?.value,Number(panel.querySelector('#warQuantity')?.value||1),panel.querySelector('#warKind')?.value||'patrol');return;}
+  if(b.dataset.recallWar!=null){recallMilitary(Number(b.dataset.recallWar));return;}
+ });
+ el('warBody').addEventListener('change',e=>{if(e.target.id!=='warKind')return;const panel=el('warBody'),options=panel.querySelector('[data-patrol-options]');if(!options)return;const raw=e.target.value==='flank'?options.dataset.flankOptions:options.dataset.patrolOptions;let list=[];try{list=JSON.parse(raw||'[]');}catch(e){}const select=panel.querySelector('#warDestination');if(select)select.innerHTML=list.map(([id,name])=>`<option value="${esc(id)}">${esc(name)}</option>`).join('');});
  el('tradeBody').addEventListener('click',e=>{const propose=e.target.closest('[data-trade-propose]');if(propose){const to=Number(propose.dataset.tradePropose);const panel=el('tradeBody');const select=panel.querySelector(`[data-trade-share="${to}"]`);
   const from=panel.querySelector(`[data-road-from="${to}"]`)?.value,dest=panel.querySelector(`[data-road-to="${to}"]`)?.value;
   proposeTradeRoute(to,Number(select?.value||50),0,from,dest);return;}const ans=e.target.closest('[data-trade-answer]');if(ans)respondTradeOffer(Number(ans.dataset.tradeAnswer),ans.dataset.accept==='yes');});
  el('economySummary').addEventListener('change',e=>{if(e.target.matches('[data-caravan-policy]')){getCountry().caravanPolicy=e.target.value;save();render();}});
  el('tradeBody').addEventListener('change',e=>{const field=e.target.closest('[data-road-from],[data-road-to],[data-trade-share]');if(field)refreshRouteEstimate(Number(field.dataset.roadFrom||field.dataset.roadTo||field.dataset.tradeShare));});
- el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{
- const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);
- if(t.buildings[idx]!=='storageWarehouse'||!site)return;
- const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);
- if(select?.value){
-  const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);
-  showToast(ok?'Caravan dispatched':'No free caravan, road or destination storage space');
-  save();render();
- }break;
-} case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
+ el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Caravan dispatched with '+(GOOD_NAMES[item]||item):'No free caravan, open road or receiving storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
  el('territoryDetails').addEventListener('change',e=>{const t=getSelected();if(!t)return;const r=e.target.closest('[data-route-site]');if(r){setDeliveryRoute(t,Number(r.dataset.routeSite),r.dataset.routeGood,r.value);return;}const recipe=e.target.closest('[data-recipe-site]');if(recipe)setFactoryRecipe(t,Number(recipe.dataset.recipeSite),recipe.value);});
  el('buildOptions').addEventListener('click',e=>{const b=e.target.closest('[data-build]');if(b&&canAct())doBuild(getSelected(),b.dataset.build);});
  el('researchOptions').addEventListener('click',e=>{const b=e.target.closest('[data-tech]');if(b&&canAct())doResearch(b.dataset.tech);});
@@ -1956,5 +2140,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
+window.GS_TEST={sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
 })();
