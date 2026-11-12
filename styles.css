@@ -291,3 +291,24 @@ body.gs-playing:not(.cpu-watching) .hand-dock .footnote{display:none!important}
 body.gs-playing:not(.cpu-watching) .hand-dock .cards-panel{background:linear-gradient(0deg,#081d2bf2 0%,#112c3ab0 45%,transparent 98%);border:none;box-shadow:none;padding-top:0}
 .gs-crew-status{margin:12px 0;padding:9px 10px;border-radius:10px;border:1px solid #b79a6980;background:#142e3b;color:#e7d2ab;font-weight:650;font-size:11px;line-height:1.6}
 .building-row button[data-action=add-builder]{padding:7px 9px;border:1px solid #d4b779;border-radius:8px;background:#264e52;color:#f6e4c3;font-size:10px}
+
+/* 0.4.5 — visual logistics: original vector falcons, walking flag crews, wagons and road crews */
+.gs-route-label{font-weight:900;fill:#fff3d9;stroke:#112630;stroke-width:2.7px;paint-order:stroke;letter-spacing:.02em;pointer-events:none}
+.gs-falcon-wing{transform-origin:0 0;animation:gs-falcon-flap .55s ease-in-out infinite alternate}
+.gs-falcon-wing.right{animation-direction:alternate-reverse}
+@keyframes gs-falcon-flap{from{transform:scaleY(.63)}to{transform:scaleY(1.22)}}
+.gs-expedition-footstep{animation:gs-footsteps 1.25s ease-in-out infinite;animation-delay:calc(var(--step)*.22s)}
+@keyframes gs-footsteps{0%,90%{opacity:0;transform:translateY(3px)}40%,70%{opacity:.8;transform:translateY(0)}}
+.gs-expedition-moving path{animation:gs-flag-bob 1.2s ease-in-out infinite}
+@keyframes gs-flag-bob{50%{transform:translateY(-2px)}}
+.gs-caravan-rock{animation:gs-cart-rock 1.2s ease-in-out infinite;transform-origin:center bottom}
+@keyframes gs-cart-rock{0%,100%{transform:rotate(-2deg) translateY(0)}50%{transform:rotate(2deg) translateY(-2px)}}
+.gs-road-builder{filter:drop-shadow(0 2px 2px #091c25aa);animation:gs-road-tap .75s ease-in-out infinite;transform-box:fill-box;transform-origin:bottom center}
+@keyframes gs-road-tap{50%{filter:brightness(1.25)}}
+.gs-road-form{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0;align-items:end}
+.gs-road-form label{display:grid;gap:5px;min-width:0}
+.gs-road-form select{width:100%;min-width:0;background:#122d3c;color:#f4ebd4;border:1px solid #77918f;border-radius:8px;padding:8px;font-size:11px}
+.gs-road-form button{grid-column:span 2;width:100%}
+.gs-trade-row [data-road-estimate]{display:block;font-weight:750;line-height:1.5;color:#e4ce9f}
+@media(max-width:420px){.gs-road-form{grid-template-columns:1fr}.gs-road-form button{grid-column:auto}}
+@media(prefers-reduced-motion:reduce){.gs-falcon-wing,.gs-expedition-footstep,.gs-expedition-moving path,.gs-caravan-rock,.gs-road-builder{animation:none!important}}
