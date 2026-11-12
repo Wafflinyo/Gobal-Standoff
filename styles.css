@@ -15,7 +15,6 @@
 .start-button:disabled{opacity:.7;cursor:wait}
 
 /* V0.2 — terrain capacities, population, and military rosters */
-.world-options select{display:block;width:100%;margin-top:8px;border:1px solid #526a73;background:#132d3a;color:#f0e9d8;border-radius:9px;padding:12px 11px;font-size:13px;min-height:44px}
 .settings-note{font-size:12px;color:#aabcb9;line-height:1.5;margin:8px 0 14px}
 .population-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .population-stat{display:flex;flex-direction:column;gap:3px;padding:11px;background:#112f3b;border:1px solid #3c606a;border-radius:10px}
@@ -49,7 +48,7 @@
 .roster-transfer select{min-width:0;flex:1;background:#1e4551;color:#f3e7ca;border:1px solid #56747b;border-radius:7px;padding:7px;font-size:11px}
 .roster-transfer select:disabled{opacity:.5}
 #worldMap{touch-action:none;overscroll-behavior:contain}
-@media(max-width:520px){.capacity-grid b{font-size:12px}.capacity-grid small{font-size:9px}.map-hint{white-space:normal;text-align:center;min-width:60%;}.world-options{grid-template-columns:1fr 1fr;gap:10px}}
+@media(max-width:520px){.capacity-grid b{font-size:12px}.capacity-grid small{font-size:9px}.map-hint{white-space:normal;text-align:center;min-width:60%;}}
 
 /* v0.3: illustrated faux-isometric board and cinematic turn presentation */
 .map-wrap{background:radial-gradient(ellipse at 45% 39%,#285c65 0%,#173b45 62%,#102e39 100%)}
@@ -70,3 +69,113 @@
 .map-actions{z-index:6;right:10px;top:10px}.map-actions button{background:#193940ee;width:36px;height:36px;border:1px solid #a4bfb7b0}
 @media(max-width:520px){.view-badge{font-size:8px;top:10px;left:10px}.map-actions button{width:32px;height:32px;font-size:20px}.cpu-cinematic{bottom:38px;width:calc(100% - 56px);left:9px;padding:9px 11px}.cpu-cinematic strong{font-size:17px}.map-wrap{height:min(55vh,450px)}}
 @media(prefers-reduced-motion:reduce){.hex-action-pop .map-sprite,.tile-spotlight{animation:none!important}}
+
+/* V0.3.2 — map-first game UI: overlays instead of scrolling controls */
+body.gs-playing{height:100dvh;min-height:100dvh;overflow:hidden;overscroll-behavior:none}
+body.gs-playing #app{height:100%;display:flex;flex-direction:column;overflow:hidden}
+body.gs-playing .topbar{flex:0 0 auto;min-height:61px;padding:9px 15px;z-index:3}
+body.gs-playing .game-layout{flex:1;display:block;min-height:0;min-width:0;max-width:none;width:100%;padding:0;margin:0;overflow:hidden}
+body.gs-playing .game-main{display:block;width:100%;height:100%;min-height:0}
+body.gs-playing .world-panel{height:100%;min-height:0;border-radius:0;border:0;display:flex;flex-direction:column;box-shadow:none}
+body.gs-playing .world-heading{flex:0 0 auto;min-height:65px;padding:11px 18px}
+body.gs-playing .world-heading h1{font-size:22px}
+body.gs-playing .map-wrap{flex:1;height:auto!important;min-height:0!important;position:relative}
+body.gs-playing .world-panel>.legend{display:none}
+body.gs-playing .game-main>.below-map-grid,body.gs-playing .sidebar{display:none!important}
+body.gs-playing .map-hint{display:none}
+.quick-stats{position:absolute;left:12px;top:52px;z-index:8;display:flex;flex-wrap:wrap;gap:5px;max-width:calc(100% - 80px);pointer-events:none}
+.quick-stat{display:inline-flex;align-items:center;gap:4px;background:#122c36e8;border:1px solid #54717b;border-radius:18px;padding:5px 7px;color:#f0e7c9;font-size:12px;box-shadow:0 3px 10px #061a2390;backdrop-filter:blur(5px)}
+.quick-stat b{font-weight:850;font-size:12px;font-variant-numeric:tabular-nums}.quick-stat b.negative{color:#e99679}
+.map-quickbar{position:absolute;z-index:12;bottom:148px;left:50%;transform:translateX(-50%);width:min(96%,700px);display:flex;align-items:center;justify-content:center;gap:7px;pointer-events:none}
+.map-quickbar>button,.map-quickbar #endTurnBtn{pointer-events:auto;flex:0 0 auto;background:#153441eb;border:1px solid #a5bfba88;color:#f3e6c5;border-radius:11px;min-height:43px;padding:7px 12px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;font-size:11px;font-weight:750;letter-spacing:0;box-shadow:0 6px 24px #081c26ac;backdrop-filter:blur(8px)}
+.map-quickbar>button>span{font-size:17px;line-height:1}
+.map-quickbar #turnMount{pointer-events:auto;min-width:0}
+.map-quickbar .turn-panel{padding:0;background:none;box-shadow:none;border:0}
+.map-quickbar .turn-panel .utility-actions,.map-quickbar .turn-panel .action-notice,.map-quickbar .turn-panel .turn-foot{display:none!important}
+.map-quickbar #endTurnBtn{background:linear-gradient(125deg,#f4d69a,#d4a965);border-color:#ffe2aa;color:#243c40;padding:9px 15px;letter-spacing:.01em;font-weight:900;min-height:43px;white-space:nowrap;flex-direction:row}
+.map-quickbar #endTurnBtn span{margin:0 0 0 3px;font-size:16px}
+.hand-dock{position:absolute;z-index:14;left:50%;bottom:0;transform:translateX(-50%);height:145px;width:min(100%,680px);pointer-events:none;overflow:visible}
+.hand-dock .cards-panel{position:absolute;inset:0;border:0;border-top:1px solid #ccba8d66;border-radius:20px 20px 0 0;background:linear-gradient(0deg,#091f2bea 5%,#143746c9 68%,#15344314 100%);padding:7px 10px 0;box-shadow:0 -14px 36px #04182155;pointer-events:none}
+.hand-dock .panel-heading{justify-content:center;gap:10px;margin:0;pointer-events:none}
+.hand-dock .panel-heading h2{font-family:inherit;font-size:10px;text-transform:uppercase;letter-spacing:.16em;font-weight:900;color:#e8d0a0}
+.hand-dock #cardCount{font-size:9px;padding:3px 7px;border:0;color:#d9be8a}
+.hand-dock .footnote{display:none}
+.hand-dock .hand{position:relative;display:block;width:100%;height:116px;overflow:visible;padding:0;pointer-events:none}
+.hand-dock .card-item{position:absolute;left:calc(50% + var(--fan)*min(51px,8vw));bottom:-39px;transform:translateX(-50%) rotate(var(--angle));transform-origin:50% 100%;width:95px;min-height:0;height:134px;display:flex;flex-direction:column;padding:8px 8px 6px;pointer-events:auto;z-index:2;overflow:hidden;background:linear-gradient(160deg,#7c6646,#345260 49%,#152d41);border:2px solid #d2bd85;box-shadow:0 2px 4px #050d1490,0 9px 17px #04131db3;transition:transform .2s,bottom .2s,filter .2s}
+.hand-dock .card-item:hover,.hand-dock .card-item:focus-visible{transform:translateX(-50%) translateY(-14px) rotate(var(--angle)) scale(1.04);z-index:10;filter:brightness(1.09)}
+.hand-dock .card-item .card-icon{font-size:30px;margin:13px auto 5px}
+.hand-dock .card-item .card-name{font-size:11px;text-align:center;margin:0 auto;color:#fff3d8}
+.hand-dock .card-item .card-desc{font-size:8px;letter-spacing:.08em;margin:6px auto 0;text-align:center}
+.hand-empty{font-size:12px;color:#d1e0d5;text-align:center;padding:32px 8px 0}
+/* Territory, nation, research and reports are all in the same over-map sheet. */
+.sheet-layer{position:fixed;inset:0;display:flex;justify-content:flex-end;align-items:stretch;z-index:52}
+.sheet-scrim,.card-preview-scrim{position:absolute;inset:0;border:0;background:#061622a5;backdrop-filter:blur(3px);cursor:pointer}
+.sheet-panel{position:relative;width:min(460px,100%);height:100%;background:linear-gradient(160deg,#244755,#112b3b 66%,#0f2533);border-left:1px solid #b6a076;box-shadow:-25px 0 60px #0009;display:flex;flex-direction:column;min-height:0}
+.sheet-header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:0 0 auto;padding:20px 20px 14px;border-bottom:1px solid #61808466}
+.sheet-header h2{font-family:Georgia,serif;font-size:27px;font-weight:400;margin:5px 0 0}
+.sheet-close{background:#163440;color:#f0e1c6;border:1px solid #728d90;border-radius:10px;width:38px;height:38px;font-size:17px}
+.sheet-body{overflow-y:auto;overscroll-behavior:contain;min-height:0;flex:1;padding:15px 19px max(25px,env(safe-area-inset-bottom))}
+.sheet-body>.panel{display:none;margin:0 0 10px;background:transparent;border:0;box-shadow:none;border-radius:0;padding:2px 0 12px}
+.sheet-body .panel-heading{margin-bottom:12px}
+.sheet-body .panel-heading h2{font-size:20px}
+.sheet-panel[data-mode=territory] .territory-panel,
+.sheet-panel[data-mode=territory] .build-panel:not(.hidden),
+.sheet-panel[data-mode=research] .research-panel:not(.hidden),
+.sheet-panel[data-mode=nation] .treasury-panel,
+.sheet-panel[data-mode=nation] .population-panel,
+.sheet-panel[data-mode=roster] .roster-panel,
+.sheet-panel[data-mode=world] .feed-panel,
+.sheet-panel[data-mode=world] .standings-panel{display:block}
+.sheet-panel[data-mode=nation] .treasury-panel{padding-bottom:20px;border-bottom:1px solid #78908977;margin-bottom:18px}
+.sheet-panel[data-mode=territory] .build-panel:not(.hidden){padding-top:16px;border-top:1px solid #78908977;margin-top:12px}
+.sheet-panel[data-mode=world] .feed-panel{border-top:1px solid #78908977;padding-top:18px}
+.sheet-economy-tools{display:none;padding:10px 20px 24px}
+.sheet-panel[data-mode=nation] .sheet-economy-tools{display:block}
+.sheet-economy-tools button{width:100%}
+/* Over-map card inspection: tapping cards never plays them without confirmation. */
+.card-preview-layer{position:fixed;inset:0;z-index:85;display:grid;place-items:center;padding:16px;overflow-y:auto}
+.card-preview-content{position:relative;width:min(390px,100%);display:grid;justify-items:center;gap:17px;max-height:95dvh}
+.card-preview-close{position:absolute;right:0;top:0;z-index:2;width:38px;height:38px;background:#19333ef2;color:#fff1df;border-radius:50%;border:1px solid #a7bab9;font-size:18px}
+.expanded-card{width:min(286px,74vw);aspect-ratio:0.66;background:linear-gradient(153deg,#997b4c,#254858 42%,#102d40 100%);border:3px solid #f0cb81;border-radius:20px;padding:14px;box-shadow:0 0 0 5px #102b38,0 17px 62px #000b,0 0 50px #d1a95a40;display:flex;flex-direction:column;position:relative;overflow:hidden;color:#f5edda}
+.expanded-card:before{position:absolute;inset:7px;border:1px solid #e7ca90a1;border-radius:13px;content:"";pointer-events:none}
+.expanded-card-top{display:flex;justify-content:space-between;align-items:center;letter-spacing:.14em;font-size:10px;font-weight:900;z-index:1}
+.expanded-card-art{flex:1;min-height:0;display:grid;place-items:center;position:relative;margin:12px 0;border:1px solid #dfc89488;border-radius:12px;background:radial-gradient(ellipse at 50% 35%,#709ca0a3,#17394b 72%,#0e2434)}
+.expanded-card-art:after{content:"";position:absolute;inset:14px;border:1px solid #efce8844;border-radius:50%}
+.expanded-card-halo{position:absolute;width:80%;aspect-ratio:1;border-radius:50%;background:radial-gradient(circle,#e6c1757c,transparent 65%);animation:preview-shimmer 3s infinite alternate ease-in-out}
+.expanded-card-icon{font-size:clamp(72px,15vw,110px);filter:drop-shadow(0 10px 10px #0008);position:relative;z-index:1}
+.expanded-card-details{z-index:1;background:#0e2533c7;border-radius:10px;border:1px solid #9f927766;padding:12px;text-align:center}
+.expanded-card-name{font-family:Georgia,serif;font-size:24px;line-height:1.2;color:#f6dfaa}
+.expanded-card-rule{font-size:14px;line-height:1.55;margin-top:8px;color:#e0e8df}
+.expanded-card-footer{text-align:center;font-size:8px;letter-spacing:.15em;margin-top:13px;color:#dbc79d}
+.preview-actions{display:grid;grid-template-columns:1fr 1.3fr;gap:9px;width:100%}
+.preview-actions button{padding:13px 8px;font-size:12px;min-height:48px}
+@keyframes preview-shimmer{to{transform:scale(1.12);opacity:.55}}
+@media(max-width:800px){.sheet-layer{align-items:flex-end}.sheet-panel{height:min(79dvh,760px);width:100%;border-left:0;border-top:1px solid #b5a077;border-radius:24px 24px 0 0;box-shadow:0 -25px 70px #0009}.sheet-header{padding:14px 17px}.sheet-body{padding:12px 17px 20px}}
+@media(max-width:520px){
+ body.gs-playing .topbar{min-height:56px;padding:7px 11px}
+ body.gs-playing .brand-sub{font-size:7px}
+ body.gs-playing .world-heading{min-height:62px;padding:10px 12px}
+ body.gs-playing .world-heading h1{font-size:19px}
+ body.gs-playing .world-heading-right .muted-small{font-size:9px}
+ .quick-stats{top:48px;left:8px;gap:3px;max-width:calc(100% - 48px)}
+ .quick-stat{padding:4px 6px;font-size:10px;gap:3px}.quick-stat b{font-size:11px}
+ .map-quickbar{bottom:143px;gap:5px;width:calc(100% - 12px)}
+ .map-quickbar>button{min-height:44px;font-size:10px;padding:6px 7px;min-width:0;flex:1}
+ .map-quickbar>button>span{font-size:16px}
+ .map-quickbar #endTurnBtn{font-size:10px;padding:7px 9px;max-width:120px}
+ .hand-dock{height:138px}.hand-dock .hand{height:112px}
+ .hand-dock .card-item{width:86px;height:129px;bottom:-41px;left:calc(50% + var(--fan)*min(49px,11vw))}
+ .hand-dock .card-item .card-icon{font-size:28px}
+ .view-badge{font-size:8px}
+ .sheet-panel{height:min(77dvh,700px)}
+ .expanded-card{width:min(265px,70vw)}
+}
+@media(max-height:620px){.map-quickbar{bottom:117px}.hand-dock{height:111px}.hand-dock .hand{height:85px}.hand-dock .card-item{height:115px;bottom:-50px}.expanded-card{width:min(210px,55vw)}}
+@media(prefers-reduced-motion:reduce){.expanded-card-halo{animation:none}}
+/* Final mobile tuning: keep the full card faces reachable above Safari's bottom edge. */
+@media(max-width:520px){
+ .hand-dock .card-item{bottom:-5px}
+ .sheet-panel{height:auto;max-height:min(78dvh,710px);min-height:270px}
+ .sheet-body{flex:0 1 auto;max-height:calc(78dvh - 91px);overflow-y:auto}
+}
+@media(min-width:521px){.hand-dock .card-item{bottom:-10px}}
