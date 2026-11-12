@@ -1,4 +1,10 @@
-# Global Standoff — Prototype 0.4.0
+# Global Standoff — Prototype 0.4.9
+
+## Version 0.4.9 — icon sizing and card hand legibility
+
+- Fix map-wide SVG rules stretching the new icon atlas into giant dark rectangles on mobile. The main map alone receives full-size SVG sizing; resource, card, and toolbar glyphs keep their intended dimensions.
+- Card faces show a short description of their effect rather than “Tap to view.” A single “Tap a card to enlarge” hint appears underneath the fanned hand and hides during CPU turns.
+- Preserves saved countries and the existing gameplay rules.
 
 ## Version 0.4.8 — unified visual identity and camera consistency
 
