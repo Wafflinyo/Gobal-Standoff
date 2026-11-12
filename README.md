@@ -1,4 +1,4 @@
-# Global Standoff — Prototype 0.3.0
+# Global Standoff — Prototype 0.3.1
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
@@ -29,7 +29,7 @@ The page uses plain HTML, CSS, and JavaScript: no build pipeline or external dep
 - **Citizen roster:** each person has a name, age, residence, and optional military assignment. Countries start with 10 citizens. New citizens can arrive each round when Food and living conditions permit. Unhoused people are tracked as homeless.
 - **Food use:** 1 Food per six citizens (round up), in addition to existing expansion costs. Food shortages stop population growth; citizens in housing produce some tax Gold.
 - **Military roster:** recruit adult citizens into Military Posts (up to 12 per post), train them, and transfer one soldier between posts per turn. Training can unlock a placeholder perk, `Disciplined`; warfare/experience gains are not implemented yet.
-- **Optional waterways:** choose `Random`, `Always generate`, or `Off` separately for rivers and lakes when creating a world. Maps can have neither. River-crossing Farms gain +1 Food production.
+- **Automatic waterways:** rivers and lakes are generated randomly with each new world (no manual setting). Maps may have either, both, or neither. Farms on riverbank hexes gain +1 Food production.
 - The map supports drag-to-pan and pinch-to-zoom on a touchscreen.
 - Old 0.1 saved matches can be resumed, but retain their original 61-hex layout. Start a **new match** for the larger world and generation options.
 
@@ -61,3 +61,10 @@ This remains a **local solo test**. Battles, troop travel time, diplomacy, trade
 - Existing prototype 0.2 saves, named citizens, rosters, economic balances, terrain capacities, research, and CPU rules are retained.
 
 This is **2.5D illustrative artwork**, not actual 3D geometry, textured models, or the final painted visuals. Smoothness will vary across phones; use the skip-animation control on slower devices. Combat and sophisticated rival-country interactions are not implemented in this visual update.
+
+## New in 0.3.1 — automatic lakes and edge-following rivers
+
+- Rivers and lakes are now generated automatically, without any lobby selectors. They each have a random chance of appearing; maps may have one, both, or neither.
+- Lakes are larger, contiguous hex clusters (typically 4–9 water tiles per lake), and are more frequent than in 0.3.0.
+- River channels are constructed as **connected shared edges between adjacent land hexes**, never through hex centers. River bank hexes receive the river farmland benefit.
+- Existing saved matches keep their land ownership and water tiles, with old centerline rivers upgraded to border-following rivers. Generate a **new** world to see the new lake placement.
