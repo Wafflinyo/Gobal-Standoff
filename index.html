@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
   <meta name="theme-color" content="#101e2a">
   <meta name="description" content="Global Standoff, an offline turn-based civilization prototype against three CPU nations.">
-  <title>Global Standoff — Prototype 0.2.0</title>
+  <title>Global Standoff — Prototype 0.3.0</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="app">
   <header class="topbar">
-    <div class="brand"><div class="brand-icon">GS<span>✦</span></div><div><div class="brand-name">GLOBAL <b>STANDOFF</b></div><div class="brand-sub">WORLD SANDBOX · PROTOTYPE 0.2.0</div></div></div>
+    <div class="brand"><div class="brand-icon">GS<span>✦</span></div><div><div class="brand-name">GLOBAL <b>STANDOFF</b></div><div class="brand-sub">WORLD SANDBOX · PROTOTYPE 0.3.0</div></div></div>
     <div class="header-right"><div id="roundBadge" class="round-badge">SOLO TEST</div><button id="topMenuBtn" class="icon-button top-menu hidden" title="Match options" aria-label="Match options">⚙</button></div>
   </header>
 
@@ -46,8 +46,10 @@
         <div class="world-heading"><div><div class="section-kicker">THE FRONTIER</div><h1 id="worldTitle">The Known World</h1></div><div class="world-heading-right"><span id="turnLabel" class="turn-chip">YOUR TURN</span><div id="turnCounter" class="muted-small">Round 1 / 16</div></div></div>
         <div id="mapWrap" class="map-wrap">
           <svg id="worldMap" xmlns="http://www.w3.org/2000/svg" viewBox="-560 -490 1120 980" role="img" aria-label="Interactive hexagonal strategy map"><defs id="mapDefs"></defs><g id="mapContent"></g></svg>
-          <div class="map-actions"><button id="zoomIn" aria-label="Zoom in">+</button><button id="zoomOut" aria-label="Zoom out">−</button><button id="zoomReset" aria-label="Reset map zoom">⌖</button></div>
-          <div class="map-hint">TAP HEX · DRAG TO PAN · PINCH TO ZOOM</div>
+          <div id="cpuCinematic" class="cpu-cinematic hidden" aria-live="polite"><span class="cpu-now">NATION IN FOCUS</span><strong id="cpuNation">Rival nation</strong><span id="cpuAction">Planning its next move…</span><button id="skipCpuBtn" type="button">Skip CPU animations ↠</button></div>
+          <div class="view-badge">◈ 2.5D WORLD VIEW</div>
+          <div class="map-actions"><button id="zoomIn" aria-label="Zoom in">+</button><button id="zoomOut" aria-label="Zoom out">−</button><button id="focusHomeBtn" aria-label="Focus on your capital" title="Focus on your capital">⌂</button><button id="zoomReset" aria-label="View entire world" title="View entire world">⤢</button></div>
+          <div class="map-hint">TAP HEX · PAN · PINCH TO ZOOM · ⌂ HOME · ⤢ FULL MAP</div>
         </div>
         <div class="legend"><span><i class="legend-dot" style="background:#b8c879"></i> Plains</span><span><i class="legend-dot" style="background:#579c79"></i> Forest</span><span><i class="legend-dot" style="background:#b99a72"></i> Hills</span><span><i class="legend-dot" style="background:#d2b879"></i> Desert</span><span><i class="legend-dot" style="background:#8794a3"></i> Mountain</span><span><i class="legend-dot" style="background:#579dc2"></i> Lakes</span></div>
       </section>
