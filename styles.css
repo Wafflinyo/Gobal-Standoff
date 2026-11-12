@@ -455,3 +455,8 @@ body.gs-playing .sheet-panel small,body.gs-playing .sheet-panel .muted,body.gs-p
 .gs-household-population{width:100%;grid-column:1 / -1;background:#193744;border:1px solid #4b6b72;border-radius:8px;padding:9px 12px;font-size:11px;color:#f2ddad;font-weight:750;line-height:1.45}
 .gs-resident-revenue{font-size:11px;line-height:1.5;margin:9px 0 12px;padding:8px 10px;background:#183642;border:1px solid #46646a;border-radius:8px;color:#dbdfd0;font-weight:700}
 .gs-resident-revenue b{color:#f1dbab}
+
+/* 0.4.13 — vivid national borders remain visible with roads between them. */
+.gs-national-borders,.gs-owned-hex-border,.gs-edge-road{pointer-events:none}
+.gs-owned-hex-border polygon{vector-effect:non-scaling-stroke;stroke-linejoin:round}
+.gs-edge-road path{stroke-linecap:round;stroke-linejoin:round}
