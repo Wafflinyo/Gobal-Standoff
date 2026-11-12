@@ -44,9 +44,10 @@ const randInt=(rng,n)=>Math.floor(rng()*n);
 let G=null,selectedColor=0,showBuild=false,showResearch=false,cpuBusy=false,toastTimer=0,suppressClick=false,drag=null,rosterTab="citizens";
 let view={x:-600,y:-490,w:1200,h:980};
 let sheetMode=null,previewCardIndex=-1;
+let scenePlayback=null,scenePlaybackSerial=0; // Temporarily conceal completed changes until their on-board animation.
 function getCountry(){return G.players[0];}
 function getSelected(){return G.tiles.find(t=>t.id===G.selectedId)||null;}
-function active(){return G&&!G.finished&&!cpuBusy&&G.turnIndex===0;}
+function active(){return G&&!G.finished&&!cpuBusy&&!scenePlayback&&G.turnIndex===0;}
 function actionsUsed(p){return Number.isInteger(p.actionsUsed)?Math.min(MAJOR_ACTIONS,Math.max(0,p.actionsUsed)):(p.acted?1:0);}
 function actionsRemaining(p){return Math.max(0,MAJOR_ACTIONS-actionsUsed(p));}
 function canCountryAct(p,id){return !!G&&!G.finished&&G.turnIndex===id&&actionsRemaining(p)>0&&(id!==0||!cpuBusy);}
@@ -276,6 +277,47 @@ function showSheet(mode='territory'){
  render();
 }
 function closeSheet(){sheetMode=null;showBuild=false;showResearch=false;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');if(G)render();}
+function suspendSheetForScene(){
+ const sheet=el('sheetBody');
+ const resume={mode:sheetMode,showBuild,scroll:sheet?.scrollTop||0,tileId:G?.selectedId};
+ sheetMode=null;showBuild=false;showResearch=false;
+ el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');
+ return resume;
+}
+function startMapScenePlayback(tile,kind,buildingIndex=-1,buildingType=null){
+ if(scenePlayback)return null;
+ const playback={world:G,serial:++scenePlaybackSerial,tileId:tile.id,kind,buildingIndex,buildingType,phase:'prepare',resume:suspendSheetForScene()};
+ scenePlayback=playback;
+ // The action is already validated and paid for. Rendering now keeps the new structure
+ // invisible until we have moved the camera and played its arrival sequence.
+ requestAnimationFrame(()=>playMapScenePlayback(playback));
+ return playback;
+}
+function sceneAlive(playback){return scenePlayback===playback&&G===playback.world&&scenePlaybackSerial===playback.serial;}
+async function playMapScenePlayback(playback){
+ const tile=G.tiles.find(t=>t.id===playback.tileId);
+ try{
+  if(!tile||!sceneAlive(playback))return;
+  const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  await moveCamera(tile,cameraYaw,reduced?0:450,window.innerWidth<600?335:430);
+  if(!sceneAlive(playback))return;
+  playback.phase='play';renderMap();
+  await new Promise(resolve=>setTimeout(resolve,reduced?150:1120));
+ }finally{
+  if(!sceneAlive(playback))return;
+  scenePlayback=null;
+  render();
+  if(playback.resume.mode&&G===playback.world&&G.turnIndex===0&&!cpuBusy){
+   G.selectedId=playback.resume.tileId;
+   showBuild=playback.resume.showBuild;
+   showSheet(playback.resume.mode);
+   if(el('sheetBody'))el('sheetBody').scrollTop=playback.resume.scroll;
+  }
+  if(playback.kind==='build')showToast(`${BUILDINGS[playback.buildingType]?.name||'Building'} constructed`);
+  else if(playback.kind==='expand')showToast(`${tile.name} claimed`);
+ }
+}
+
 function cardSuit(type){return ['grant','harvest','supplies'].includes(type)?['◈','ECONOMY']:['charter','permit'].includes(type)?['⌘','DEVELOPMENT']:['✦','DISCOVERY'];}
 function openCardPreview(index){
  if(!G||!Number.isInteger(index)||index<0||index>=getCountry().hand.length)return;
@@ -286,8 +328,8 @@ function openCardPreview(index){
 }
 function closeCardPreview(){previewCardIndex=-1;el('cardPreview').classList.add('hidden');el('cardPreview').setAttribute('aria-hidden','true');}
 
-function enterGame(){document.body.classList.add('gs-playing');closeCardPreview();sheetMode=null;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');cpuPlaybackToken++;skipCpuPlayback=false;hideCpuHud();el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();focusHome(true);render();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));}
-function newMatch(){document.body.classList.remove('gs-playing');closeCardPreview();closeSheet();cpuPlaybackToken++;cancelAnimationFrame(cameraMoveFrame);hideCpuHud();if(cameraResolve){cameraResolve();cameraResolve=null;}G=null;cpuBusy=false;el('lobby').classList.remove('hidden');el('game').classList.add('hidden');el('topMenuBtn').classList.add('hidden');el('roundBadge').textContent='SOLO TEST';closeModal();renderLobby();}
+function enterGame(){scenePlayback=null;scenePlaybackSerial++;document.body.classList.add('gs-playing');closeCardPreview();sheetMode=null;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');cpuPlaybackToken++;skipCpuPlayback=false;hideCpuHud();el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();focusHome(true);render();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));}
+function newMatch(){scenePlayback=null;scenePlaybackSerial++;document.body.classList.remove('gs-playing');closeCardPreview();closeSheet();cpuPlaybackToken++;cancelAnimationFrame(cameraMoveFrame);hideCpuHud();if(cameraResolve){cameraResolve();cameraResolve=null;}G=null;cpuBusy=false;el('lobby').classList.remove('hidden');el('game').classList.add('hidden');el('topMenuBtn').classList.add('hidden');el('roundBadge').textContent='SOLO TEST';closeModal();renderLobby();}
 function renderLobby(){
  el('colorOptions').innerHTML=COLORS.map((c,i)=>`<button class="color-swatch" style="--swatch:${c}" aria-label="Choose ${['jade','amber','violet','coral'][i]}" aria-pressed="${i===selectedColor}" data-color="${i}"></button>`).join('');
  const colors=[COLORS[selectedColor],...COLORS.filter((_,i)=>i!==selectedColor)];
@@ -321,8 +363,23 @@ function getEconomy(id){
  return vals;
 }
 function useAction(p,text){p.actionsUsed=actionsUsed(p)+1;p.acted=actionsRemaining(p)===0;addLog(text);showBuild=false;showResearch=false;save();render();}
-function doExpand(t,id=0){const p=G.players[id];if(!canCountryAct(p,id)||!eligibleExpansion(p,t))return false;const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;p.gold-=cost;p.food-=2;p.discountExpand=0;p.expansionsThisTurn=(p.expansionsThisTurn||0)+1;t.owner=id;reallocateHousing(p);useAction(p,`${p.name} expanded into ${t.name} (${TERRAIN[t.terrain].name.toLowerCase()}).`);if(id===0){showToast(`Territory claimed: ${t.name}`);flashAction(t,'expand');}return true;}
-function doBuild(t,type,id=0){const p=G.players[id],b=BUILDINGS[type];if(!canCountryAct(p,id)||!b||!canBuild(p,t,b))return false;p.gold-=buildingCost(p,b);p.materials-=b.materials;p.discountBuild=0;t.buildings.push(type);reallocateHousing(p);useAction(p,`${p.name} constructed ${b.name} at ${t.name}.`);if(id===0){showToast(`${b.name} completed at ${t.name}`);flashAction(t,'build');}return true;}
+function doExpand(t,id=0){
+ const p=G.players[id];if(!canCountryAct(p,id)||!eligibleExpansion(p,t))return false;
+ const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;
+ const playback=id===0?startMapScenePlayback(t,'expand'):null;
+ p.gold-=cost;p.food-=2;p.discountExpand=0;p.expansionsThisTurn=(p.expansionsThisTurn||0)+1;t.owner=id;reallocateHousing(p);
+ useAction(p,`${p.name} expanded into ${t.name} (${TERRAIN[t.terrain].name.toLowerCase()}).`);
+ if(id===0&&!playback){showToast(`Territory claimed: ${t.name}`);flashAction(t,'expand');}
+ return true;
+}
+function doBuild(t,type,id=0){
+ const p=G.players[id],b=BUILDINGS[type];if(!canCountryAct(p,id)||!b||!canBuild(p,t,b))return false;
+ const playback=id===0?startMapScenePlayback(t,'build',(t.buildings||[]).length,type):null;
+ p.gold-=buildingCost(p,b);p.materials-=b.materials;p.discountBuild=0;t.buildings.push(type);reallocateHousing(p);
+ useAction(p,`${p.name} constructed ${b.name} at ${t.name}.`);
+ if(id===0&&!playback){showToast(`${b.name} completed at ${t.name}`);flashAction(t,'build');}
+ return true;
+}
 function doSell(t,idx=0,id=0){
  const p=G.players[id];if(!canCountryAct(p,id)||!allowed(p,t)||!t.buildings?.[idx])return false;
  const type=t.buildings[idx],b=BUILDINGS[type];
@@ -460,7 +517,7 @@ function render(){if(!G)return;
  el('nationLabel').textContent=p.name;el('capitalFlag').style.setProperty('--nation-color',p.color);
  el('capitalFlag').textContent=p.sigil;
  el('turnCounter').textContent=`Round ${G.round} of ${G.maxRounds} · ${G.tiles.length} hexes · ${G.tiles.filter(t=>t.owner===0).length} owned`;
- el('turnLabel').textContent=G.finished?'TEST COMPLETE':active()?'YOUR TURN':'CPU TURN';el('turnLabel').classList.toggle('cpu-turn',!active());
+ el('turnLabel').textContent=G.finished?'TEST COMPLETE':G.turnIndex===0&&!cpuBusy?'YOUR TURN':'CPU TURN';el('turnLabel').classList.toggle('cpu-turn',G.turnIndex!==0||cpuBusy);
  el('resources').innerHTML=[['gold','🪙','Gold'],['food','🌾','Food'],['materials','🪨','Materials'],['knowledge','✦','Knowledge']].map(([field,icon,name])=>`<div class="resource ${p[field]<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
  el('quickStats').innerHTML=[['gold','🪙'],['food','🌾'],['materials','🪨'],['knowledge','✦']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${p[field]<0?'negative':''}">${fmt(p[field])}</b></span>`).join('');
  el('economySummary').innerHTML=`<span>Gold income <strong>+${e.gold}</strong></span> · <span>Upkeep <strong>−${e.upkeep}</strong></span> · <span>Net <strong class="${e.netGold>=0?'positive':'negative'}">${e.netGold>=0?'+':''}${e.netGold}</strong>/round</span><span> · Food <strong class="${e.netFood>=0?'positive':'negative'}">${e.netFood>=0?'+':''}${e.netFood}</strong>/round</span>${p.gold<0?'<div class="economy-alert">⚠ In debt: building and recruitment are locked until the treasury recovers.</div>':''}`;
@@ -469,10 +526,10 @@ function render(){if(!G)return;
  renderMap();renderTile(tile);renderHand();renderResearch();renderStandings();renderLog();renderRoster();
  el('buildPanel').classList.toggle('hidden',!showBuild);el('researchPanel').classList.toggle('hidden',!showResearch);
  el('endTurnBtn').disabled=!active();el('levyBtn').disabled=!canAct()||!!p.levyUsed;el('researchBtn').disabled=!active();el('levySheetBtn')?.toggleAttribute('disabled',!canAct()||!!p.levyUsed);
- el('endTurnBtn').innerHTML=G.finished?'TEST COMPLETE':active()?`END TURN <span>→</span>`:'CPU THINKING…';
+ el('endTurnBtn').innerHTML=G.finished?'TEST COMPLETE':scenePlayback?'ANIMATING…':active()?`END TURN <span>→</span>`:'CPU THINKING…';
  const remaining=actionsRemaining(p);
  el('mapActionCounter').innerHTML=G.finished?'TEST COMPLETE':cpuBusy?'◈ CPU ACTIONS':`<span class="action-dots">${Array.from({length:MAJOR_ACTIONS},(_,i)=>`<i class="${i<remaining?'ready':'spent'}"></i>`).join('')}</span><b>${remaining}/${MAJOR_ACTIONS}</b> ACTIONS LEFT`;
- el('actionNotice').innerHTML=G.finished?'Prototype match complete. Review the results or start another world.':cpuBusy?'Three CPU nations are taking their turns…':remaining===0?'All 3 major actions used. You can still play a card or transfer troops.':`<b>${remaining} major action${remaining===1?'':'s'} remaining.</b> Expand, build, recruit, govern or research.`;
+ el('actionNotice').innerHTML=G.finished?'Prototype match complete. Review the results or start another world.':scenePlayback?'Construction in progress…':cpuBusy?'Three CPU nations are taking their turns…':remaining===0?'All 3 major actions used. You can still play a card or transfer troops.':`<b>${remaining} major action${remaining===1?'':'s'} remaining.</b> Expand, build, recruit, govern or research.`;
  el('turnFoot').textContent=p.discountBuild||p.discountExpand?`Active discounts: Build −${p.discountBuild} Gold · Expand −${p.discountExpand} Gold`:'3 major actions + 1 troop transfer per turn · 1 optional card';
 }
 function renderTile(t){
@@ -590,6 +647,11 @@ function capitalSprite(t,x,y){
  const color=G.players[t.owner].color;
  return `<g class="map-sprite" pointer-events="none"><ellipse cx="${x}" cy="${y+8}" rx="29" ry="7" fill="#22362f" opacity=".24"/><path d="M${x-20} ${y-18}h40v24h-40z" fill="#e8d2ad" stroke="#927755" stroke-width="1.2"/><path d="M${x-25} ${y-28}h12v34h-12zM${x+13} ${y-28}h12v34h-12z" fill="#c9b58f"/><path d="M${x-28} ${y-28}h18l-9 -13Z M${x+10} ${y-28}h18l-9 -13Z" fill="#bb6b55"/><path d="M${x-9} ${y-20}h18v26H${x-9}z" fill="#f2ddba"/><path d="M${x-12} ${y-20}l12 -16 12 16Z" fill="#bc7455"/><path d="M${x-5} ${y+6}v-11q5 -8 10 0v11" fill="#72614d"/><path d="M${x} ${y-36}v-21" stroke="#6b5037" stroke-width="2.3"/><path d="M${x+1} ${y-57}h20l-6 10H${x+1}Z" fill="${color}" stroke="#8c664f" stroke-width="1.5"/></g>`;
 }
+function constructionDustSprite(x,y){
+ const puffs=[[-24,5,-22,-9,0],[-12,9,-14,-16,70],[1,8,1,-22,110],[14,7,18,-14,40],[25,4,21,-10,95]];
+ const circles=puffs.map(([dx,dy,endX,endY,delay],i)=>`<circle class="gs-build-puff" cx="${x+dx}" cy="${y+dy}" r="${7+i%3*2}" style="--drift-x:${endX-dx}px;--drift-y:${endY-dy}px;--puff-delay:${delay}ms"/>`).join('');
+ return `<g class="gs-building-dust" pointer-events="none">${circles}<path class="gs-build-spark" d="M${x-17} ${y-18}l-3 -7m21 -13v-9m18 22l7 -5" fill="none" stroke="#f5dfa6" stroke-width="3" stroke-linecap="round"/></g>`;
+}
 function tileMiniatures(t,x,y){
  let s=terrainSprites(t,x,y);
  if(t.capital)s+=capitalSprite(t,x,y);
@@ -597,9 +659,17 @@ function tileMiniatures(t,x,y){
  // Show multiple buildings in one hex instead of displaying only the first.
  const offsets=t.capital?[[-22,10],[21,11],[2,18]]:[[-16,5],[16,5],[0,-8]];
  for(let i=0;i<Math.min(3,buildings.length);i++){
-  const [dx,dy]=offsets[i];s+=`<g transform="translate(${(x+dx).toFixed(1)} ${(y+dy).toFixed(1)}) scale(${t.capital?'.57':'.74'}) translate(${(-x).toFixed(1)} ${(-y).toFixed(1)})">${buildingSprite(buildings[i],x,y,G.players[t.owner].color)}</g>`;
+  const [dx,dy]=offsets[i];
+  const arriving=scenePlayback?.kind==='build'&&scenePlayback.tileId===t.id&&scenePlayback.buildingIndex===i;
+  if(arriving&&scenePlayback.phase==='prepare')continue;
+  const spring=arriving&&scenePlayback.phase==='play';
+  const sprite=buildingSprite(buildings[i],x,y,G.players[t.owner].color);
+  s+=`<g transform="translate(${(x+dx).toFixed(1)} ${(y+dy).toFixed(1)}) scale(${t.capital?'.57':'.74'}) translate(${(-x).toFixed(1)} ${(-y).toFixed(1)})">${spring?'<g class="gs-construction-rise">'+sprite+'</g>':sprite}</g>`;
+  if(spring)s+=constructionDustSprite(x+dx,y+dy);
  }
- if(buildings.length>3)s+=`<g pointer-events="none"><rect x="${x+10}" y="${y-36}" width="28" height="16" rx="8" fill="#182e36" stroke="#e5c994"/><text x="${x+24}" y="${y-25}" font-size="10" font-weight="bold" fill="#fff2d3" text-anchor="middle">+${buildings.length-3}</text></g>`;
+ const extra=scenePlayback?.kind==='build'&&scenePlayback.tileId===t.id&&scenePlayback.phase==='prepare'&&scenePlayback.buildingIndex>2?buildings.length-1:buildings.length;
+ if(extra>3)s+=`<g pointer-events="none"><rect x="${x+10}" y="${y-36}" width="28" height="16" rx="8" fill="#182e36" stroke="#e5c994"/><text x="${x+24}" y="${y-25}" font-size="10" font-weight="bold" fill="#fff2d3" text-anchor="middle">+${extra-3}</text></g>`;
+ if(scenePlayback?.kind==='build'&&scenePlayback.tileId===t.id&&scenePlayback.buildingIndex>2&&scenePlayback.phase==='play')s+=constructionDustSprite(x,y);
  return s;
 }
 function renderMap(){
@@ -608,14 +678,15 @@ function renderMap(){
  const sorted=G.tiles.map(t=>({t,c:sceneCoords(t)})).sort((a,b)=>a.c.y-b.c.y||a.c.x-b.c.x);
  const bases=[],decorations=[];
  for(const {t,c:{x,y}} of sorted){
-  const owner=t.owner===null?null:G.players[t.owner],selected=t.id===G.selectedId;
+  const claiming=scenePlayback?.tileId===t.id&&scenePlayback.kind==='expand';
+  const owner=(t.owner===null||(claiming&&scenePlayback.phase==='prepare'))?null:G.players[t.owner],selected=t.id===G.selectedId;
   const top=hexPoints(t,HEX-1),lower=top.map(p=>({x:p.x,y:p.y+10}));
   const fill=t.terrain==='water'?'#478aa8':TERRAIN[t.terrain].color;
   const border=owner?owner.color:'#6b775d';
   const faces=top.map((p,i)=>{const n=(i+1)%6;return `<polygon points="${pts([p,top[n],lower[n],lower[i]])}" fill="${i<3?'#6d6549':'#514e3c'}" opacity=".9"/>`;}).join('');
   bases.push(`<g class="tile-base" pointer-events="none"><polygon points="${pts(lower)}" fill="#202f2b" opacity=".33" transform="translate(2 2)"/>${faces}<polygon points="${pts(top)}" fill="${fill}" stroke="${border}" stroke-width="${owner?'2.5':'1.4'}"/><polygon points="${pts([top[4],top[5],top[0]])}" fill="#fff3c9" opacity=".07"/><polygon points="${pts([top[1],top[2],top[3]])}" fill="#2d312f" opacity=".08"/>${owner?`<polygon points="${pts(top)}" fill="${owner.color}" opacity=".14"/>`:''}${selected?`<polygon points="${pts(top)}" fill="none" stroke="#fff6c7" stroke-width="3.6"/>`:''}</g>`);
   const action=t.id===actionTileId;
-  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/>${tileMiniatures(t,x,y)}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}</g>`);
+  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/>${tileMiniatures(t,x,y)}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}</g>`);
  }
   const waterways=(G.rivers||[]).map(river=>{
    // Vertices are shared by two land hexes; project AFTER camera yaw/tilt.
@@ -730,8 +801,8 @@ function bindEvents(){
   pointers.delete(e.pointerId);drag=null;if(pointers.size<2)pinchLast=null;
  };
  svg.addEventListener('pointerup',clearPointer);svg.addEventListener('pointercancel',clearPointer);
- svg.addEventListener('click',e=>{if(suppressClick||!G)return;const t=e.target.closest('[data-hex]');if(t){G.selectedId=t.dataset.hex;showBuild=false;render();save();showSheet('territory');}});
- svg.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)&&e.target.matches('[data-hex]')){e.preventDefault();G.selectedId=e.target.dataset.hex;showBuild=false;render();save();showSheet('territory');}});
+ svg.addEventListener('click',e=>{if(suppressClick||!G||scenePlayback)return;const t=e.target.closest('[data-hex]');if(t){G.selectedId=t.dataset.hex;showBuild=false;render();save();showSheet('territory');}});
+ svg.addEventListener('keydown',e=>{if(scenePlayback)return;if(['Enter',' '].includes(e.key)&&e.target.matches('[data-hex]')){e.preventDefault();G.selectedId=e.target.dataset.hex;showBuild=false;render();save();showSheet('territory');}});
  svg.addEventListener('wheel',e=>{e.preventDefault();zoom(e.deltaY>0?1.12:.89);},{passive:false});
  el('modalLayer').addEventListener('click',e=>{const b=e.target.closest('[data-modal]');if(!b){if(e.target===el('modalBackdrop'))closeModal();return;}switch(b.dataset.modal){case'close':closeModal();break;case'new-confirm':confirmNew();break;case'new':try{localStorage.removeItem(SAVE_KEY);localStorage.removeItem(OLD_SAVE_KEY);}catch(e){}newMatch();break;case'continue':G.finished=false;G.continued=true;G.maxRounds=Math.max(G.round+16,G.maxRounds+16);G.round++;beginTurn(0);cpuBusy=false;save();closeModal();render();break;}});
 }
