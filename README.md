@@ -1,4 +1,4 @@
-# Global Standoff — Prototype 0.4.5
+# Global Standoff — Prototype 0.4.6
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
@@ -168,14 +168,6 @@ Known prototype limitations: shipments are not yet visual caravans; military com
 
 The prototype currently includes a modest personal-income tax from housed adults and employed citizens to offset the increased salary pressure; wage and fixed upkeep are still fully charged. Economy balance is provisional.
 
-## v0.4.3 — Smooth camera transitions
-
-- CPU viewpoint rotation and panning now use continuous world-space interpolation with fifth-order easing.
-- The map's existing SVG shapes are transformed every frame rather than rebuilding all 169 hexagons during the movement.
-- Trees, mountains, buildings, and other miniatures remain upright while the board rotates.
-- Camera travel caches layout measurements for the duration of each move.
-- Skip-turn and reduced-motion settings remain supported.
-
 ## 0.4.5 — Messenger Falcons, Cooperative Roads & Caravans
 
 - You can propose an international road between **any two named, owned territories**, even before borders meet. Roads follow hex edges through neutral land; third-party owned land blocks routes without permission.
@@ -186,11 +178,10 @@ The prototype currently includes a modest personal-income tax from housed adults
 - Older finished routes persist, while incompatible unaccepted proposals are marked rejected to avoid silent legacy charge or builder-lock problems.
 
 
-### New: Storage Warehouses and bounded production (0.4.5)
-- Storage Warehouses hold physical goods separately from Caravan Warehouses, which house wagons. Build for 7 Gold + 4 Wood; capacity is 40/80/140 at Levels 1/2/3.
-- Factories hold a shared pool of input and output goods: 12/24/42 units at Levels 1/2/3. Farms, mines, and lumber camps hold 16/32/54; military posts 32/56/88.
-- Full sites cannot continue producing. No idle housed wagon means no outgoing shipment. The capital warehouse remains uncapped for existing-save compatibility.
-- Producers with no explicit destination route automatically choose the nearest reachable Storage Warehouse with free space or the capital. Players can explicitly direct goods to capital and manually dispatch up to 10 goods from Storage Warehouses to other eligible buildings.
-- Factories automatically request missing inputs from the nearest stocked warehouse or capital; the wagon must visit pickup before delivery, and it requires available room at its destination.
-- If delivery storage unexpectedly becomes full, the wagon waits with its remaining goods rather than making the cargo disappear. A garage's carriages remain limited to its level's available berths.
-- International cargo exchange and interception are not implemented yet; cooperative road construction is separate from cargo-trade agreements.
+## v0.4.6 — Silver Pents, falcon diplomacy, war phases
+- **Silver Pents (SP)** is the currency; the save data property remains `gold` for compatibility, but the game displays SP and a custom silver pentagonal coin emblem. Gold Ore remains a mineral.
+- Falcons may carry territorial warnings, war declarations or ceasefire proposals. They take individual turns to fly between capitals. A warning can be tied to a named neutral hex; claiming it launches the promised war declaration. No battle begins on entering a war phase.
+- Active wars lower morale of ordinary nonmilitary citizens at declaration and each global round. Military volunteers and stationed troops are excluded from the penalty.
+- War orders support border patrols of owned frontier tiles, and slower flanking via unowned hexes without roads. Troops are drawn from real military post rosters. Each country has one military logistics order per turn. Troop positions are hidden from the enemy; CPU camera does not reveal confidential orders.
+- International road proposals can still be sent for remote territories, but builders may only lay border segments on edges adjoining hexes owned by their own country. Neutral stretches remain **waiting for land** until claimed. No road may be physically constructed through unclaimed land.
+- Military battles, recon visibility, battle results and occupation are future systems; this version models the war phase and maneuvering, not combat resolution.
