@@ -74,44 +74,123 @@ function newCitizensForRound(p){
  const rng=mulberry32(hash(G.seed+':'+G.round+':'+p.id+':'+p.nextCitizenId));
  p.citizens.push(makeCitizen(p,rng));reallocateHousing(p);
 }
-function generateWaterways(tiles,rng,options){
- const find=(q,r)=>tiles.find(t=>t.q===q&&t.r===r);
- const adjacent=t=>[[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]].map(([dq,dr])=>find(t.q+dq,t.r+dr)).filter(Boolean);
- const valid=t=>!t.capital&&Math.min(...CAPITAL_SPOTS.map(([q,r])=>distance(t,{q,r})))>1;
- const rivers=[];
- if(options.lakes){
-  const count=1+randInt(rng,3);
-  for(let i=0;i<count;i++){
-   const seeds=tiles.filter(t=>valid(t)&&t.terrain!=='water');
-   if(!seeds.length)break;let at=seeds[randInt(rng,seeds.length)];
-   const length=2+randInt(rng,5);
-   for(let step=0;step<length;step++){
-    if(valid(at))at.terrain='water';
-    const choices=adjacent(at).filter(t=>valid(t)&&t.terrain!=='water');
-    if(!choices.length)break;at=choices[randInt(rng,choices.length)];
+// Water is a world-generation result, not a player-adjustable lobby setting.
+// Lakes occupy connected *whole hexes*. Rivers trace shared SIDES of adjacent
+// land hexes and never travel through the middle of a land tile.
+function waterNeighbors(t,byId){return [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]
+ .map(([q,r])=>byId.get(key(t.q+q,t.r+r))).filter(Boolean);}
+function generateLakes(tiles,rng){
+ const byId=new Map(tiles.map(t=>[t.id,t]));
+ const valid=t=>t&&!t.capital&&t.owner===null&&
+  Math.min(...CAPITAL_SPOTS.map(([q,r])=>distance(t,{q,r})))>1;
+ const lakeCount=1+randInt(rng,2);
+ for(let n=0;n<lakeCount;n++){
+  const available=tiles.filter(t=>valid(t)&&t.terrain!=='water');
+  if(!available.length)break;
+  const origin=available[randInt(rng,available.length)];
+  origin.terrain='water';
+  const lake=[origin],size=4+randInt(rng,6);
+  while(lake.length<size){
+   const choices=new Map();
+   for(const tile of lake)for(const neighbor of waterNeighbors(tile,byId))
+    if(valid(neighbor)&&neighbor.terrain!=='water')choices.set(neighbor.id,neighbor);
+   if(!choices.size)break;
+   // Grow around the existing water cluster rather than drawing a thin snake.
+   const weighted=[...choices.values()].map(t=>({t,weight:
+    waterNeighbors(t,byId).filter(n=>n.terrain==='water').length*2+rng()*2}));
+   weighted.sort((a,b)=>b.weight-a.weight);
+   const chosen=weighted[Math.min(randInt(rng,Math.min(3,weighted.length)),weighted.length-1)].t;
+   chosen.terrain='water';lake.push(chosen);
+  }
+ }
+}
+const riverCornerKey=p=>`${Math.round(p.x*1000)},${Math.round(p.y*1000)}`;
+function borderRiverGraph(tiles,rng){
+ const byId=new Map(tiles.map(t=>[t.id,t]));
+ const corners=new Map(tiles.map(t=>[t.id,Array.from({length:6},(_,i)=>{
+  const c=coords(t),angle=i*Math.PI/3+Math.PI/6;
+  return {x:c.x+HEX*Math.cos(angle),y:c.y+HEX*Math.sin(angle)};
+ })]));
+ const positions=new Map(),neighbors=new Map(),edges=[];
+ function addVertex(p){const k=riverCornerKey(p);positions.set(k,p);if(!neighbors.has(k))neighbors.set(k,[]);return k;}
+ for(const t of tiles){
+  if(t.terrain==='water')continue;
+  for(const other of waterNeighbors(t,byId)){
+   if(other.terrain==='water'||t.id>=other.id)continue;
+   const otherKeys=new Set(corners.get(other.id).map(riverCornerKey));
+   const shared=corners.get(t.id).filter(c=>otherKeys.has(riverCornerKey(c)));
+   if(shared.length!==2)continue;
+   const a=addVertex(shared[0]),b=addVertex(shared[1]);
+   const index=edges.length;
+   edges.push({a,b,land:[t.id,other.id],weight:1+rng()*.7});
+   neighbors.get(a).push({next:b,index});neighbors.get(b).push({next:a,index});
+  }
+ }
+ return {positions,neighbors,edges};
+}
+function riverPath(graph,start,goal){
+ const {neighbors,edges,positions}=graph;
+ const dist=new Map([[start,0]]),parents=new Map(),pending=new Set([start]);
+ while(pending.size){
+  let node=null,best=Infinity;
+  for(const k of pending){const d=dist.get(k);if(d<best){best=d;node=k;}}
+  pending.delete(node);if(node===goal)break;
+  for(const link of neighbors.get(node)||[]){
+   const candidate=best+edges[link.index].weight;
+   if(candidate<(dist.get(link.next)??Infinity)){
+    dist.set(link.next,candidate);parents.set(link.next,{prev:node,edge:link.index});pending.add(link.next);
    }
   }
  }
- if(options.rivers){
-  // A walk from a western map edge toward the east, keeping river hexes contiguous.
-  const candidates=tiles.filter(t=>t.q===-RADIUS&&valid(t));
-  if(candidates.length){
-   let at=candidates[randInt(rng,candidates.length)],visited=new Set(),path=[];
-   for(let step=0;step<29;step++){
-    path.push(at.id);visited.add(at.id);
-    if(at.q>=RADIUS-1)break;
-    const ns=adjacent(at).filter(t=>valid(t)&&!visited.has(t.id));
-    if(!ns.length)break;
-    ns.sort((a,b)=>(b.q+(.5-rng())*.3)-(a.q+(.5-rng())*.3));
-    let next=ns.filter(t=>t.q>=at.q);if(!next.length)next=ns;
-    at=next[Math.min(next.length-1,randInt(rng,Math.min(3,next.length)))];
-   }
-   if(path.length>=4){rivers.push(path);for(const t of tiles){if(path.includes(t.id))t.river=true;}}
+ if(!parents.has(goal))return null;
+ const route=[goal],banks=[];
+ let cursor=goal;
+ while(cursor!==start){
+  const prior=parents.get(cursor);if(!prior)return null;
+  banks.unshift(edges[prior.edge].land);route.unshift(prior.prev);cursor=prior.prev;
+ }
+ return {points:route.map(k=>positions.get(k)),banks};
+}
+function generateBorderRivers(tiles,rng,count){
+ const graph=borderRiverGraph(tiles,rng),nodes=[...graph.positions.keys()];
+ if(!nodes.length)return [];
+ const rivers=[];
+ for(let i=0;i<count;i++){
+  const heading=rng()*Math.PI*2,dx=Math.cos(heading),dy=Math.sin(heading);
+  const positions=nodes.map(k=>({k,pos:graph.positions.get(k),degree:graph.neighbors.get(k).length}))
+   .map(n=>({...n,progress:n.pos.x*dx+n.pos.y*dy}));
+  const minimum=Math.min(...positions.map(n=>n.progress));
+  const maximum=Math.max(...positions.map(n=>n.progress));
+  const low=minimum+(maximum-minimum)*.17;
+  const high=maximum-(maximum-minimum)*.17;
+  let starts=positions.filter(n=>n.progress<=low&&n.degree<=2);
+  let ends=positions.filter(n=>n.progress>=high&&n.degree<=2);
+  if(!starts.length)starts=positions.filter(n=>n.progress<=low);
+  if(!ends.length)ends=positions.filter(n=>n.progress>=high);
+  if(!starts.length||!ends.length)continue;
+  let chosen=null;
+  for(let attempt=0;attempt<30;attempt++){
+   const start=starts[randInt(rng,starts.length)].k;
+   const end=ends[randInt(rng,ends.length)].k;
+   const path=riverPath(graph,start,end);
+   if(path&&(!chosen||path.banks.length>chosen.banks.length))chosen=path;
+   // Aim for a long, genuinely connected river spanning the landscape.
+   if(path&&path.banks.length>=16&&path.banks.length<=55){chosen=path;break;}
+  }
+  if(chosen&&chosen.banks.length>=8){
+   rivers.push(chosen);
+   const byId=new Map(tiles.map(t=>[t.id,t]));
+   for(const [a,b] of chosen.banks){byId.get(a).river=true;byId.get(b).river=true;}
   }
  }
  return rivers;
 }
-function createWorld(seed,name,capital,color,waterOptions={rivers:'random',lakes:'random'}){
+function generateWaterways(tiles,rng,options){
+ if(options.lakes)generateLakes(tiles,rng);
+ for(const t of tiles)t.river=false;
+ return options.rivers?generateBorderRivers(tiles,rng,1+Number(rng()<.22)):[];
+}
+function createWorld(seed,name,capital,color){
  const rng=mulberry32(hash(seed));
  const colors=[COLORS[color],...COLORS.filter((_,i)=>i!==color)];
  const players=[{name,capital,sigil:'✦'},...NPCS].map((p,i)=>({id:i,name:p.name,capital:p.capital,sigil:p.sigil,color:colors[i],gold:24,food:14,materials:12,knowledge:0,tech:[],hand:[],discountExpand:0,discountBuild:0,acted:false,cardPlayed:false,logisticsUsed:false,citizens:[],nextCitizenId:0}));
@@ -124,12 +203,12 @@ function createWorld(seed,name,capital,color,waterOptions={rivers:'random',lakes
   tiles.push({id:key(q,r),q,r,terrain,name:unique,owner:null,buildings:[],capital:false,river:false});
  }
  CAPITAL_SPOTS.forEach(([q,r],i)=>{let t=tiles.find(t=>t.q===q&&t.r===r);t.terrain='plains';t.owner=i;t.capital=true;t.name=players[i].capital;});
- const decide=mode=>mode==='on'||(mode!=='off'&&rng()<.55);
- const options={rivers:decide(waterOptions.rivers),lakes:decide(waterOptions.lakes)};
+ // A random map can contain either feature, both, or occasionally neither.
+ const options={rivers:rng()<.84,lakes:rng()<.84};
  const rivers=generateWaterways(tiles,rng,options);
  const deck=Array.from({length:6},()=>CARD_POOL).flat().sort(()=>rng()-.5);
  const worldName=['The Wild Marches','The Broken Coast','The Emerald Frontier','The Hinterlands','The New Continent'][randInt(rng,5)];
- G={version:2,seed,worldName,worldOptions:options,rivers,players,tiles,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
+ G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
  for(const p of players){const citizenRng=mulberry32(hash(seed+'-people-'+p.id));for(let k=0;k<10;k++)p.citizens.push(makeCitizen(p,citizenRng,true));reallocateHousing(p);drawCard(p);drawCard(p);}
  beginTurn(0);
  addLog(`${name} established its capital at ${capital}. Four nations have entered a ${tiles.length}-hex world.`);
@@ -140,10 +219,23 @@ function drawCard(p){if(p.hand.length>=4)return; if(G.drawIndex>=G.deck.length){
 function beginTurn(id){G.turnIndex=id;const p=G.players[id];p.acted=false;p.cardPlayed=false;p.logisticsUsed=false;drawCard(p);save();}
 function addLog(text){G.log.unshift({round:G.round,text});G.log=G.log.slice(0,28);}
 function save(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(G));}catch(e){/* local storage may be disabled */}}
+function upgradeSavedWaterways(s){
+ // Preserve all owned territory, citizens and lake hexes in an existing save.
+ // Older saves used river paths through tile centers; replace only that geometry.
+ if(s.waterwayVersion===2)return s;
+ const oldRivers=Array.isArray(s.rivers)?s.rivers:[];
+ const shouldHaveRiver=oldRivers.length>0;
+ s.rivers=[];
+ for(const t of s.tiles)t.river=false;
+ if(shouldHaveRiver)s.rivers=generateBorderRivers(s.tiles,mulberry32(hash(s.seed+':river-migration')),1);
+ s.waterwayVersion=2;
+ try{localStorage.setItem(SAVE_KEY,JSON.stringify(s));}catch(e){}
+ return s;
+}
 function loadSaved(){
  try{
   const s=JSON.parse(localStorage.getItem(SAVE_KEY));
-  if(s&&s.version===2&&Array.isArray(s.players)&&s.players.length===4&&Array.isArray(s.tiles))return s;
+  if(s&&s.version===2&&Array.isArray(s.players)&&s.players.length===4&&Array.isArray(s.tiles))return upgradeSavedWaterways(s);
   const previous=JSON.parse(localStorage.getItem(OLD_SAVE_KEY));
   if(previous&&previous.version===1&&previous.players?.length===4&&previous.tiles?.length){
    // Preserve old matches; a newly generated match is required for the bigger world.
@@ -151,7 +243,7 @@ function loadSaved(){
    for(const t of previous.tiles){t.buildings=t.building?[t.building]:[];delete t.building;t.river=false;}
    for(const p of previous.players){p.citizens=[];p.nextCitizenId=0;p.logisticsUsed=false;const rng=mulberry32(hash(previous.seed+'-people-'+p.id));for(let k=0;k<10;k++)p.citizens.push(makeCitizen(p,rng,true));}
    const old=G;G=previous;for(const p of previous.players)reallocateHousing(p);G=old;
-   localStorage.setItem(SAVE_KEY,JSON.stringify(previous));return previous;
+   localStorage.setItem(SAVE_KEY,JSON.stringify(previous));return upgradeSavedWaterways(previous);
   }
  }catch(e){console.warn('Save could not be restored',e);}return null;
 }
@@ -473,9 +565,14 @@ function renderMap(){
   const action=t.id===actionTileId;
   decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/>${tileMiniatures(t,x,y)}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}</g>`);
  }
- const waterways=(G.rivers||[]).map(path=>{const points=path.map(id=>G.tiles.find(t=>t.id===id)).filter(Boolean).map(sceneCoords);if(points.length<2)return '';
-  const d='M'+points.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L');return `<path d="${d}" stroke="#387b99" stroke-width="9" stroke-linejoin="round" fill="none" stroke-linecap="round" opacity=".8"/><path d="${d}" stroke="#9fdae0" stroke-width="3.8" stroke-linejoin="round" fill="none" stroke-linecap="round" opacity=".9"/>`;
- }).join('');
+  const waterways=(G.rivers||[]).map(river=>{
+   // Vertices are shared by two land hexes; project AFTER camera yaw/tilt.
+   const positions=river.points||[];
+   if(positions.length<2)return '';
+   const projected=positions.map(p=>project(p.x,p.y));
+   const d='M'+projected.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L');
+   return `<g class="river-course" pointer-events="none"><path d="${d}" stroke="#49675b" stroke-width="12" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".82"/><path d="${d}" stroke="#398aab" stroke-width="8.2" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="${d}" stroke="#a0dbe5" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".77"/></g>`;
+  }).join('');
  el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}</g><g class="world-features">${decorations.join('')}</g>`;
 }
 function mapAspect(){const rect=el('worldMap').getBoundingClientRect();return rect.width>0&&rect.height>0?rect.width/rect.height:1.5;}
@@ -524,7 +621,7 @@ function bindEvents(){
   error.classList.add('hidden');button.disabled=true;button.innerHTML='GENERATING WORLD…';
   try{
    const seed=el('seedInput').value.trim()||Math.floor(Math.random()*4294967295).toString(36).toUpperCase();
-   createWorld(seed,country,capital,selectedColor,{rivers:el('riverMode').value,lakes:el('lakeMode').value});enterGame();
+   createWorld(seed,country,capital,selectedColor);enterGame();
   }catch(e){
    console.error('Global Standoff startup error',e);
    error.textContent='The world could not be started: '+String(e&&e.message||e)+'. Open this game on a normal HTTPS website in Safari or Chrome.';
