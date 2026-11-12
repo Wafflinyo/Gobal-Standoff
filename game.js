@@ -472,8 +472,9 @@ function runAgricultureAndForestry(){
   if(kind==='farm'){
    const food=Math.max(1,Math.round((4+(t.river?1:0)+(p.tech.includes('irrigation')?1:0))*factor));
    const leather=Math.max(1,Math.round(1.5*factor));
-   addLocal(site,'food',food);addLocal(site,'leather',leather);
-  }else addLocal(site,'logs',Math.max(1,Math.round(3*factor)));
+   const free=endpointStorageFree(p,site.id);
+   if(free>0){const foodAdded=Math.min(food,free);addLocal(site,'food',foodAdded);if(free>foodAdded)addLocal(site,'leather',Math.min(leather,free-foodAdded));}
+  }else{const free=endpointStorageFree(p,site.id);if(free>0)addLocal(site,'logs',Math.min(free,Math.max(1,Math.round(3*factor))));}
  }
 }
 function processFactories(){
@@ -484,6 +485,7 @@ function processFactories(){
   const attempts=Math.min(q.level,Math.max(1,Math.ceil(q.count/2)));
   for(let n=0;n<attempts;n++){
    if(!Object.entries(chosen.input).every(([item,amount])=>localCount(site,item)>=amount))break;
+   if(endpointStorageFree(p,site.id)<(chosen.amount||1))break;
    const successChance=Math.min(.98,.55+.32*q.efficiency+.08*(q.level-1));
    const rng=mulberry32(hash(G.seed+':factory:'+site.id+':'+G.round+':'+n));
    if(rng()>successChance)continue;
@@ -497,9 +499,10 @@ function autoDispatchOutputs(){
   const kind=t.buildings[i],site=worksite(t,i);
   for(const item of OUTPUTS[kind]||[]){
    const count=localCount(site,item);if(count<1)continue;
-   let to=site.routes?.[item]||'depot';
-   if(p.id!==0&&to==='depot'&&(['woodShield','leatherArmor','ironArmor','steelArmor','goldArmor','diamondArmor'].includes(item)||item.startsWith('stone'))){const post=getMilitaryPosts(p.id)[0];if(post)to=postStock(p,post.id)?.id||'depot';}
-   if(to===site.id||!siteLookup(p.id,to))continue;
+   let to=site.routes?.[item]??null;
+   if(p.id!==0&&to===null&&(['woodShield','leatherArmor','ironArmor','steelArmor','goldArmor','diamondArmor'].includes(item)||item.startsWith('stone'))){const post=getMilitaryPosts(p.id)[0];if(post)to=postStock(p,post.id)?.id||'depot';}
+   if(to===null)to=nearbyStorage(p,t)?.id||'depot';
+   if(String(to)===String(site.id)||!siteLookup(p.id,to))continue;
    dispatchShipment(p.id,site.id,to,item,Math.min(10,count),true);
   }
  }
@@ -511,7 +514,11 @@ function autoRequestFactoryInputs(){
   for(const [item,amount] of Object.entries(rec.input)){
    const queued=G.shipments.filter(j=>j.owner===p.id&&j.to===site.id&&j.item===item).reduce((n,j)=>n+j.qty,0);
    const needed=Math.max(0,amount*(site.level||1)*2-localCount(site,item)-queued);
-   if(needed>0){const count=Math.min(10,needed,depotCount(p,item));if(count)dispatchShipment(p.id,'depot',site.id,item,count,true);}
+   const free=endpointDeliverySpace(p,site.id);
+   if(needed>0&&free>0){
+    const sources=storedAt(p,item).map(source=>({...source,path:ownedPath(p.id,source.tile,t)})).filter(o=>o.path&&String(o.id)!==String(site.id)).sort((a,b)=>a.path.length-b.path.length);
+    for(const source of sources)if(dispatchShipment(p.id,source.id,site.id,item,Math.min(10,needed,free,source.count),true))break;
+   }
   }
  }
 }
@@ -520,7 +527,7 @@ function postStock(p,postId){
  const i=t.buildings.indexOf('post');return i<0?null:worksite(t,i);
 }
 function routingTargets(p,siteId){
- return [{id:'depot',name:'Capital warehouse'},...G.tiles.filter(t=>t.owner===p.id).flatMap(t=>t.buildings.flatMap((type,i)=>t.buildingMeta?.[i]?.id===siteId?[]:[{id:t.buildingMeta[i].id,name:`${t.name} · ${BUILDINGS[type].name}`}]))];
+ return [{id:'depot',name:'Capital warehouse'},...G.tiles.filter(t=>t.owner===p.id).flatMap(t=>t.buildings.flatMap((type,i)=>t.buildingMeta?.[i]?.id===siteId||!['storageWarehouse','post',...Object.keys(FACTORY_RECIPES)].includes(type)?[]:[{id:t.buildingMeta[i].id,name:`${t.name} · ${BUILDINGS[type].name}`}]))];
 }
 function setDeliveryRoute(tile,index,item,destination){
  const p=getCountry(),site=worksite(tile,index);
@@ -1182,15 +1189,15 @@ function extractMinesForRound(p){
    if(t.buildings[index]!=='mine')continue;
    const meta=worksite(t,index),q=workQuality(p,meta,'mine');if(!q.count)continue;
    // Stone is available from ALL mountains, even mountains with no ore veins.
-   addLocal(meta,'stone',Math.max(1,Math.round(2*q.ratio*q.efficiency*(1+.5*(q.level-1)))));
+   const free=endpointStorageFree(p,meta.id);if(free>0)addLocal(meta,'stone',Math.min(free,Math.max(1,Math.round(2*q.ratio*q.efficiency*(1+.5*(q.level-1))))));
    for(const vein of [t.vein,t.coalVein]){
     if(!vein||vein.remaining<=0)continue;
     const cfg=MINERALS[vein.kind];if(!cfg)continue;
     const rng=mulberry32(hash(G.seed+':mining:'+t.id+':'+vein.kind+':'+G.round));
     const chance=Math.max(.005,Math.min(.98,cfg.chance*(.50+.50*q.ratio)*q.efficiency*(1+.22*(q.level-1))));
     if(rng()>=chance)continue;
-    const amount=Math.min(vein.remaining,Math.max(1,Math.round(cfg.rate*(1+.5*(q.level-1))*q.ratio*q.efficiency)));
-    addLocal(meta,vein.kind,amount);vein.remaining-=amount;
+    const amount=Math.min(vein.remaining,endpointStorageFree(p,meta.id),Math.max(1,Math.round(cfg.rate*(1+.5*(q.level-1))*q.ratio*q.efficiency)));
+    if(amount<1)continue;addLocal(meta,vein.kind,amount);vein.remaining-=amount;
     if(vein.kind==='diamond'||vein.kind==='goldOre')addLog(`${p.name} mined ${amount} ${cfg.name} at ${t.name}; shipment still required.`);
     else if(vein.remaining===0)addLog(`${p.name} exhausted its ${cfg.name} vein at ${t.name}.`);
    }
@@ -1455,6 +1462,7 @@ function runCpu(id){
  if(eco.netGold<=0&&tryBuild('market'))return;
  if(owned.length<3&&tryExpand())return;
  if(G.round>=2&&!caravanWarehouses(p).length&&tryBuild('caravanWarehouse'))return;
+ if(G.round>=4&&!owned.some(t=>t.buildings.includes('storageWarehouse'))&&tryBuild('storageWarehouse'))return;
  if(p.food<9&&tryBuild('farm'))return;
  if(p.wood<8&&(tryBuild('lumber')||tryBuild('woodworks')))return;
  if(mineralCount(p,'iron')<4&&p.gold>11&&mineralTrade('iron','buy',id))return;
@@ -1471,7 +1479,7 @@ function runCpu(id){
  if(!posts.length&&G.round>=5&&tryBuild('post'))return;
  if(posts.length&&G.round%5===0&&p.marketingUntil<G.round&&doMarketing(posts[0],id))return;
  if(owned.length<15&&tryExpand())return;
- if(tryBuild('homes')||tryBuild('market')||tryBuild('farm')||tryBuild('academy')||tryBuild('lumber')||tryBuild('post')||tryBuild('mine')||tryBuild('leatherFactory')||tryBuild('woodworks')||tryBuild('stoneworks')||tryBuild('armory')||tryBuild('foundry'))return;
+ if(tryBuild('homes')||tryBuild('market')||tryBuild('farm')||tryBuild('academy')||tryBuild('lumber')||tryBuild('storageWarehouse')||tryBuild('post')||tryBuild('mine')||tryBuild('leatherFactory')||tryBuild('woodworks')||tryBuild('stoneworks')||tryBuild('armory')||tryBuild('foundry'))return;
  if(tryExpand())return;
  if(p.tech.length<Object.keys(TECHS).length){const tech=Object.keys(TECHS).find(k=>!p.tech.includes(k)&&hasMoney(p,TECHS[k].gold)&&p.knowledge>=TECHS[k].knowledge);if(tech&&doResearch(tech,id))return;}
  const ownedUpgrade=owned.find(t=>t.buildings.some((kind,i)=>!G.projects.some(j=>j.upgradeSiteId===t.buildingMeta?.[i]?.id)&&upgradePrice(t,i)&&hasMoney(p,upgradePrice(t,i).gold)&&p.wood>=upgradePrice(t,i).wood&&mineralCount(p,'iron')>=upgradePrice(t,i).iron));
