@@ -250,3 +250,15 @@ body.gs-playing .map-hint{display:none}
 .cpu-watching .hand-dock .cards-panel{height:100%;overflow:hidden}
 .cpu-watching .gs-watching-hand{height:100%;justify-content:center}
 @media(max-height:650px){.cpu-watching .hand-dock{height:136px;min-height:136px}.cpu-watching .gs-watching-hand{gap:2px}.cpu-watching .gs-watching-name{padding:3px 5px}}
+
+/* Global Standoff 0.3.6 — mineral stockpile inside the existing Nation sheet */
+.gs-mineral-panel{margin-top:18px;border-top:1px solid #617e8055;padding-top:15px}
+.gs-mineral-panel h3{font-size:15px;margin:0 0 5px;color:#f2dfaf}
+.gs-mineral-caption{font-size:11px;line-height:1.5;color:#b1c5c7;margin:7px 0 12px}
+.gs-mineral-item{display:flex;align-items:center;gap:8px;padding:9px 5px;border-bottom:1px solid #93a2a222;min-width:0}
+.gs-mineral-symbol{font-size:18px;width:25px;text-align:center;flex-shrink:0}
+.gs-mineral-copy{flex:1;min-width:0;display:grid;gap:3px;font-size:12px}
+.gs-mineral-copy small{font-size:10px;color:#adbec0;line-height:1.35}
+.gs-mineral-actions{display:flex;gap:5px}
+.gs-mineral-actions button{padding:7px 9px;background:#274653;border:1px solid #7a8e85;color:#f1e8d2;border-radius:7px;font-size:11px;font-weight:800;min-width:39px}
+.gs-mineral-actions button:disabled{opacity:.4}
