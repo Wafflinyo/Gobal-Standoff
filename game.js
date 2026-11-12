@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.14 — restore territory outlines and color-lined roads, preserving classic footprint direction. */
+/* Global Standoff 0.4.15 — bounded debt and two-sided road ownership highlights. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -8,7 +8,7 @@ const icoMarkup=name=>'<svg class="gs-glyph" aria-hidden="true" viewBox="0 0 32 
 const silverPentIcon=(size=21)=>`<svg class="gs-silver-pent" width="${size}" height="${size}" viewBox="0 0 40 40" aria-label="Silver Pents" role="img"><path d="M20 2L37 14L30.5 35H9.5L3 14Z" fill="#dbe2e7" stroke="#617889" stroke-width="2.4"/><path d="M20 7L31.5 16L27 30H13L8.5 16Z" fill="#a8b9c4" stroke="#f4f9fa" stroke-width="1.5"/><path d="M20 11L20 29M12 17L28 17M14 26L26 26" stroke="#465d6d" stroke-width="1.5" opacity=".4"/><text x="20" y="25.5" text-anchor="middle" font-size="14" font-weight="900" fill="#203e4e" stroke="#edf2f2" stroke-width=".6" paint-order="stroke">SP</text></svg>`;
 const moneyLabel=amount=>`${amount} SP`;
 
-const RADIUS=7, HEX=40, MAX_ROUNDS=24, MAJOR_ACTIONS=3; // 169 hexes; three major actions per turn
+const RADIUS=7, HEX=40, MAX_ROUNDS=24, MAJOR_ACTIONS=3, CREDIT_LIMIT_SP=10; // Maximum debt: −10 SP
 const COLORS=['#7ed0b7','#e6af79','#b7a1e9','#f08b87'];
 const NPCS=[{name:'Alder Union',capital:'Oakspire',sigil:'A'},{name:'Coral Dominion',capital:'Sunport',sigil:'◆'},{name:'Vesper Republic',capital:'Duskfall',sigil:'V'}];
 const TERRAIN={
@@ -134,7 +134,8 @@ function actionsUsed(p){return Number.isInteger(p.actionsUsed)?Math.min(MAJOR_AC
 function actionsRemaining(p){return Math.max(0,MAJOR_ACTIONS-actionsUsed(p));}
 function canCountryAct(p,id){return !!G&&!G.finished&&G.turnIndex===id&&actionsRemaining(p)>0&&(id!==0||!cpuBusy);}
 function canAct(){return active()&&actionsRemaining(getCountry())>0;}
-function hasMoney(p,n){return p.gold>=n&&p.gold>=0;}
+// Credit is available until −10 SP. No discretionary spending at the floor.
+function hasMoney(p,n){return Number.isFinite(p.gold)&&p.gold>-CREDIT_LIMIT_SP&&p.gold-Math.max(0,Number(n)||0)>=-CREDIT_LIMIT_SP;}
 // Worksite IDs stay stable even when other buildings in the hex are sold.
 function ensureBuildingMeta(world){
  world.nextBuildingId=world.nextBuildingId||1;
@@ -857,6 +858,8 @@ function migrateGameplay(s){
  for(const p of s.players){
   if(p.materials!==undefined){const old=Math.max(0,p.materials);p.wood=(p.wood||0)+Math.ceil(old*.6);p.ore=(p.ore||0)+Math.floor(old*.4);delete p.materials;}
   p.wood??=10;p.marketingUntil??=0;p.warehouse??={};p.caravans??=[];p.caravanPolicy??='nearest';
+  if(!Number.isFinite(p.gold))p.gold=0;
+  p.gold=Math.max(-CREDIT_LIMIT_SP,p.gold);
   p.minerals??=emptyMinerals();
   for(const key of [...MINERAL_KEYS,'steel'])p.minerals[key]=Math.max(0,Math.floor(p.minerals[key]||0));
   if(p.ore!==undefined){p.minerals.iron+=Math.max(0,Math.floor(p.ore));delete p.ore;}
@@ -1587,9 +1590,19 @@ function playCard(id,idx){const p=G.players[id];if(!p||p.cardPlayed||idx<0||idx>
 function finishRound(){
  for(const p of G.players){
   const e=getEconomy(p.id),oldGold=p.gold;
-  p.gold+=e.netGold;p.food=Math.max(0,p.food+e.netFood);p.wood+=e.wood;p.knowledge+=e.knowledge;
+  const projectedGold=p.gold+e.netGold;
+  const unfunded=Math.max(0,-CREDIT_LIMIT_SP-projectedGold);
+  p.gold=Math.max(-CREDIT_LIMIT_SP,projectedGold);
+  if(unfunded>0){
+   // Charges beyond the credit ceiling cannot be paid. Employees lose morale.
+   p.missedOperatingCosts=(p.missedOperatingCosts||0)+unfunded;
+   const penalty=Math.min(10,3+Math.ceil(unfunded/3));
+   for(const c of p.citizens||[])if(!c.military)c.morale=Math.max(0,(c.morale??50)-penalty);
+   addLog(`${p.name} reached its −${CREDIT_LIMIT_SP} SP credit limit; ${unfunded} SP in operating costs could not be paid. Civilian morale fell.`);
+  }
+  p.food=Math.max(0,p.food+e.netFood);p.wood+=e.wood;p.knowledge+=e.knowledge;
   const wars=opponentsAtWar(p.id).length;for(const c of p.citizens){if(c.military)continue;c.morale=Math.max(0,Math.min(100,(c.morale??50)-(wars?Math.min(4,wars*2):0)));}
-  if(p.gold<0&&oldGold>=0)addLog(`${p.name} has entered debt. It must repair its treasury to construct or recruit.`);
+  if(p.gold<0&&oldGold>=0)addLog(`${p.name} entered debt; the −${CREDIT_LIMIT_SP} SP credit ceiling limits spending.`);
   if(p.food===0&&e.netFood<0)addLog(`${p.name} is experiencing a food shortage. Population growth paused.`);
   if(G.round%4===0)for(const c of p.citizens)c.age++;
   newCitizensForRound(p);
@@ -1740,7 +1753,7 @@ function runCpu(id){
  const tryExpand=()=>frontiers.length?doExpand(frontiers[0],id):false;
  // CPUs have the SAME money, jobs and actions as human players. They should
  // save during crises rather than blindly expanding until payroll bankrupts them.
- if(p.gold<0){
+ if(p.gold<=-CREDIT_LIMIT_SP){
   if(!p.levyUsed&&doLevy(id))return;
   for(const k of ['diamond','goldOre','silver','copper','iron','coal'])if(mineralCount(p,k)>1&&mineralTrade(k,'sell',id))return;
   const sale=owned.find(t=>t.buildings.some((kind,i)=>kind!=='market'&&kind!=='farm'&&kind!=='homes'&&!G.projects.some(j=>j.upgradeSiteId===t.buildingMeta?.[i]?.id)&&!(kind==='post'&&postGarrison(p,t.id).length)));
@@ -1799,6 +1812,7 @@ function render(){if(!G)return;
  el('resources').innerHTML=[['gold',silverPentIcon(23),'Silver Pents'],['food','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>','Food'],['wood','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg>','Wood'],['iron','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>','Iron'],['knowledge','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>','Knowledge']].map(([field,icon,name])=>`<div class="resource ${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
  el('quickStats').innerHTML=[['gold',silverPentIcon(16)],['food','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>'],['wood','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg>'],['iron','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>'],['knowledge','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</b></span>`).join('');
  el('economySummary').innerHTML=`<div class="gs-econ-totals"><span>Income <strong>+${e.gold} SP</strong></span><span>Upkeep & wages <strong>−${e.upkeep} SP</strong></span><span>Net / round <strong class="${e.netGold>=0?'positive':'negative'}">${e.netGold>=0?'+':''}${e.netGold} SP</strong></span></div>
+  <div class="gs-credit-line"><strong>Credit limit −${CREDIT_LIMIT_SP} SP</strong><span>${p.gold<0?`Borrowed ${-p.gold}/${CREDIT_LIMIT_SP} SP`:'No debt'} · ${p.gold<=-CREDIT_LIMIT_SP?'Spending locked':p.gold<0?'Credit still available':'Credit available if needed'}</span></div>
   <div class="gs-econ-ledger" aria-label="Silver Pents income and upkeep breakdown">
    <strong class="gs-econ-ledger-title">Income per round</strong>
    <span>Occupied family homes (${e.occupiedHomes} × ${HOUSEHOLD_RENT} SP)</span><b class="positive">+${e.householdIncome} SP</b>
@@ -1812,7 +1826,7 @@ function render(){if(!G)return;
    <span>Worker wages</span><b class="negative">−${e.workerWages} SP</b>
    <span>Builder wages</span><b class="negative">−${e.builderWages} SP</b>
    <span>Military upkeep</span><b class="negative">−${e.militaryUpkeep} SP</b>
-  </div><p class="gs-econ-explainer">Each occupied household (up to ${HOUSEHOLD_SIZE} residents) pays ${HOUSEHOLD_RENT} Silver Pents per round. Empty homes pay nothing. Wages are in addition to upkeep; level upgrades increase fixed upkeep.</p><div class="gs-econ-extra">Employed ${workforceSummary(p).employed} · Available ${workforceSummary(p).available} · Food ${e.netFood>=0?'+':''}${e.netFood}/round</div>${p.gold<0?'<div class="economy-alert"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-warning"></use></svg> In debt: building and recruitment are locked until the treasury recovers.</div>':''}`;
+  </div><p class="gs-econ-explainer">Each occupied household (up to ${HOUSEHOLD_SIZE} residents) pays ${HOUSEHOLD_RENT} Silver Pents per round. Empty homes pay nothing. Wages are in addition to upkeep; level upgrades increase fixed upkeep.</p><div class="gs-econ-extra">Employed ${workforceSummary(p).employed} · Available ${workforceSummary(p).available} · Food ${e.netFood>=0?'+':''}${e.netFood}/round</div>${p.gold<=-CREDIT_LIMIT_SP?'<div class="economy-alert"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-warning"></use></svg> Credit limit reached (−10 SP). New construction, research and purchases locked. Sell assets, trade or collect income to recover.</div>':p.gold<0?'<div class="gs-credit-warning">Borrowing Silver Pents: spending cannot exceed the −10 SP credit limit.</div>':''}`;
  el('economySummary').innerHTML+=`<div class="gs-depot-note"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> Capital warehouse: ${Object.entries(p.warehouse||{}).filter(([k,v])=>v>0).map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · ')||'No crafted goods yet'}</div>`+shippingDashboard();
   el('populationSummary').innerHTML=`<div class="population-stat"><strong>${people.count}</strong><span>Citizens</span></div><div class="population-stat"><strong>${people.housed} / ${people.housing}</strong><span>Housed / Beds</span></div><div class="population-stat ${people.homeless?'population-warning':''}"><strong>${people.homeless}</strong><span>Homeless</span></div><div class="population-stat"><strong>${people.soldiers}</strong><span>Troops</span></div><div class="gs-household-population"><strong>${people.households}</strong> occupied family homes · <strong>+${people.households*HOUSEHOLD_RENT} SP</strong> / round</div>`;
  el('populationAdvice').textContent=people.homeless>0?`${people.homeless} citizens need homes. Build on an owned tile with open space, or expand to make room.`:people.housing<=people.count+2?'Housing is nearly full. Consider additional homes before the next population increase.':'Each round can bring new citizens when Food is available. Homes need building space, and terrain limits residents.';
@@ -2087,7 +2101,8 @@ function edgedRoadSegment(a,b,banks,constructed=true){
  svg+=line(a,b,constructed?'#cdb58a':'#816f57',5.2,constructed?'':'4 5');
  if(constructed)svg+=line(a,b,'#eadbb8',1.25);
  for(const side of [-1,1]){
-  const color=stripeColors[side===-1?0:1]||'#627a70';
+  const color=stripeColors[side===-1?0:1];
+  if(!color)continue; // The adjoining territory is unclaimed: no ownership stripe.
   const offset=5.7*side;
   svg+=line({x:a.x+nx*offset,y:a.y+ny*offset},{x:b.x+nx*offset,y:b.y+ny*offset},color,2.7,constructed?'':'4 4');
  }
