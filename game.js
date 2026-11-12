@@ -1533,14 +1533,14 @@ function renderTile(t){
   const stockList=Object.entries(meta?.stock||{}).filter(([k,v])=>v>0);
 
   const storageLimit=siteStorageCapacity(type,meta.level),stored=stockUsed(meta);
-  if(storageLimit>0)html+=\`<div class="gs-storage-gauge"><b>Storage: \${stored}/\${storageLimit} units</b>\${stored>=storageLimit?' · FULL — production paused until collected':''}<div class="gs-storage-track"><span style="width:\${Math.min(100,100*stored/storageLimit)}%"></span></div><small>Upgrading this building increases its capacity.</small></div>\`;
+  if(storageLimit>0)html+=`<div class="gs-storage-gauge"><b>Storage: ${stored}/${storageLimit} units</b>${stored>=storageLimit?' · FULL — production paused until collected':''}<div class="gs-storage-track"><span style="width:${Math.min(100,100*stored/storageLimit)}%"></span></div><small>Upgrading this building increases its capacity.</small></div>`;
 
   const outgoing=G.shipments.filter(job=>job.owner===p.id&&job.from===meta.id);
   html+=`<div class="gs-site-inventory"><small>📦 On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>🚚 Shipped: ${outgoing.slice(0,4).map(job=>`${job.qty} ${GOOD_NAMES[job.item]||job.item} (${job.remaining}r)`).join(' · ')}`:''}</small></div>`;
 
   if(isOwn&&type==='storageWarehouse'&&stockList.length){
    const targets=routingTargets(p,meta.id);
-   html+=\`<div class="gs-storage-actions"><strong>Ship stored goods by caravan</strong>\${stockList.map(([item,qty])=>\`<div class="gs-stock-dispatch"><span>\${esc(GOOD_NAMES[item]||item)} ×\${qty}</span><select data-storage-send-to="\${i}" data-storage-good="\${esc(item)}">\${targets.map(dst=>\`<option value="\${dst.id}">\${esc(dst.name)}</option>\`).join('')}</select><button data-action="dispatch-store" data-index="\${i}" data-item="\${esc(item)}" \${!active()?'disabled':''}>Ship up to 10</button></div>\`).join('')}</div>\`;
+   html+=`<div class="gs-storage-actions"><strong>Ship stored goods by caravan</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship up to 10</button></div>`).join('')}</div>`;
   }
   if(isOwn&&FACTORY_RECIPES[type])html+=`<label class="gs-routing-label">Manufacture <select data-recipe-site="${i}">${FACTORY_RECIPES[type].map(recipe=>`<option value="${recipe}" ${meta.recipe===recipe?'selected':''}>${RECIPES[recipe].name}</option>`).join('')}</select></label>`;
   if(isOwn&&OUTPUTS[type]?.length){const targets=routingTargets(p,meta.id);
@@ -1671,7 +1671,7 @@ function hutSprite(x,y,roof='#b96e53',w=20,h=16){
  return `<g class="map-sprite" pointer-events="none"><ellipse cx="${x}" cy="${y+2}" rx="${w*.72}" ry="5" fill="#233a30" opacity=".25"/><path d="M${x-w/2} ${y-h+5}L${x} ${y-h+10}L${x} ${y+2}L${x-w/2} ${y-3}Z" fill="#bea883"/><path d="M${x} ${y-h+10}L${x+w/2} ${y-h+5}L${x+w/2} ${y-3}L${x} ${y+2}Z" fill="#f1dfb7"/><path d="M${x-w/2-3} ${y-h+5}L${x} ${y-h-7}L${x} ${y-h+10}Z" fill="#915a48"/><path d="M${x} ${y-h-7}L${x+w/2+3} ${y-h+5}L${x} ${y-h+10}Z" fill="${roof}"/><path d="M${x+2} ${y-3}v-7h5v7" fill="#796650"/></g>`;
 }
 function buildingSprite(type,x,y,color){
- if(type==='storageWarehouse')return \`<g class="map-sprite" pointer-events="none"><ellipse cx="\${x}" cy="\${y+10}" rx="25" ry="7" fill="#1b2b2c" opacity=".25"/><path d="M\${x-23} \${y-14}h46v25h-46Z" fill="#dbc8a4" stroke="#695a49" stroke-width="2"/><path d="M\${x-28} \${y-14}l28 -20 28 20Z" fill="#916d56" stroke="#5a4640" stroke-width="2"/><rect x="\${x-14}" y="\${y-5}" width="28" height="16" fill="#9b7957" stroke="#e3cda4" stroke-width="2"/><path d="M\${x-16} \${y+3}h32m-16 -8v16" stroke="#69523e" stroke-width="2.5"/><rect x="\${x-23}" y="\${y-24}" width="9" height="9" fill="\${color}"/></g>\`;
+ if(type==='storageWarehouse')return `<g class="map-sprite" pointer-events="none"><ellipse cx="${x}" cy="${y+10}" rx="25" ry="7" fill="#1b2b2c" opacity=".25"/><path d="M${x-23} ${y-14}h46v25h-46Z" fill="#dbc8a4" stroke="#695a49" stroke-width="2"/><path d="M${x-28} ${y-14}l28 -20 28 20Z" fill="#916d56" stroke="#5a4640" stroke-width="2"/><rect x="${x-14}" y="${y-5}" width="28" height="16" fill="#9b7957" stroke="#e3cda4" stroke-width="2"/><path d="M${x-16} ${y+3}h32m-16 -8v16" stroke="#69523e" stroke-width="2.5"/><rect x="${x-23}" y="${y-24}" width="9" height="9" fill="${color}"/></g>`;
  if(type==='homes')return hutSprite(x-5,y+4,'#ae7154',16,15)+hutSprite(x+9,y-2,'#d9a16d',14,13);
  if(type==='farm')return `<g pointer-events="none" class="map-sprite"><path d="M${x-22} ${y+9}l20 -9 23 8 -20 10z" fill="#c3a265" stroke="#9f8151" stroke-width="1.2"/><path d="M${x-15} ${y+8}l15 -7m-7 12l16 -8m-17 4l15 -7" stroke="#f2d277" stroke-width="2"/></g>`+hutSprite(x+8,y-7,'#c66647',16,15);
  if(type==='lumber')return treeSprite(x-8,y,27,1)+hutSprite(x+8,y+5,'#8c6951',15,12)+`<path d="M${x-20} ${y+11}h18m-17 4h16" stroke="#9e6d41" stroke-width="4" pointer-events="none"/>`;
@@ -1886,7 +1886,7 @@ function bindEvents(){
  el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{
  const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);
  if(t.buildings[idx]!=='storageWarehouse'||!site)return;
- const select=el('territoryDetails').querySelector(\`[data-storage-send-to="\${idx}"][data-storage-good="\${item}"]\`);
+ const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);
  if(select?.value){
   const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);
   showToast(ok?'Caravan dispatched':'No free caravan, road or destination storage space');
