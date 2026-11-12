@@ -1,4 +1,4 @@
-# Global Standoff — Prototype 0.3.8
+# Global Standoff — Prototype 0.4.0
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
@@ -9,6 +9,26 @@ Enable **Settings → Pages → Deploy from a branch → main → /(root)** once
 https://wafflinyo.github.io/Gobal-Standoff/
 
 The page uses plain HTML, CSS, and JavaScript: no build pipeline or external dependencies. All progress is saved in the same browser using `localStorage`.
+
+## New in 0.4.0 — Turn-based crews, construction and reliable territory panels
+
+- **Starting capital:** all four countries begin with a Level 1 Homes building, a Level 1 Builders’ Bunk, one named citizen assigned as Builder, and one Level 1 Expedition Crew. Builders are not regular workers or soldiers. Homes create beds and do not employ caretakers.
+- **Builders and travel:** a new construction or upgrade requires an idle builder. The builder is reserved immediately, travels from its current location (one map hex per turn), and then works on site. Building work progresses after **every country's individual turn**, including during opponents' turns, rather than only at the end of the entire round. Builders receive wages as part of national upkeep.
+- **Builder capacity:** each Builders’ Bunk has 1/2/3 positions at building levels 1/2/3. Multiple Bunks provide more crews. With two builders, choose separate concurrent builds or assign an additional idle builder to an existing project for twice the progress per turn. Crew assignments free up when jobs finish.
+- **Expeditions instead of instant expansion:** spending an expansion action dispatches an available expedition crew. The tile remains unclaimed while the expedition travels. When it reaches and secures the land, the border appears in the claiming country's color via the existing reveal animation. A country starts with one expedition; it cannot dispatch another while that crew is busy.
+- **Per-turn completion cinema:** each completed construction project or claim is queued at the end of the individual turn when it finishes, with sequential camera focus and finish animations before the next country's turn proceeds. CPUs use the same animation rules as you.
+- **Input repair:** map taps are handled at pointer release, with click/keyboard fallback, instead of depending on stale SVG hex elements from camera redraws. The game keeps interaction locked until the CPU return camera finishes, then re-enables territory overlays. Cards no longer have other text behind their fanned faces.
+- **Migration:** older saved games keep existing countries, inventories, territory and military; the capital civic package and crews are added once, existing construction work gets translated to per-turn progress where possible.
+
+**Notes:** Delivery shipments and recurring economic output still run on the existing global-round schedule. Construction and expeditions use individual-turn progress in this version. Expedition route-finding is currently hex-distance based; specialized terrain movement will be part of a later expansion.
+
+## New in 0.3.9 — CPU cinematic turn repair
+
+- Fixed incorrect action highlighting: the old code compared a building count to a building array, so every CPU action appeared to modify the first map hex. Events now carry exact action type, country, and selected hex, with a count-to-count fallback. Non-map actions no longer create fake map highlights.
+- CPU claims and construction now use the **same on-hex reveal and cartoon worksite animations** as the player's own actions. The territory is hidden until the camera arrives, then the border reveals with the CPU's national color. Buildings display their worksite start effects.
+- Cinematic camera transitions and pauses have been lengthened to make each CPU action easier to follow. The camera pans/zooms smoothly through the SVG viewBox without recreating the whole 169-hex map on every frame; the 2.5D tilt is rendered at a lower frequency to reduce mobile stutter.
+- Each CPU first plays its optional card and shows the card effect, then takes its three major actions one at a time. Scene animations and holding pauses are awaited before the next action starts. **Skip CPU animations** still finishes the round quickly.
+- Player-selected hex highlighting no longer persists in another country's POV. All 0.3.x browser saves remain compatible.
 
 ## 0.3.6 — One deposit per mountain / finite mining and military gear
 
