@@ -262,3 +262,11 @@ body.gs-playing .map-hint{display:none}
 .gs-mineral-actions{display:flex;gap:5px}
 .gs-mineral-actions button{padding:7px 9px;background:#274653;border:1px solid #7a8e85;color:#f1e8d2;border-radius:7px;font-size:11px;font-weight:800;min-width:39px}
 .gs-mineral-actions button:disabled{opacity:.4}
+
+/* v0.3.7: on-map workplace hiring and upgrade controls */
+.gs-job-card{border:1px solid #49646c;border-radius:12px;background:#102b39b8;padding:12px;margin-top:9px;display:grid;gap:10px}
+.gs-job-head{display:grid;gap:5px}.gs-job-head strong{font-size:13px;color:#f2e2b6}.gs-job-head small{font-size:11px;color:#b8cfc7;line-height:1.55}
+.gs-job-controls{display:flex;gap:6px;flex-wrap:wrap}.gs-job-controls button{border:1px solid #5b7980;background:#1c4650;color:#f0f1e0;border-radius:8px;min-height:34px;padding:7px 10px;font-size:11px;font-weight:750;cursor:pointer}
+.gs-job-controls button:hover:not(:disabled){background:#2e6068}.gs-job-controls button:disabled{opacity:.38;cursor:not-allowed}
+.gs-job-controls button[data-action="upgrade"]{border-color:#bd9d62;color:#f3d9a3;background:#4b3b31}
+@media(max-width:430px){.gs-job-controls button{flex:1 1 auto;min-width:65px}.gs-job-controls button[data-action="upgrade"]{flex-basis:100%}}
