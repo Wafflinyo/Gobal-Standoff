@@ -188,3 +188,14 @@ body.gs-playing .map-hint{display:none}
 .action-dots i.ready{background:#f0d18f;box-shadow:0 0 6px #b9a364a0}
 .action-dots i.spent{background:#30424b;opacity:.65}
 @media(max-width:520px){.map-action-counter{left:8px;top:77px;font-size:9px;padding:5px 9px}}
+
+/* Global Standoff 0.3.4 — construction/reveal scenes. CSS-only particles are cheap on phones. */
+.gs-construction-rise{transform-box:fill-box;transform-origin:center bottom;animation:gs-building-spring 830ms 180ms cubic-bezier(.22,1.05,.27,1) both}
+@keyframes gs-building-spring{0%{opacity:0;transform:translateY(22px) scale(.7,.08)}36%{opacity:1;transform:translateY(-10px) scale(1.07,1.17)}58%{transform:translateY(4px) scale(.96,.88)}79%{transform:translateY(-3px) scale(1.03,1.08)}100%{opacity:1;transform:translateY(0) scale(1)}}
+.gs-build-puff{fill:#eadcbf;opacity:0;transform-box:fill-box;transform-origin:center;animation:gs-dust-cloud 850ms var(--puff-delay,0ms) ease-out both;filter:drop-shadow(0 1px 1px #8c7e6a55)}
+@keyframes gs-dust-cloud{0%{opacity:0;transform:translate(0,6px) scale(.35)}17%{opacity:.92}48%{opacity:.85;transform:translate(calc(var(--drift-x) * .5),calc(var(--drift-y) * .5)) scale(1.45)}100%{opacity:0;transform:translate(var(--drift-x),var(--drift-y)) scale(2)}}
+.gs-build-spark{stroke-dasharray:36;stroke-dashoffset:36;opacity:0;animation:gs-sparkle 700ms 300ms ease-out both}
+@keyframes gs-sparkle{0%{opacity:0;stroke-dashoffset:36}35%{opacity:1;stroke-dashoffset:0}100%{opacity:0;stroke-dashoffset:0}}
+.gs-claim-ring{transform-box:fill-box;transform-origin:center;animation:gs-claim-reveal 900ms cubic-bezier(.14,.8,.34,1) both}
+@keyframes gs-claim-reveal{0%{opacity:0;transform:scale(.65)}20%{opacity:1}75%{opacity:.8;transform:scale(1.08)}100%{opacity:0;transform:scale(1.18)}}
+@media(prefers-reduced-motion:reduce){.gs-construction-rise,.gs-build-puff,.gs-build-spark,.gs-claim-ring{animation:none!important}}
