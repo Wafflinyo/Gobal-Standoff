@@ -1578,6 +1578,9 @@ function doExpand(t,id=0){
  const p=G.players[id],crew=idleExpedition(p);
  if(!crew||!canCountryAct(p,id)||!eligibleExpansion(p,t))return false;
  const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;
+ // Give expedition dispatch the same zoom + overlay restore as construction.
+ // A dispatch is not a claim: ownership still changes only on arrival.
+ const playback=(id===0||cpuBusy)?startMapScenePlayback(t,'dispatch'):null;
  p.gold-=cost;p.food-=2;p.discountExpand=0;p.expansionsThisTurn=(p.expansionsThisTurn||0)+1;
  const origin=G.tiles.find(v=>v.id===crew.locationId)||G.tiles.find(v=>v.owner===id&&v.capital);
  crew.targetId=t.id;crew.originId=(origin||t).id;crew.remaining=Math.max(1,countryTravelRoute(id,origin||t,t,true)?.turns??Math.ceil(distance(origin||t,t)));crew.travelTotal=crew.remaining;crew.startedClock=G.turnClock||0;
@@ -1879,7 +1882,7 @@ function render(){if(!G)return;
  el('endTurnBtn').innerHTML=G.finished?'TEST COMPLETE':scenePlayback?'ANIMATING…':active()?`END TURN <span>→</span>`:'CPU THINKING…';
  const remaining=actionsRemaining(p);
  el('mapActionCounter').innerHTML=G.finished?'TEST COMPLETE':cpuBusy?'◈ CPU ACTIONS':`<span class="action-dots">${Array.from({length:MAJOR_ACTIONS},(_,i)=>`<i class="${i<remaining?'ready':'spent'}"></i>`).join('')}</span><b>${remaining}/${MAJOR_ACTIONS}</b> ACTIONS LEFT`;
- el('actionNotice').innerHTML=G.finished?'Prototype match complete. Review the results or start another world.':scenePlayback?'Construction in progress…':cpuBusy?'Three CPU nations are taking their turns…':remaining===0?'All 3 major actions used. You can still play a card or transfer troops.':`<b>${remaining} major action${remaining===1?'':'s'} remaining.</b> Expand, build, market enlistment, govern or research.`;
+ el('actionNotice').innerHTML=G.finished?'Prototype match complete. Review the results or start another world.':scenePlayback?(scenePlayback.kind==='dispatch'?'Expedition departing…':'Construction in progress…'):cpuBusy?'Three CPU nations are taking their turns…':remaining===0?'All 3 major actions used. You can still play a card or transfer troops.':`<b>${remaining} major action${remaining===1?'':'s'} remaining.</b> Expand, build, market enlistment, govern or research.`;
  el('turnFoot').textContent=p.discountBuild||p.discountExpand?`Active discounts: Build −${p.discountBuild} SP · Expand −${p.discountExpand} SP`:'3 major actions + 1 troop transfer per turn · 1 optional card';
 }
 function renderTile(t){
@@ -2451,7 +2454,7 @@ function renderMap(){
    <polygon points="${pts(top)}" fill="${owner?owner.color:'#ffffff'}" opacity="${owner?'.11':'.025'}" stroke="${border}" stroke-width="${owner?'2.4':'1.0'}"/>
    ${selected?`<polygon points="${pts(top)}" fill="none" stroke="#fff6c7" stroke-width="3.6"/>`:''}
   </g>`);
-  const action=t.id===actionTileId;
+  const action=t.id===actionTileId||(scenePlayback?.kind==='dispatch'&&scenePlayback.tileId===t.id&&scenePlayback.phase==='play');
   const scout=expeditionForTile(t.id);
   depthItems.push(...tileDepthSprites(t,x,y));
   decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}">
