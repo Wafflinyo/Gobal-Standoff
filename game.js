@@ -2324,14 +2324,14 @@ function wagonViewArtwork(countryColor){
   <path d="M-11 -4Q-10.5 -14 0 -14Q10 -14 11 -4Z" fill="${pale}" stroke="${ink}" stroke-width="1.4"/>
   <path d="M-6 -3Q-6.5 -10 0 -10Q6.5 -10 6 -3L6 2H-6Z" fill="#c5b38e" stroke="${ink}" stroke-width=".9"/>
   <path d="M-10 -4H10" stroke="${countryColor}" stroke-width="1.6"/>
-  <g class="gs-wagon-wheel" transform="translate(-8 5.6)"><circle r="3.5" fill="#423c34" stroke="#e5c184" stroke-width="1.2"/><path d="M-2 0H2M0 -2V2" stroke="#d0a777"/></g>
-  <g class="gs-wagon-wheel" transform="translate(9 5.6)"><circle r="3.5" fill="#423c34" stroke="#e5c184" stroke-width="1.2"/><path d="M-2 0H2M0 -2V2" stroke="#d0a777"/></g>
+  <g class="gs-wagon-wheel" transform="translate(-9.5 5.6)"><ellipse rx="1.7" ry="3.6" fill="#423c34" stroke="#e5c184" stroke-width="1.1"/><path d="M-1 0H1" stroke="#d0a777"/></g>
+  <g class="gs-wagon-wheel" transform="translate(9.5 5.6)"><ellipse rx="1.7" ry="3.6" fill="#423c34" stroke="#e5c184" stroke-width="1.1"/><path d="M-1 0H1" stroke="#d0a777"/></g>
  </g>`;
  return side+front+rear;
 }
-function caravanVisuals(){
+function caravanVisuals(depthEntries=false){
  const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches||false;
- return G.players.flatMap(p=>(p.caravans||[]).map(cart=>{
+ const graphics=G.players.flatMap(p=>(p.caravans||[]).map(cart=>{
   const job=G.shipments.find(s=>s.id===cart.shipmentId);
   const at=G.tiles.find(t=>t.id===cart.currentTileId);if(!at)return '';
   const trace=job?.path?.length?wagonRoadTrace(job.path):wagonRoadTrace([at.id]);
@@ -2358,10 +2358,12 @@ function caravanVisuals(){
   }
   // The wagon is anchored on a border midpoint/corner, never a tile center.
   const riding=!!job&&['pickup','delivery','return'].includes(job.stage),cargo=job&&job.stage==='delivery'&&job.qty>0;
-  return billboardSvg(point.x,point.y,`<g class="gs-covered-wagon" data-gs-wagon="1" data-dir-x="${dx.toFixed(2)}" data-dir-y="${dy.toFixed(2)}" data-view="${direction}" data-side="${side}" data-cargo="${cargo?1:0}" data-roadway="edge" transform="translate(${point.x.toFixed(2)} ${point.y.toFixed(2)})" pointer-events="none">${motion}
+  const markup=billboardSvg(point.x,point.y,`<g class="gs-covered-wagon" data-gs-wagon="1" data-dir-x="${dx.toFixed(2)}" data-dir-y="${dy.toFixed(2)}" data-view="${direction}" data-side="${side}" data-cargo="${cargo?1:0}" data-roadway="edge" transform="translate(${point.x.toFixed(2)} ${point.y.toFixed(2)})" pointer-events="none">${motion}
    <g class="gs-wagon-scale" transform="scale(.68)"><g class="gs-covered-wagon-rock ${riding?'gs-wagon-moving':''}">${wagonViewArtwork(p.color)}${cargo?'<rect x="7" y="-17" width="7" height="6" rx="1.5" fill="#edcb91" stroke="#243f45" stroke-width="1"/>':''}</g></g>
   </g>`);
- })).join('');
+  return depthEntries?{x:point.x,y:point.y+7,html:markup}:markup;
+ }));
+ return depthEntries?graphics.filter(v=>v&&typeof v==='object'):graphics.join('');
 }
 
 function diplomaticFalconVisuals(){
