@@ -199,3 +199,54 @@ body.gs-playing .map-hint{display:none}
 .gs-claim-ring{transform-box:fill-box;transform-origin:center;animation:gs-claim-reveal 900ms cubic-bezier(.14,.8,.34,1) both}
 @keyframes gs-claim-reveal{0%{opacity:0;transform:scale(.65)}20%{opacity:1}75%{opacity:.8;transform:scale(1.08)}100%{opacity:0;transform:scale(1.18)}}
 @media(prefers-reduced-motion:reduce){.gs-construction-rise,.gs-build-puff,.gs-build-spark,.gs-claim-ring{animation:none!important}}
+
+/* 0.3.5 — viewing CPU turns without covering the map. */
+.cpu-watching .cpu-cinematic{left:50%;top:12px;bottom:auto;transform:translateX(-50%);width:min(78%,360px);padding:7px 12px;z-index:13;border-radius:12px;background:#142d38dd;box-shadow:0 5px 14px #07141bbb;text-align:center;gap:2px}
+.cpu-watching .cpu-cinematic .cpu-now{display:none}
+.cpu-watching .cpu-cinematic strong{font-size:12px}
+.cpu-watching .cpu-cinematic #cpuAction{font-size:10px;line-height:1.3}
+.cpu-watching .cpu-cinematic button{font-size:10px;padding:3px 7px;justify-self:center;border:1px solid #be9e6c;border-radius:6px;background:#122834b8;color:#ecdbb7}
+.cpu-watching .map-quickbar{visibility:hidden;pointer-events:none}
+.cpu-watching .map-action-counter{display:none}
+.cpu-watching .hand-dock{left:7px;bottom:8px;transform:none;width:132px;height:auto;z-index:18;pointer-events:none}
+.cpu-watching .hand-dock .cards-panel{display:block!important;width:132px;padding:0;background:#112937de;border:1px solid #b99b69c4;border-radius:10px;box-shadow:0 7px 22px #05152170}
+.cpu-watching .hand-dock .cards-panel .panel-heading{display:none}
+.cpu-watching .hand-dock .footnote{display:none}
+.cpu-watching .hand-dock .hand{height:auto!important;display:block;overflow:visible;padding:0}
+.gs-watching-hand{padding:8px 9px;display:flex;flex-direction:column;gap:5px}
+.gs-watching-title{font-weight:900;color:#deb876;letter-spacing:.13em;font-size:8px}
+.gs-watching-name{font-size:10px;color:#f3ead6;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#24424b;border-left:2px solid #b99b69;padding:5px 6px;border-radius:4px}
+.gs-opponent-deck{position:absolute;right:8px;bottom:13px;z-index:14;width:135px;pointer-events:none;display:grid;justify-items:end;gap:5px}
+.gs-opponent-deck>span{max-width:135px;font-size:10px;font-weight:800;text-align:right;color:#f5e4bb;text-shadow:0 2px 5px #031722;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gs-deck-backs{height:71px;width:116px;position:relative}
+.gs-card-back{position:absolute;left:calc(var(--position)*11px);bottom:0;transform:rotate(calc((var(--position) - 1) * 6deg));width:44px;height:65px;border:2px solid #d9be80;border-radius:6px;background:repeating-linear-gradient(45deg,#1e3647,#1e3647 5px,#294858 5px,#294858 10px);box-shadow:0 3px 8px #0008;display:grid;place-items:center}
+.gs-card-back:before{content:"";position:absolute;inset:4px;border:1px solid var(--cpu-color,#fff0ae);border-radius:3px}
+.gs-card-back b{font-size:9px;color:#ead2a2;text-shadow:0 1px 3px #000}
+.gs-card-effect{position:absolute;inset:0;z-index:26;pointer-events:none;display:grid;place-items:center;overflow:hidden}
+.gs-activated-card{width:145px;height:205px;border:3px solid #efd59c;border-radius:14px;background:linear-gradient(145deg,#a47c4c,#355767 36%,#122b40);box-shadow:0 15px 55px #000b,0 0 25px var(--player-color,#c6b17b);padding:11px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:9px;animation:gs-card-cast 1200ms ease-in-out both}
+.gs-activated-crest{color:#e9d0a4;font-size:8px;letter-spacing:.08em}
+.gs-activated-icon{font-size:57px;filter:drop-shadow(0 5px 5px #0008)}
+.gs-activated-card strong{font-family:Georgia,serif;color:#fff1d0;font-size:16px}
+.gs-activated-caption{font-size:9px;color:#cddfdb;line-height:1.2}
+@keyframes gs-card-cast{0%{transform:translateY(120px) rotate(-17deg) scale(.42);opacity:0}22%{transform:translateY(-8px) rotate(0) scale(1.06);opacity:1}40%{transform:translateY(0) scale(1)}65%{transform:translateY(-8px) scale(1.06);opacity:1;filter:brightness(1.25)}83%{opacity:.6;transform:translateY(-35px) rotate(7deg) scale(1.17)}100%{opacity:0;transform:translateY(-95px) rotate(25deg) scale(.15);filter:blur(15px)}}
+.gs-card-particles{position:absolute;left:50%;top:50%}
+.gs-card-particles i{position:absolute;display:block;width:9px;height:12px;background:#dfbd7e;box-shadow:0 0 8px #ecd391aa;clip-path:polygon(10% 0,100% 33%,55% 100%);animation:gs-card-shards 1050ms 300ms ease-out both}
+.gs-card-particles i:nth-child(2n){background:#93d0bd}
+@keyframes gs-card-shards{0%,35%{opacity:0;transform:translate(0,0) rotate(0) scale(.2)}55%{opacity:1}100%{opacity:0;transform:translate(var(--dx),var(--dy)) rotate(var(--angle)) scale(.25)}}
+.gs-worksite .gs-work-dust circle{fill:#e8d5ac;opacity:.6;transform-box:fill-box;transform-origin:center;animation:gs-work-smoke 2s ease-in-out infinite}
+.gs-worksite .gs-work-dust circle:nth-child(2){animation-delay:.55s}.gs-worksite .gs-work-dust circle:nth-child(3){animation-delay:1s}
+@keyframes gs-work-smoke{0%{opacity:0;transform:translateY(5px) scale(.4)}25%{opacity:.75}70%{opacity:.45}100%{opacity:0;transform:translateY(-19px) scale(1.7)}}
+.gs-trade-path.building path:nth-child(2){animation:gs-route-pulse 1.2s ease-in-out infinite}
+@keyframes gs-route-pulse{50%{stroke:#fff0b3;opacity:.5}}
+.gs-trade-panel{display:none}
+.sheet-panel[data-mode=world] .gs-trade-panel{display:block}
+.gs-trade-row{background:#102b38;border:1px solid #4a6671;border-radius:11px;padding:10px;margin:8px 0;display:grid;gap:5px}
+.gs-trade-row strong{font-size:12px;color:#f4e3c3}.gs-trade-row small,.gs-trade-caption{font-size:11px;color:#b8cccb;line-height:1.45}
+.gs-trade-controls{display:flex;gap:9px;align-items:end}.gs-trade-controls button{font-size:11px;padding:8px 12px}.gs-trade-controls label{flex:1;font-size:10px}.gs-trade-controls select{display:block;width:100%;border-radius:6px;padding:7px;background:#1b3e49;color:#f3eddd;border:1px solid #6e8b93;margin-top:5px}
+@media(max-width:520px){.cpu-watching .cpu-cinematic{top:16px;width:min(65%,230px);left:52%;padding:6px 8px}.cpu-watching .cpu-cinematic strong{font-size:11px}.cpu-watching .cpu-cinematic #cpuAction{font-size:9px}.cpu-watching .hand-dock{left:5px;width:125px;bottom:9px}.gs-opponent-deck{right:7px;bottom:8px}.gs-activated-card{width:133px;height:188px}}
+@media(prefers-reduced-motion:reduce){.gs-activated-card,.gs-card-particles i,.gs-worksite .gs-work-dust circle,.gs-trade-path.building path:nth-child(2){animation:none!important}}
+/* Ensure the parked player hand has real height despite the normal absolute card dock. */
+.cpu-watching .hand-dock{height:158px;min-height:158px;max-height:175px}
+.cpu-watching .hand-dock .cards-panel{height:100%;overflow:hidden}
+.cpu-watching .gs-watching-hand{height:100%;justify-content:center}
+@media(max-height:650px){.cpu-watching .hand-dock{height:136px;min-height:136px}.cpu-watching .gs-watching-hand{gap:2px}.cpu-watching .gs-watching-name{padding:3px 5px}}
