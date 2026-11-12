@@ -1,6 +1,16 @@
-# Global Standoff — Prototype 0.3.3
+# Global Standoff — Prototype 0.3.4
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
+
+## New in 0.3.4 — Visible build and expansion animations
+
+- Constructing a building now **dismisses the territory overlay before animating**.
+- The camera centers on the selected hex; cartoon dust puffs appear and the new miniature building springs up with a bounce.
+- The building stays hidden on the board until the animation starts, rather than appearing behind the overlay.
+- Claiming territory uses the same hide → camera → border reveal → restore sequence.
+- After the animation ends, the territory overlay reopens on the same tile, restoring the construction options and scroll position where possible.
+- Actions are temporarily locked during an animation, and CPU turn playback still advances normally.
+- Reduced-motion accessibility settings shorten the animation.
 
 ## Play online
 
