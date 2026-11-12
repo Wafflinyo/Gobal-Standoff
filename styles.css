@@ -460,3 +460,10 @@ body.gs-playing .sheet-panel small,body.gs-playing .sheet-panel .muted,body.gs-p
 .gs-national-borders,.gs-owned-hex-border,.gs-edge-road{pointer-events:none}
 .gs-owned-hex-border polygon{vector-effect:non-scaling-stroke;stroke-linejoin:round}
 .gs-edge-road path{stroke-linecap:round;stroke-linejoin:round}
+
+/* v0.4.15: visible national credit line in Nation & Economy overlay. */
+.gs-credit-line{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:9px 11px;background:#172f3e;border:1px solid #a28a667d;border-radius:9px;color:#e8d6ad;font-size:11px;font-weight:750}
+.gs-credit-line strong{color:#f2d69e;white-space:nowrap}
+.gs-credit-line span{text-align:right;font-weight:700}
+.gs-credit-warning{width:100%;padding:9px 11px;border:1px solid #e3ae6c77;border-radius:8px;background:#42352d;color:#ffdcab;font-size:11px;font-weight:750}
+@media(max-width:380px){.gs-credit-line{display:block}.gs-credit-line span{display:block;text-align:left;margin-top:3px}}
