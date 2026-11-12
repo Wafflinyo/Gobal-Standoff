@@ -432,9 +432,10 @@ function moveCaravanToStage(job,cart,p){
    job.step=0;job.stage='delivery';return;
   }
   const unloaded=endpointAdd(p,job.to,job.item,job.qty);
+  job.delivered=(job.delivered||0)+unloaded;
   job.qty-=unloaded;
   if(job.qty>0){job.stage='unloading';job.remaining=0;return;}
-  if(job.owner===0)addLog(`${job.qty} ${GOOD_NAMES[job.item]||job.item} arrived at ${G.tiles.find(t=>t.id===job.toTileId)?.name}.`);
+  if(job.owner===0)addLog(`${job.delivered} ${GOOD_NAMES[job.item]||job.item} arrived at ${G.tiles.find(t=>t.id===job.toTileId)?.name}.`);
   const dest=G.tiles.find(t=>t.id===job.toTileId),bases=caravanWarehouses(p);
   const destinationBase=bases.find(w=>w.tile.id===dest?.id);
   const canStay=destinationBase&&(p.caravanPolicy==='stay')&&p.caravans.filter(c=>c.id!==cart.id&&!c.shipmentId&&c.currentTileId===dest.id).length<destinationBase.capacity;
