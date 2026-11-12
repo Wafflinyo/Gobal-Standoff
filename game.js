@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.3 — smooth cinematic camera with upright map miniatures. */
+/* Global Standoff 0.4.5 — Messenger Falcons, cooperative roads, physical caravans and distributed storage. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -88,6 +88,7 @@ const BUILDINGS={
  homes:{name:'Homes',icon:'🏘',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces · caretakers employed for upkeep'},
  market:{name:'Marketplace',icon:'⚖',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'Gold income scales with worker staffing and morale'},
  academy:{name:'Academy',icon:'📚',gold:8,wood:2,iron:2,space:2,rounds:3,upkeep:2,jobs:[2,3,4],production:{knowledge:3},allow:['plains','forest','hills','desert','mountain'],text:'Research output requires staffed teachers'},
+ caravanWarehouse:{name:'Caravan Warehouse',icon:'▣',gold:8,wood:5,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert'],text:'Houses 1 / 2 / 3 caravans by level; shipments require an available wagon'},
  builderBunk:{name:'Builders’ Bunk',icon:'🛖',gold:8,wood:3,iron:0,space:1,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Houses 1 / 2 / 3 active builders by level. Builders travel before working'},
  post:{name:'Military Post',icon:'🛡',gold:8,wood:2,iron:2,space:2,rounds:2,upkeep:2,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Administrative staff support recruitment and the 12-troop garrison'},
  foundry:{name:'Steelworks Factory',icon:'🏭',gold:10,wood:3,iron:3,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Receives Iron + Coal shipments and smelts Steel'},
@@ -195,7 +196,7 @@ function expeditionForTile(tileId){return G.players.flatMap(p=>(p.expeditions||[
 function pendingClaim(tileId){return G.players.some(p=>(p.expeditions||[]).some(c=>c.targetId===tileId));}
 function progressExpeditions(){
  for(const p of G.players)for(const crew of p.expeditions||[]){
-  if(!crew.targetId)continue;
+  if(!crew.targetId||(G.turnClock||0)<=(crew.startedClock??-2)+1)continue;
   crew.remaining=Math.max(0,crew.remaining-1);
   if(crew.remaining>0)continue;
   const tile=G.tiles.find(t=>t.id===crew.targetId);
@@ -209,7 +210,7 @@ function progressExpeditions(){
 }
 function advanceWorldTurn(){
  G.turnClock=(G.turnClock||0)+1;
- progressExpeditions();progressProjects();
+ progressExpeditions();progressProjects();progressTradeOffers();progressTradeRoutes();progressShipments();
  save();
 }
 
@@ -328,26 +329,93 @@ function ownedPath(owner,a,b){
  const ids=[],byId=new Map(G.tiles.map(t=>[t.id,t]));for(let cur=b.id;cur!==null;cur=prev.get(cur))ids.unshift(cur);
  return ids;
 }
+// Caravans are physical, limited units housed in Caravan Warehouses, not invisible timers.
+function caravanWarehouses(p){
+ const sites=[];
+ for(const tile of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<tile.buildings.length;i++)if(tile.buildings[i]==='caravanWarehouse')
+  sites.push({tile,site:tile.buildingMeta[i],capacity:Math.max(1,Math.min(3,tile.buildingMeta[i].level||1))});
+ return sites;
+}
+function syncCaravans(p){
+ p.caravans??=[];const warehouses=caravanWarehouses(p),valid=new Set(warehouses.map(w=>w.site.id));
+ for(const cart of [...p.caravans])if(!valid.has(cart.homeSiteId)&&!cart.shipmentId)p.caravans.splice(p.caravans.indexOf(cart),1);
+ for(const base of warehouses){
+  const home=p.caravans.filter(c=>c.homeSiteId===base.site.id);
+  while(home.length<base.capacity){
+   const cart={id:p.id+'-cart-'+base.site.id+'-'+home.length,owner:p.id,homeSiteId:base.site.id,currentTileId:base.tile.id,shipmentId:null};
+   p.caravans.push(cart);home.push(cart);
+  }
+  while(home.length>base.capacity){const cart=home.find(c=>!c.shipmentId);if(!cart)break;p.caravans.splice(p.caravans.indexOf(cart),1);home.splice(home.indexOf(cart),1);}
+ }
+}
+function availableCaravan(owner,pickup){
+ const p=G.players[owner];syncCaravans(p);
+ return p.caravans.filter(c=>!c.shipmentId).map(c=>{
+  const from=G.tiles.find(t=>t.id===c.currentTileId),path=ownedPath(owner,from,pickup);
+  return {cart:c,path};
+ }).filter(c=>c.path).sort((a,b)=>a.path.length-b.path.length)[0]||null;
+}
 function dispatchShipment(owner,from,to,item,qty,auto=false){
  const p=G.players[owner],src=siteLookup(owner,from),dst=siteLookup(owner,to),amount=Math.floor(qty);
  if(!p||!src?.tile||!dst?.tile||from===to||amount<1||endpointCount(p,from,item)<amount)return false;
- const path=ownedPath(owner,src.tile,dst.tile);if(!path)return false;
- endpointAdd(p,from,item,-amount);
- G.shipments.push({id:G.nextShipmentId++,owner,from,to,item,qty:amount,path,remaining:Math.max(1,Math.ceil((path.length-1)/3)),startedRound:G.round});
- if(!auto)addLog(`${p.name} sent ${amount} ${GOOD_NAMES[item]||item} from ${src.tile.name} toward ${dst.tile.name}.`);
+ const delivery=ownedPath(owner,src.tile,dst.tile);if(!delivery)return false;
+ const available=availableCaravan(owner,src.tile);if(!available)return false;
+ const id=G.nextShipmentId++;
+ const job={id,owner,from,to,item,qty:Math.min(10,amount),stage:'pickup',path:available.path,step:0,
+  fromTileId:src.tile.id,toTileId:dst.tile.id,homeSiteId:available.cart.homeSiteId,caravanId:available.cart.id,
+  startedClock:G.turnClock||0,remaining:available.path.length-1+delivery.length};
+ G.shipments.push(job);available.cart.shipmentId=id;
+ if(!auto)addLog(`${p.name}'s wagon left its depot for ${src.tile.name}; it will pick up ${job.qty} ${GOOD_NAMES[item]||item} before delivery.`);
  return true;
+}
+function finishCaravanJob(job,cart,p){
+ cart.shipmentId=null;
+ if(job.stage==='return'){cart.currentTileId=job.path[job.path.length-1]||cart.currentTileId;}
+ G.shipments.splice(G.shipments.indexOf(job),1);
+}
+function moveCaravanToStage(job,cart,p){
+ // Deliveries take at least one later player turn per hex. There is no teleportation.
+ const stage=job.stage,path=job.path||[];
+ if(job.step<path.length-1){job.step++;cart.currentTileId=path[job.step];job.remaining=Math.max(0,path.length-1-job.step);return;}
+ if(stage==='pickup'){
+  const available=Math.min(job.qty,endpointCount(p,job.from,job.item));
+  if(available<=0){job.qty=0;job.stage='return';}
+  else {job.qty=available;endpointAdd(p,job.from,job.item,-available);job.stage='delivery';}
+  const source=G.tiles.find(t=>t.id===job.fromTileId),dest=G.tiles.find(t=>t.id===job.toTileId);
+  job.path=job.stage==='delivery'?ownedPath(job.owner,source,dest):ownedPath(job.owner,source,siteLookup(job.owner,job.homeSiteId)?.tile||source);
+  job.step=0;job.remaining=Math.max(1,(job.path?.length||1)-1);return;
+ }
+ if(stage==='delivery'){
+  if(siteLookup(job.owner,job.to)?.tile)endpointAdd(p,job.to,job.item,job.qty);else addDepot(p,job.item,job.qty);
+  if(job.owner===0)addLog(`${job.qty} ${GOOD_NAMES[job.item]||job.item} arrived at ${G.tiles.find(t=>t.id===job.toTileId)?.name}.`);
+  const dest=G.tiles.find(t=>t.id===job.toTileId),bases=caravanWarehouses(p);
+  const destinationBase=bases.find(w=>w.tile.id===dest?.id);
+  const canStay=destinationBase&&(p.caravanPolicy==='stay')&&p.caravans.filter(c=>c.homeSiteId===destinationBase.site.id&&c.id!==cart.id).length<destinationBase.capacity;
+  if(canStay){cart.homeSiteId=destinationBase.site.id;cart.currentTileId=dest.id;finishCaravanJob(job,cart,p);return;}
+  let alternatives=bases.map(w=>({...w,path:ownedPath(p.id,dest,w.tile)})).filter(w=>w.path);
+  if(p.caravanPolicy==='home'){alternatives.sort((a,b)=>Number(b.site.id===job.homeSiteId)-Number(a.site.id===job.homeSiteId)||a.path.length-b.path.length);}
+  else alternatives.sort((a,b)=>a.path.length-b.path.length);
+  const base=alternatives[0];
+  if(!base){finishCaravanJob(job,cart,p);return;}
+  cart.homeSiteId=base.site.id;job.stage='return';job.path=base.path;job.step=0;job.remaining=Math.max(1,base.path.length-1);
+  return;
+ }
+ finishCaravanJob(job,cart,p);
 }
 function progressShipments(){
  for(const job of [...G.shipments]){
-  if(job.startedRound>=G.round)continue;
-  job.remaining=Math.max(0,job.remaining-1);
-  if(job.remaining>0)continue;
-  const p=G.players[job.owner],dest=siteLookup(job.owner,job.to);
-  if(dest?.tile)endpointAdd(p,job.to,job.item,job.qty);
-  else addDepot(p,job.item,job.qty); // destination removed, return to capital store
-  G.shipments.splice(G.shipments.indexOf(job),1);
-  if(job.owner===0)addLog(`${job.qty} ${GOOD_NAMES[job.item]||job.item} delivered to ${dest?.tile?.name||'capital warehouse'}.`);
+  const p=G.players[job.owner],cart=p?.caravans?.find(c=>c.id===job.caravanId);
+  if(!p||!cart){if(job.stage==='delivery'&&job.qty)addDepot(p,job.item,job.qty);G.shipments.splice(G.shipments.indexOf(job),1);continue;}
+  if((G.turnClock||0)<=(job.startedClock??-2)+1)continue;
+  moveCaravanToStage(job,cart,p);
  }
+}
+function shippingDashboard(){
+ const p=getCountry(),jobs=G.shipments.filter(j=>j.owner===0),carts=p.caravans||[];
+ return `<div class="gs-shipping-summary"><b>Caravan logistics · ${carts.filter(c=>!c.shipmentId).length}/${carts.length} wagons available</b>
+  <small>Build Caravan Warehouses with Wood to house wagons. Each shipment travels warehouse → pickup → delivery → warehouse over individual turns.</small>
+  <label class="gs-routing-label">After delivery <select data-caravan-policy><option value="nearest" ${p.caravanPolicy==='nearest'?'selected':''}>Closest warehouse</option><option value="home" ${p.caravanPolicy==='home'?'selected':''}>Original warehouse</option><option value="stay" ${p.caravanPolicy==='stay'?'selected':''}>Stay if destination has space</option></select></label>
+  ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.qty} ${GOOD_NAMES[j.item]||j.item} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
 }
 function runAgricultureAndForestry(){
  for(const p of G.players)for(const t of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<t.buildings.length;i++){
@@ -418,11 +486,6 @@ function setFactoryRecipe(tile,index,name){
  const site=worksite(tile,index),type=tile.buildings[index];
  if(!active()||tile.owner!==0||!site||!FACTORY_RECIPES[type]?.includes(name))return false;
  site.recipe=name;save();render();return true;
-}
-function shippingDashboard(){
- const p=getCountry(),jobs=G.shipments.filter(j=>j.owner===0);
- return `<div class="gs-shipping-summary"><b>🚚 Domestic logistics · ${jobs.length} shipments moving</b><small>Goods travel only through your territory, usually 1–3 rounds. Equipment can only be issued at the destination military post.</small>`+
- jobs.slice(0,12).map(j=>{const to=siteLookup(0,j.to),from=siteLookup(0,j.from);return `<div class="gs-shipment-row">${j.qty} ${GOOD_NAMES[j.item]||j.item} · ${esc(from?.tile?.name||'Warehouse')} → ${esc(to?.tile?.name||'Warehouse')} <strong>${j.remaining}r</strong></div>`;}).join('')+'</div>';
 }
 // Factories no longer access the national treasury as a teleporting input bin.
 // Every ingredient must physically arrive at the plant via a recorded shipment.
@@ -573,7 +636,7 @@ function generateWaterways(tiles,rng,options){
 function createWorld(seed,name,capital,color){
  const rng=mulberry32(hash(seed));
  const colors=[COLORS[color],...COLORS.filter((_,i)=>i!==color)];
- const players=[{name,capital,sigil:'✦'},...NPCS].map((p,i)=>({id:i,name:p.name,capital:p.capital,sigil:p.sigil,color:colors[i],gold:34,food:14,wood:16,minerals:{...START_MINERALS},knowledge:0,marketingUntil:0,warehouse:{},tech:[],hand:[],discountExpand:0,discountBuild:0,acted:false,actionsUsed:0,expansionsThisTurn:0,levyUsed:false,cardPlayed:false,logisticsUsed:false,citizens:[],nextCitizenId:0}));
+ const players=[{name,capital,sigil:'✦'},...NPCS].map((p,i)=>({id:i,name:p.name,capital:p.capital,sigil:p.sigil,color:colors[i],gold:34,food:14,wood:16,minerals:{...START_MINERALS},knowledge:0,marketingUntil:0,warehouse:{},tech:[],hand:[],discountExpand:0,discountBuild:0,acted:false,actionsUsed:0,expansionsThisTurn:0,levyUsed:false,cardPlayed:false,logisticsUsed:false,citizens:[],nextCitizenId:0,caravans:[],caravanPolicy:'nearest'}));
  const usedNames=new Set(),tiles=[];
  for(let q=-RADIUS;q<=RADIUS;q++)for(let r=-RADIUS;r<=RADIUS;r++){
   if(Math.abs(q+r)>RADIUS)continue;
@@ -591,7 +654,7 @@ function createWorld(seed,name,capital,color){
  const worldName=['The Wild Marches','The Broken Coast','The Emerald Frontier','The Hinterlands','The New Continent'][randInt(rng,5)];
  G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
  for(const p of players){const citizenRng=mulberry32(hash(seed+'-people-'+p.id));for(let k=0;k<10;k++)p.citizens.push(makeCitizen(p,citizenRng,true));reallocateHousing(p);drawCard(p);drawCard(p);}
- ensureBuildingMeta(G);ensureStartingCrews(G);for(const p of G.players){reallocateHousing(p);assignWorkers(p);}
+ ensureBuildingMeta(G);ensureStartingCrews(G);for(const p of G.players){reallocateHousing(p);assignWorkers(p);syncCaravans(p);}
  beginTurn(0);
  addLog(`${name} established its capital at ${capital}. Four nations have entered a ${tiles.length}-hex world.`);
  save();
@@ -617,6 +680,7 @@ function upgradeSavedWaterways(s){
 function migrateGameplay(s){
  s.projects=s.projects||[];s.completedScenes=s.completedScenes||[];s.contacts=s.contacts||[];
  s.shipments??=[];s.nextShipmentId??=1;
+ s.logisticsRouteVersion??=0;
  s.tradeOffers=s.tradeOffers||[];s.tradeRoutes=s.tradeRoutes||[];
  s.nextProjectId=s.nextProjectId||1;s.nextTradeId=s.nextTradeId||1;
  s.nextBuildingId=s.nextBuildingId||1;
@@ -625,7 +689,7 @@ function migrateGameplay(s){
  // Barren legacy mines keep extracting Stone; never manufacture Iron veins merely to preserve an old mine.
  for(const p of s.players){
   if(p.materials!==undefined){const old=Math.max(0,p.materials);p.wood=(p.wood||0)+Math.ceil(old*.6);p.ore=(p.ore||0)+Math.floor(old*.4);delete p.materials;}
-  p.wood??=10;p.marketingUntil??=0;p.warehouse??={};
+  p.wood??=10;p.marketingUntil??=0;p.warehouse??={};p.caravans??=[];p.caravanPolicy??='nearest';
   p.minerals??=emptyMinerals();
   for(const key of [...MINERAL_KEYS,'steel'])p.minerals[key]=Math.max(0,Math.floor(p.minerals[key]||0));
   if(p.ore!==undefined){p.minerals.iron+=Math.max(0,Math.floor(p.ore));delete p.ore;}
@@ -644,7 +708,12 @@ function migrateGameplay(s){
   const tile=s.tiles.find(t=>t.id===job.tileId);if(tile)appointBuilder(p,job,tile);
  }
  G=old;
- s.logisticsVersion=1;return s;
+ // Earlier trade proposals and road jobs had no messenger, endpoints or builder assignments.
+ // Preserve already completed roads and avoid charging for an unplayable old work order.
+ for(const oldOffer of s.tradeOffers){if(!oldOffer.fromTileId&&oldOffer.status==='pending')oldOffer.status='rejected';}
+ for(const oldRoad of s.tradeRoutes){if(oldRoad.status==='construction'&&!Number.isInteger(oldRoad.aDone))oldRoad.status='active';}
+ const previous=G;G=s;for(const p of s.players)syncCaravans(p);G=previous;
+ s.logisticsRouteVersion=2;s.logisticsVersion=1;return s;
 }
 function loadSaved(){
  try{
@@ -674,78 +743,178 @@ function discoverContacts(){
  }
 }
 const tradePlanCache=new Map();
-function tradePlan(a,b){
- const cacheKey=G.seed+':'+contactKey(a,b);
- if(tradePlanCache.has(cacheKey))return tradePlanCache.get(cacheKey);
- const capitalA=G.tiles.find(t=>t.owner===a&&t.capital),capitalB=G.tiles.find(t=>t.owner===b&&t.capital);
- if(!capitalA||!capitalB)return null;
- const rng=mulberry32(hash(G.seed+':route:'+contactKey(a,b))),graph=borderRiverGraph(G.tiles,rng);
- const aKeys=[...new Set(graph.edges.filter(e=>e.land.includes(capitalA.id)).flatMap(e=>[e.a,e.b]))];
- const bKeys=[...new Set(graph.edges.filter(e=>e.land.includes(capitalB.id)).flatMap(e=>[e.a,e.b]))];
- const options=[];
- for(const x of aKeys)for(const y of bKeys){const route=riverPath(graph,x,y);if(route)options.push(route);}
- options.sort((a,b)=>a.banks.length-b.banks.length);
- if(!options.length)return null;
- const path=options[0],length=path.banks.length;
- const plan={...path,length,totalGold:6+Math.ceil(length/4),rounds:Math.max(2,Math.ceil(length/7))};
- tradePlanCache.set(cacheKey,plan);return plan;
+const ROUTE_SHARE_OPTIONS=[10,20,25,30,40,50,60,70,75,80,90];
+const capitalOf=id=>G.tiles.find(t=>t.owner===id&&t.capital);
+function routeEndpoint(id,tileId){return G.tiles.find(t=>t.id===tileId&&t.owner===id)||capitalOf(id);}
+function tradePlan(a,b,fromId=null,toId=null){
+ const from=routeEndpoint(a,fromId),to=routeEndpoint(b,toId);
+ if(!from||!to||from.id===to.id)return null;
+ const k=G.seed+':route:'+a+':'+b+':'+from.id+':'+to.id;
+ if(tradePlanCache.has(k))return tradePlanCache.get(k);
+ // Rivers and roads use exactly the shared edges of adjacent land hexes.
+ // Third-party territory cannot be crossed without its permission; neutral land can.
+ const rng=mulberry32(hash(k)),graph=borderRiverGraph(G.tiles,rng);
+ const allowedEdge=e=>e.land.every(id=>{const owner=G.tiles.find(t=>t.id===id)?.owner;return owner===null||owner===a||owner===b;});
+ graph.neighbors=new Map([...graph.neighbors].map(([node,links])=>[node,links.filter(l=>allowedEdge(graph.edges[l.index]))]));
+ const starts=[...new Set(graph.edges.filter(e=>e.land.includes(from.id)&&allowedEdge(e)).flatMap(e=>[e.a,e.b]))];
+ const ends=new Set(graph.edges.filter(e=>e.land.includes(to.id)&&allowedEdge(e)).flatMap(e=>[e.a,e.b]));
+ const queue=[...starts],parents=new Map(starts.map(v=>[v,null]));let reached=null;
+ for(let i=0;i<queue.length;i++){
+  const node=queue[i];if(ends.has(node)&&parents.get(node)!==null){reached=node;break;}
+  for(const link of graph.neighbors.get(node)||[]){
+   if(parents.has(link.next))continue;
+   parents.set(link.next,{prior:node,edge:link.index});queue.push(link.next);
+  }
+ }
+ if(!reached)return null;
+ const points=[],banks=[];let cur=reached;
+ while(cur!==null){points.unshift(graph.positions.get(cur));const step=parents.get(cur);if(!step)break;banks.unshift(graph.edges[step.edge].land);cur=step.prior;}
+ const best={points,banks};
+ const segmentCosts=best.banks.map(pair=>pair.some(id=>G.tiles.find(t=>t.id===id)?.terrain==='mountain')?2:1);
+ const totalGold=segmentCosts.reduce((sum,c)=>sum+c,0);
+ const result={points:best.points,banks:best.banks,segmentCosts,length:segmentCosts.length,totalGold,fromTileId:from.id,toTileId:to.id};
+ tradePlanCache.set(k,result);return result;
 }
-function alreadyLinked(a,b){return G.tradeRoutes.some(r=>contactKey(r.a,r.b)===contactKey(a,b))||G.tradeOffers.some(o=>o.status==='pending'&&contactKey(o.from,o.to)===contactKey(a,b));}
-function proposeTradeRoute(to,share,id=0){
- const p=G.players[id],target=G.players[to];if(!target||!hasContact(id,to)||alreadyLinked(id,to)||!canCountryAct(p,id))return false;
- const plan=tradePlan(id,to);if(!plan)return false;
- const percent=Number(share);if(![25,50,75].includes(percent))return false;
- const mine=Math.ceil(plan.totalGold*percent/100),theirs=plan.totalGold-mine;
- if(!hasMoney(p,mine)){if(id===0)showToast(`Need ${mine} Gold for your proposed share`);return false;}
- G.tradeOffers.push({id:G.nextTradeId++,from:id,to,share:percent,costA:mine,costB:theirs,plan,createdRound:G.round,status:'pending'});
- useAction(p,`${p.name} proposed a ${plan.length}-edge trade route to ${target.name}, paying ${percent}% of construction.`);
- if(id===0)showToast('Trade proposal dispatched · awaiting agreement');return true;
+function routeCostSplit(plan,percent){
+ if(!plan||plan.length<2)return null;
+ let best=null;
+ const goal=plan.totalGold*percent/100;
+ for(let segments=1;segments<plan.length;segments++){
+  const a=plan.segmentCosts.slice(0,segments).reduce((s,n)=>s+n,0);
+  if(!best||Math.abs(a-goal)<best.delta)best={aSegments:segments,bSegments:plan.length-segments,costA:a,costB:plan.totalGold-a,delta:Math.abs(a-goal)};
+ }
+ return best;
+}
+function alreadyLinked(a,b,fromTileId=null,toTileId=null){
+ const same=o=>contactKey(o.a??o.from,o.b??o.to)===contactKey(a,b)&&
+  (fromTileId===null||(o.fromTileId===fromTileId&&o.toTileId===toTileId)||(o.fromTileId===toTileId&&o.toTileId===fromTileId));
+ return G.tradeRoutes.some(same)||G.tradeOffers.some(o=>!['rejected','expired'].includes(o.status)&&same(o));
+}
+function proposeTradeRoute(to,share,id=0,fromTileId=null,toTileId=null){
+ const p=G.players[id],target=G.players[to];if(!target||id===to||!canCountryAct(p,id))return false;
+ const from=routeEndpoint(id,fromTileId),dest=routeEndpoint(to,toTileId);
+ if(!from||!dest||alreadyLinked(id,to,from.id,dest.id))return false;
+ const plan=tradePlan(id,to,from.id,dest.id),percent=Number(share);
+ if(!ROUTE_SHARE_OPTIONS.includes(percent)||!plan)return false;
+ const split=routeCostSplit(plan,percent);if(!split||!hasMoney(p,split.costA))return false;
+ const trip=Math.max(1,Math.ceil(distance(capitalOf(id),capitalOf(to))/4));
+ G.tradeOffers.push({id:G.nextTradeId++,from:id,to,share:percent,costA:split.costA,costB:split.costB,fromTileId:from.id,toTileId:dest.id,
+  plan,split,status:'falcon',createdClock:G.turnClock||0,travelTotal:trip,travelRemaining:trip});
+ useAction(p,`${p.name} sent a messenger falcon to ${target.capital}, proposing a border road from ${from.name} to ${dest.name} (${split.costA}/${split.costB} Gold).`);
+ if(id===0)showToast('Messenger falcon dispatched · awaiting delivery');return true;
+}
+function reserveRoadBuilder(p,route,side,endpoint){
+ const citizen=idleBuilders(p)[0];if(!citizen)return null;
+ const origin=G.tiles.find(t=>t.id===citizen.builder.locationId)||capitalOf(p.id);
+ citizen.builder.projectId='road-'+route.id+'-'+side;
+ citizen.builder.destinationId=endpoint.id;
+ citizen.builder.travelRemaining=Math.max(0,Math.ceil(distance(origin||endpoint,endpoint)));
+ route[side+'BuilderId']=citizen.id;
+ return citizen;
+}
+function releaseRoadBuilder(route,side){
+ const citizen=G.players[route[side==='a'?'a':'b']].citizens.find(c=>c.id===route[side+'BuilderId']);
+ if(!citizen?.builder)return;
+ citizen.builder.projectId=null;citizen.builder.destinationId=null;citizen.builder.travelRemaining=0;
+ const pathIndex=side==='a'?Math.max(0,route.aDone-1):Math.min(route.length-1,route.length-route.bDone);
+ const bank=route.banks[pathIndex]||[];
+ const tile=G.tiles.find(t=>t.id===bank.find(id=>G.tiles.find(v=>v.id===id)?.owner===(side==='a'?route.a:route.b)))||routeEndpoint(side==='a'?route.a:route.b,side==='a'?route.fromTileId:route.toTileId);
+ if(tile)citizen.builder.locationId=tile.id;
 }
 function decideTradeOffer(offer,accepted){
  if(!offer||offer.status!=='pending')return false;
  const a=G.players[offer.from],b=G.players[offer.to];
- if(!accepted||!hasMoney(a,offer.costA)||!hasMoney(b,offer.costB)){
-  offer.status='rejected';addLog(`${b.name} rejected the proposed trade route with ${a.name}.`);return true;
+ if(!accepted){offer.status='rejected';addLog(`${b.name} declined the road proposal from ${a.name}.`);return true;}
+ if(!hasMoney(a,offer.costA)||!hasMoney(b,offer.costB)||!idleBuilders(a).length||!idleBuilders(b).length){
+  if(offer.to===0)showToast('Both countries need available Gold and one idle builder to accept.');return false;
  }
- a.gold-=offer.costA;b.gold-=offer.costB;
- offer.status='accepted';G.tradeRoutes.push({id:offer.id,a:a.id,b:b.id,points:offer.plan.points,banks:offer.plan.banks,length:offer.plan.length,rounds:offer.plan.rounds,remaining:offer.plan.rounds,startedRound:G.round,status:'construction'});
- addLog(`${a.name} and ${b.name} agreed to build a trade route. Costs: ${offer.costA}/${offer.costB} Gold. Completion in ${offer.plan.rounds} rounds.`);
+ const route={id:offer.id,a:a.id,b:b.id,fromTileId:offer.fromTileId,toTileId:offer.toTileId,
+  points:offer.plan.points,banks:offer.plan.banks,length:offer.plan.length,split:offer.split,
+  aDone:0,bDone:0,startedClock:G.turnClock||0,status:'construction',rounds:0,remaining:0,
+  costA:offer.costA,costB:offer.costB};
+ if(!reserveRoadBuilder(a,route,'a',routeEndpoint(a.id,route.fromTileId)))return false;
+ if(!reserveRoadBuilder(b,route,'b',routeEndpoint(b.id,route.toTileId))){releaseRoadBuilder(route,'a');return false;}
+ a.gold-=offer.costA;b.gold-=offer.costB;offer.status='accepted';G.tradeRoutes.push(route);
+ const first=G.tiles.find(t=>t.id===route.fromTileId),last=G.tiles.find(t=>t.id===route.toTileId);
+ addLog(`${a.name} and ${b.name} approved ${first.name}–${last.name}. Each builder will construct their assigned ${route.split.aSegments}/${route.split.bSegments} road segments.`);
  return true;
 }
 function progressTradeOffers(){
- for(const offer of G.tradeOffers.filter(o=>o.status==='pending'&&o.createdRound<G.round&&o.to!==0)){
-  const b=G.players[offer.to],rng=mulberry32(hash(G.seed+':tradeResponse:'+offer.id));
-  decideTradeOffer(offer,hasMoney(b,offer.costB)&&rng()>.17);
+ for(const offer of G.tradeOffers.filter(o=>o.status==='falcon')){
+  // No countdown on the sender's own turn. First tick happens after the next nation finishes.
+  if((G.turnClock||0)<=offer.createdClock+1)continue;
+  offer.travelRemaining=Math.max(0,offer.travelRemaining-1);
+  if(offer.travelRemaining>0)continue;
+  offer.status='pending';
+  const link=contactKey(offer.from,offer.to);if(!G.contacts.includes(link))G.contacts.push(link);
+  addLog(`${G.players[offer.from].name}'s falcon reached ${G.players[offer.to].capital} with a road proposal.`);
+  if(offer.to!==0){
+   const partner=G.players[offer.to];
+   const canPay=hasMoney(partner,offer.costB)&&hasMoney(G.players[offer.from],offer.costA);
+   const labor=idleBuilders(partner).length&&idleBuilders(G.players[offer.from]).length;
+   const rng=mulberry32(hash(G.seed+':road-decision:'+offer.id));
+   if(canPay&&labor&&rng()>(offer.share<30?.35:.16))decideTradeOffer(offer,true);
+   else decideTradeOffer(offer,false);
+  }
  }
 }
 function progressTradeRoutes(){
- for(const route of G.tradeRoutes.filter(r=>r.status==='construction'&&r.startedRound<G.round)){
-  route.remaining=Math.max(0,route.remaining-1);
-  if(route.remaining===0){route.status='active';addLog(`Trade route opened between ${G.players[route.a].name} and ${G.players[route.b].name}.`);}
- }
- for(const route of G.tradeRoutes.filter(r=>r.status==='active')){
-  G.players[route.a].gold+=2;G.players[route.b].gold+=2;
+ for(const route of G.tradeRoutes.filter(r=>r.status==='construction')){
+  if((G.turnClock||0)<=route.startedClock+1)continue;
+  for(const side of ['a','b']){
+   const p=G.players[route[side]],worker=p.citizens.find(c=>c.id===route[side+'BuilderId']);
+   if(!worker?.builder){route.status='paused';addLog(`Road ${route.id} paused: missing ${p.name} builder.`);continue;}
+   if(worker.builder.travelRemaining>0){worker.builder.travelRemaining--;if(worker.builder.travelRemaining===0)worker.builder.locationId=(side==='a'?route.fromTileId:route.toTileId);continue;}
+   const completed=side==='a'?route.aDone:route.bDone,assigned=route.split[side==='a'?'aSegments':'bSegments'];
+   if(completed>=assigned)continue;
+   route[side+'Done']++;
+   if(route[side+'Done']===assigned)releaseRoadBuilder(route,side);
+  }
+  if(route.aDone===route.split.aSegments&&route.bDone===route.split.bSegments){
+   route.status='active';route.completedClock=G.turnClock;
+   addLog(`The shared road between ${G.tiles.find(t=>t.id===route.fromTileId)?.name} and ${G.tiles.find(t=>t.id===route.toTileId)?.name} is open.`);
+  }
  }
 }
 function respondTradeOffer(id,yes){
  const offer=G.tradeOffers.find(o=>o.id===id&&o.to===0&&o.status==='pending');
  if(!offer||!active())return false;
- decideTradeOffer(offer,yes);save();render();return true;
+ const success=decideTradeOffer(offer,yes);
+ if(success){save();render();}return success;
 }
 function renderTradePanel(){
  const node=el('tradeBody');if(!node||!G)return;
- const contacts=G.players.filter(p=>p.id!==0&&hasContact(0,p.id));
- const offers=G.tradeOffers.filter(o=>o.from===0||o.to===0);
- const routes=G.tradeRoutes.filter(r=>r.a===0||r.b===0);
- let html='<p class="gs-trade-caption">Trade routes require first contact, a cost-sharing proposal, and both countries’ agreement. Work follows shared land-hex edges and takes time.</p>';
- if(!contacts.length)html+='<p class="empty-note">No diplomatic contacts yet. Expand toward other borders to meet their countries.</p>';
- for(const p of contacts){
-  const pending=alreadyLinked(0,p.id),plan=tradePlan(0,p.id);
-  html+=`<div class="gs-trade-row"><strong>${esc(p.name)}</strong><small>${plan?`${plan.length} hex edges · ${plan.rounds} construction rounds · ${plan.totalGold} Gold total`:'Route unavailable'}</small>${pending?'<span class="gs-trade-caption">A proposal or route already exists</span>':`<div class="gs-trade-controls"><label>Our cost share <select data-trade-share="${p.id}"><option value="25">25%</option><option value="50" selected>50%</option><option value="75">75%</option></select></label><button class="small-outline" data-trade-propose="${p.id}" ${!canAct()||!plan?'disabled':''}>Propose route</button></div>`}</div>`;
+ const mine=G.tiles.filter(t=>t.owner===0),allOffers=G.tradeOffers.filter(o=>o.from===0||o.to===0),roads=G.tradeRoutes.filter(r=>r.a===0||r.b===0);
+ let html='<p class="gs-trade-caption">Choose named territories. A messenger falcon flies to the other capital; the two countries must agree and assign one idle builder each. Routes may cross neutral land, never third-party territory without permission.</p>';
+ for(const partner of G.players.filter(p=>p.id!==0)){
+  const theirs=G.tiles.filter(t=>t.owner===partner.id);
+  const defaultA=mine[0],defaultB=theirs[0];
+  if(!defaultA||!defaultB)continue;
+  html+=`<div class="gs-trade-row"><strong>${esc(partner.name)}</strong>
+   <div class="gs-trade-controls gs-road-form"><label>From your land<select data-road-from="${partner.id}">${mine.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label>
+   <label>To their land<select data-road-to="${partner.id}">${theirs.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label>
+   <label>Our cost share<select data-trade-share="${partner.id}">${ROUTE_SHARE_OPTIONS.map(v=>`<option value="${v}" ${v===50?'selected':''}>${v}% / ${100-v}%</option>`).join('')}</select></label>
+   <button class="small-outline" data-trade-propose="${partner.id}" ${!canAct()?'disabled':''}>Send messenger falcon</button></div>
+   <small data-road-estimate="${partner.id}">Choose endpoints to view the exact road cost.</small></div>`;
  }
- for(const o of offers){const other=G.players[o.from===0?o.to:o.from];html+=`<div class="gs-trade-row"><strong>${o.status==='pending'?'✉️':'📜'} ${esc(other.name)}</strong><small>${o.status.toUpperCase()} · proposer pays ${o.costA} Gold, partner ${o.costB} Gold</small>${o.status==='pending'&&o.to===0?`<div class="gs-trade-controls"><button class="primary" data-trade-answer="${o.id}" data-accept="yes">Accept</button><button class="small-outline" data-trade-answer="${o.id}" data-accept="no">Decline</button></div>`:''}</div>`;}
- for(const r of routes){const other=G.players[r.a===0?r.b:r.a];html+=`<div class="gs-trade-row"><strong>🛤 ${esc(other.name)}</strong><small>${r.status==='active'?'Trade active · +2 Gold per round':`Under construction · ${r.remaining} rounds left`} · ${r.length} hex edges</small></div>`;}
+ for(const o of allOffers){const other=G.players[o.from===0?o.to:o.from];
+  const start=G.tiles.find(t=>t.id===o.fromTileId),end=G.tiles.find(t=>t.id===o.toTileId);
+  html+=`<div class="gs-trade-row"><strong>Messenger · ${esc(other.name)}</strong><small>${esc(start?.name||'Capital')} → ${esc(end?.name||'Capital')} · ${o.status==='falcon'?o.travelRemaining+'T in flight':o.status.toUpperCase()} · ${o.costA}/${o.costB} Gold</small>${o.status==='pending'&&o.to===0?`<div class="gs-trade-controls"><button class="primary" data-trade-answer="${o.id}" data-accept="yes">Accept & assign builder</button><button class="small-outline" data-trade-answer="${o.id}" data-accept="no">Decline</button></div>`:''}</div>`;
+ }
+ for(const r of roads){
+  const start=G.tiles.find(t=>t.id===r.fromTileId),end=G.tiles.find(t=>t.id===r.toTileId);
+  const progress=r.status==='active'?r.length:(r.aDone||0)+(r.bDone||0);
+  html+=`<div class="gs-trade-row"><strong>Border Road · ${esc(start?.name||G.players[r.a].name)} ↔ ${esc(end?.name||G.players[r.b].name)}</strong><small>${r.status==='active'?'OPEN · +2 Gold/round to each':'BUILDING · '+progress+'/'+r.length+' edges complete'} · ${r.costA??0}/${r.costB??0} Gold paid by each nation</small></div>`;
+ }
  node.innerHTML=html;
+ for(const partner of G.players.filter(p=>p.id!==0))refreshRouteEstimate(partner.id);
+}
+function refreshRouteEstimate(partnerId){
+ const panel=el('tradeBody'),a=panel?.querySelector(`[data-road-from="${partnerId}"]`)?.value,b=panel?.querySelector(`[data-road-to="${partnerId}"]`)?.value;
+ const share=Number(panel?.querySelector(`[data-trade-share="${partnerId}"]`)?.value||50);
+ const label=panel?.querySelector(`[data-road-estimate="${partnerId}"]`);if(!label)return;
+ const plan=tradePlan(0,partnerId,a,b),split=routeCostSplit(plan,share);
+ label.textContent=plan&&split?`${plan.length} shared hex edges · you pay ${split.costA} Gold and build ${split.aSegments} edges; ${G.players[partnerId].name} pays ${split.costB} Gold and builds ${split.bSegments}.`:'No valid neutral-land border route found.';
 }
 function showToast(s){const t=el('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2650);}
 function showModal(html){el('modalBody').innerHTML=html;el('modalLayer').classList.remove('hidden');}
@@ -858,7 +1027,7 @@ function progressProjects(){
   }
   for(const c of crew){c.builder.projectId=null;c.builder.destinationId=null;c.builder.locationId=tile.id;c.builder.travelRemaining=0;}
   G.projects=G.projects.filter(j=>j.id!==job.id);
-  reallocateHousing(p);syncBuilders(p);assignWorkers(p);
+  reallocateHousing(p);syncBuilders(p);assignWorkers(p);syncCaravans(p);
   G.completedScenes.push({projectId:job.id,owner:p.id,tileId:tile.id,kind:'build',type:job.type,buildingIndex:job.upgradeSiteId?tile.buildingMeta.findIndex(m=>m.id===job.upgradeSiteId):tile.buildings.length-1});
   addLog(`${p.name} finished ${job.upgradeSiteId?'upgrading':'construction of'} ${BUILDINGS[job.type].name} at ${tile.name}.`);
  }
@@ -1037,7 +1206,7 @@ function doExpand(t,id=0){
  const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;
  p.gold-=cost;p.food-=2;p.discountExpand=0;p.expansionsThisTurn=(p.expansionsThisTurn||0)+1;
  const origin=G.tiles.find(v=>v.id===crew.locationId)||G.tiles.find(v=>v.owner===id&&v.capital);
- crew.targetId=t.id;crew.remaining=Math.max(1,Math.ceil(distance(origin||t,t)));
+ crew.targetId=t.id;crew.originId=(origin||t).id;crew.remaining=Math.max(1,Math.ceil(distance(origin||t,t)));crew.travelTotal=crew.remaining;crew.startedClock=G.turnClock||0;
  useAction(p,`${p.name} dispatched an expedition to ${t.name} (${crew.remaining} turn${crew.remaining===1?'':'s'} away).`,{tileId:t.id,kind:'expedition'});
  if(id===0)showToast(`Expedition en route to ${t.name}`);
  return true;
@@ -1058,7 +1227,7 @@ function doSell(t,idx=0,id=0){
  const type=t.buildings[idx],b=BUILDINGS[type],siteId=t.buildingMeta?.[idx]?.id;
  if(type==='post'&&getMilitaryPosts(id).length&&postGarrison(p,t.id).length>0){if(id===0)showToast('Move troops before selling this post.');return false;}
  const stock=worksite(t,idx)?.stock||{};for(const [item,amount] of Object.entries(stock)){if(amount>0)dispatchShipment(id,siteId,'depot',item,amount,true);}
- const refund=Math.max(2,Math.floor(b.gold*.6));p.gold+=refund;t.buildings.splice(idx,1);t.buildingMeta?.splice(idx,1);for(const citizen of p.citizens){if(citizen.job?.siteId===siteId)citizen.job=null;}reallocateHousing(p);syncBuilders(p);assignWorkers(p);
+ const refund=Math.max(2,Math.floor(b.gold*.6));p.gold+=refund;t.buildings.splice(idx,1);t.buildingMeta?.splice(idx,1);for(const citizen of p.citizens){if(citizen.job?.siteId===siteId)citizen.job=null;}reallocateHousing(p);syncBuilders(p);assignWorkers(p);syncCaravans(p);
  useAction(p,`${p.name} sold a ${b.name} at ${t.name} to the Global Bank for ${refund} Gold.`,{tileId:t.id,kind:'sell'});
  if(id===0)showToast(`${b.name} sold for ${refund} Gold`);return true;
 }
@@ -1099,7 +1268,8 @@ function finishRound(){
  }
  progressShipments();runAgricultureAndForestry();
  for(const p of G.players)extractMinesForRound(p);
- processFactories();autoDispatchOutputs();autoRequestFactoryInputs();progressTradeOffers();progressTradeRoutes();
+ processFactories();autoDispatchOutputs();autoRequestFactoryInputs();
+ for(const route of G.tradeRoutes.filter(r=>r.status==='active')){G.players[route.a].gold+=2;G.players[route.b].gold+=2;}
  addLog(`Round ${G.round} concluded. Population, production and maintenance updated.`);
  if(G.round>=G.maxRounds&&!G.continued){G.finished=true;save();render();showEndGame();return;}
  G.round++;beginTurn(0);cpuBusy=false;save();render();showToast(`Round ${G.round} — your turn`);
@@ -1201,8 +1371,8 @@ function runCpu(id){
  const p=G.players[id];
  if(!p.cardPlayed)playCpuOpeningCard(id);
  if(G.round>=4&&G.round%4===id%4&&actionsRemaining(p)>0){
-  const available=G.players.filter(v=>v.id!==id&&hasContact(id,v.id)&&!alreadyLinked(id,v.id));
-  if(available.length&&p.gold>12&&proposeTradeRoute(available[0].id,50,id))return;
+  const available=G.players.filter(v=>v.id!==id&&!alreadyLinked(id,v.id)&&idleBuilders(p).length&&idleBuilders(v).length);
+  if(available.length&&p.gold>18&&proposeTradeRoute(available[0].id,50,id))return;
  }
  const troops=p.citizens.filter(c=>c.military);
  for(const c of troops){const site=postStock(p,c.military.postId);if(!site)continue;
@@ -1237,6 +1407,7 @@ function runCpu(id){
  if(people.housing<=people.count+2&&(tryBuild('homes')||tryExpand()))return;
  if(eco.netGold<=0&&tryBuild('market'))return;
  if(owned.length<3&&tryExpand())return;
+ if(G.round>=2&&!caravanWarehouses(p).length&&tryBuild('caravanWarehouse'))return;
  if(p.food<9&&tryBuild('farm'))return;
  if(p.wood<8&&(tryBuild('lumber')||tryBuild('woodworks')))return;
  if(mineralCount(p,'iron')<4&&p.gold>11&&mineralTrade('iron','buy',id))return;
@@ -1303,7 +1474,7 @@ function renderTile(t){
  t.buildings.forEach((type,i)=>{
   const b=BUILDINGS[type],meta=worksite(t,i),q=owner?workQuality(owner,meta,type):null,occupied=type==='post'&&owner?postGarrison(owner,t.id).length:0;
   const upgrade=upgradePrice(t,i),inProgress=G.projects.some(job=>job.upgradeSiteId===meta?.id);
-  html+=`<div class="gs-job-card"><div class="gs-job-head"><strong>${b.icon} ${b.name} · Lvl ${meta?.level||1}</strong><small>${type==='homes'?`${8+4*((meta?.level||1)-1)} housing capacity · no employees required`:type==='builderBunk'?`${meta?.level||1} builder position${(meta?.level||1)===1?'':'s'} · provides specialized builders`: `${q?.count||0}/${q?.slots||0} workers · Morale ${q?.count?Math.round(q.morale):'—'}/100`} · ${(b.upkeep+(meta.level-1)*Math.ceil(b.upkeep*.8))} base upkeep${q.slots?' + '+q.count+' wages':''}${type==='post'?` · ${occupied}/12 troops`:''}</small></div>`;
+  html+=`<div class="gs-job-card"><div class="gs-job-head"><strong>${b.icon} ${b.name} · Lvl ${meta?.level||1}</strong><small>${type==='homes'?`${8+4*((meta?.level||1)-1)} housing capacity · no employees required`:type==='builderBunk'?`${meta?.level||1} builder position${(meta?.level||1)===1?'':'s'} · provides specialized builders`:type==='caravanWarehouse'?`${meta?.level||1} caravan berth${(meta?.level||1)===1?'':'s'} · stores transport wagons`: `${q?.count||0}/${q?.slots||0} workers · Morale ${q?.count?Math.round(q.morale):'—'}/100`} · ${(b.upkeep+(meta.level-1)*Math.ceil(b.upkeep*.8))} base upkeep${q.slots?' + '+q.count+' wages':''}${type==='post'?` · ${occupied}/12 troops`:''}</small></div>`;
   const stockList=Object.entries(meta?.stock||{}).filter(([k,v])=>v>0);
   const outgoing=G.shipments.filter(job=>job.owner===p.id&&job.from===meta.id);
   html+=`<div class="gs-site-inventory"><small>📦 On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>🚚 Shipped: ${outgoing.slice(0,4).map(job=>`${job.qty} ${GOOD_NAMES[job.item]||job.item} (${job.remaining}r)`).join(' · ')}`:''}</small></div>`;
@@ -1479,6 +1650,63 @@ function tileMiniatures(t,x,y){
  if(jobs.length){const working=jobs.some(j=>assignedBuilders(G.players[j.owner],j.id).some(c=>c.builder.travelRemaining===0));s+=`<g class="gs-worksite" pointer-events="none"><ellipse cx="${x}" cy="${y+6}" rx="23" ry="8" fill="#bd9164"/><path d="M${x-15} ${y+6}v-20h30v20m-30 -20l30 20m-30 0l30 -20" stroke="#654934" stroke-width="2.6" fill="none"/><text x="${x}" y="${y-22}" text-anchor="middle" font-size="11" fill="#fff0c5">🔨</text>${working?`<g class="gs-work-dust"><circle cx="${x-16}" cy="${y-9}" r="8"/><circle cx="${x+8}" cy="${y-16}" r="9"/><circle cx="${x+18}" cy="${y-6}" r="6"/></g>`:`<text x="${x}" y="${y-37}" fill="#fff1c9" font-size="10" text-anchor="middle">🚶 Crew approaching</text>`}<text x="${x}" y="${y+23}" text-anchor="middle" fill="#fff1c9" font-size="10" font-weight="bold">${Math.min(...jobs.map(j=>j.remaining))}t</text></g>`;}
  return s;
 }
+
+function routePolyline(points,stroke,width,dash=''){
+ if(!points||points.length<2)return '';
+ const d='M'+points.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L');
+ return `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" ${dash?`stroke-dasharray="${dash}"`:''}/>`;
+}
+function foregroundTurnLabel(x,y,label){return `<g pointer-events="none"><rect x="${x-17}" y="${y-31}" width="34" height="16" rx="6" fill="#122c37" stroke="#d9b77c" stroke-width="1.3" opacity=".95"/><text class="gs-route-label" x="${x}" y="${y-20}" font-size="10" text-anchor="middle">${esc(label)}</text></g>`;}
+function roadVisuals(){
+ return (G.tradeRoutes||[]).map(route=>{
+  const points=(route.points||[]).map(p=>project(p.x,p.y)),len=Math.max(0,points.length-1);
+  if(len<1)return '';
+  const aBuilt=route.status==='active'?len:Math.min(len,route.aDone||0),bBuilt=route.status==='active'?0:Math.min(len,route.bDone||0);
+  let body='<g class="gs-road-lines" pointer-events="none">';
+  body+=routePolyline(points,'#30434b',6,'3 6');
+  body+=routePolyline(points.slice(0,aBuilt+1),G.players[route.a].color,5);
+  if(route.status==='active')body+=routePolyline(points,'#edcb86',2.1);
+  else body+=routePolyline(points.slice(len-bBuilt),G.players[route.b].color,5);
+  body+='</g>';
+  if(route.status!=='active'&&route.status!=='paused')for(const side of ['a','b']){
+   const builder=G.players[route[side]].citizens.find(c=>c.id===route[side+'BuilderId']);
+   if(!builder?.builder?.projectId)continue;
+   const progress=route[side+'Done']||0,at=points[side==='a'?Math.min(len,progress):Math.max(0,len-progress)];
+   body+=`<g class="gs-road-builder" transform="translate(${at.x.toFixed(1)} ${at.y.toFixed(1)})" pointer-events="none"><path d="M-9 7L9 7L5 -3L-5 -3Z" fill="${G.players[route[side]].color}" stroke="#142c36" stroke-width="2"/><path d="M-8 -11L-1 -15L11 -5L6 0L-2 -7L-9 2" stroke="#f3d59b" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="0" cy="-7" r="4" fill="#eed4ad"/></g>`;
+   body+=foregroundTurnLabel(at.x,at.y,`${progress}/${route.split[side==='a'?'aSegments':'bSegments']}`);
+  }
+  return body;
+ }).join('');
+}
+function falconVisuals(){
+ return (G.tradeOffers||[]).filter(o=>o.status==='falcon').map(offer=>{
+  const a=capitalOf(offer.from),b=capitalOf(offer.to);if(!a||!b)return '';
+  const from=coords(a),to=coords(b),total=Math.max(1,offer.travelTotal||1),t=Math.max(.07,1-(offer.travelRemaining||0)/total);
+  const point=project(from.x+(to.x-from.x)*t,from.y+(to.y-from.y)*t);
+  return `<g transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})" class="gs-messenger-falcon" pointer-events="none"><path class="gs-falcon-wing" d="M0 -6Q-18 -23 -27 -11Q-11 -12 -4 3Z" fill="#f4deab" stroke="#253e4c" stroke-width="2"/><path class="gs-falcon-wing right" d="M0 -6Q18 -23 27 -11Q11 -12 4 3Z" fill="#e1b878" stroke="#253e4c" stroke-width="2"/><path d="M-7 -2Q0 -12 7 -2L2 10L-2 10Z" fill="#fff4ce" stroke="#253e4c" stroke-width="1.5"/><path d="M-3 10L0 19L3 10" fill="#c78e57"/><path d="M4 -3L12 -1L4 2" fill="#d7a452"/></g>${foregroundTurnLabel(point.x,point.y,`${offer.travelRemaining}T`)}`;
+ }).join('');
+}
+function expeditionTrailVisuals(){
+ return G.players.flatMap(p=>(p.expeditions||[]).filter(c=>c.targetId).map(c=>{
+  const from=G.tiles.find(t=>t.id===c.originId||t.id===c.locationId),to=G.tiles.find(t=>t.id===c.targetId);if(!from||!to)return '';
+  const a=coords(from),b=coords(to),t=Math.min(.95,Math.max(.03,1-(c.remaining||0)/Math.max(1,c.travelTotal||c.remaining||1)));
+  const position=project(a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t);
+  const color=p.color;
+  const boots=Array.from({length:3},(_,i)=>`<ellipse class="gs-expedition-footstep" style="--step:${i}" cx="${(position.x-5-i*5).toFixed(1)}" cy="${(position.y+9+i*2).toFixed(1)}" rx="2.8" ry="4.2" fill="#f8e0ac" opacity=".8" transform="rotate(-30 ${(position.x-5-i*5).toFixed(1)} ${(position.y+9+i*2).toFixed(1)})"/>`).join('');
+  return `<g class="gs-expedition-moving" pointer-events="none">${boots}<path d="M${position.x} ${position.y+12}v-28" stroke="#2b3740" stroke-width="2.7"/><path d="M${position.x} ${position.y-16}l17 5 -17 7Z" fill="${color}" stroke="#fff0bd" stroke-width="1.5"/></g>${foregroundTurnLabel(position.x,position.y,`${c.remaining}T`)}`;
+ })).join('');
+}
+function caravanVisuals(){
+ return G.players.flatMap(p=>(p.caravans||[]).map(cart=>{
+  const job=G.shipments.find(s=>s.id===cart.shipmentId),path=job?.path||[],index=Math.max(0,job?.step||0);
+  const at=G.tiles.find(t=>t.id===cart.currentTileId);if(!at)return '';
+  let pos=coords(at);
+  if(job&&index>0&&path[index-1]){const prev=G.tiles.find(t=>t.id===path[index-1]);if(prev){const a=coords(prev);pos={x:(a.x+pos.x)/2,y:(a.y+pos.y)/2};}}
+  const point=project(pos.x,pos.y);
+  return `<g class="gs-caravan" transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})" pointer-events="none"><g class="gs-caravan-rock"><path d="M-18 -5L16 -5L12 9L-14 9Z" fill="#a56843" stroke="#25323b" stroke-width="2"/><path d="M-18 -5L-11 -14L11 -14L16 -5Z" fill="${p.color}" stroke="#f4d9aa" stroke-width="1.7"/><path d="M-3 -14v23M-15 0H13" stroke="#f0d5a1" stroke-width="1.7"/><circle cx="-10" cy="12" r="5.5" fill="#34444d" stroke="#f5dfb0" stroke-width="2"/><circle cx="11" cy="12" r="5.5" fill="#34444d" stroke="#f5dfb0" stroke-width="2"/></g></g>`;
+ })).join('');
+}
+
 function renderMap(){
  if(!G)return;
  const svg=el('worldMap');svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
@@ -1496,7 +1724,7 @@ function renderMap(){
   bases.push(`<g class="tile-base" pointer-events="none"><polygon points="${pts(lower)}" fill="#202f2b" opacity=".33" transform="translate(2 2)"/>${faces}<polygon points="${pts(top)}" fill="${fill}" stroke="${border}" stroke-width="${owner?'2.5':'1.4'}"/><polygon points="${pts([top[4],top[5],top[0]])}" fill="#fff3c9" opacity=".07"/><polygon points="${pts([top[1],top[2],top[3]])}" fill="#2d312f" opacity=".08"/>${owner?`<polygon points="${pts(top)}" fill="${owner.color}" opacity=".14"/>`:''}${selected?`<polygon points="${pts(top)}" fill="none" stroke="#fff6c7" stroke-width="3.6"/>`:''}</g>`);
   const action=t.id===actionTileId;
   const scout=expeditionForTile(t.id);
-  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/><g class="tile-visual">${tileMiniatures(t,x,y)}${scout?`<g pointer-events="none"><text x="${x}" y="${y-33}" text-anchor="middle" font-size="13">🧭</text><text x="${x}" y="${y-44}" text-anchor="middle" fill="#fff0bf" font-size="9">${scout.remaining}t</text></g>`:''}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}</g>${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}</g>`);
+  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/><g class="tile-visual">${tileMiniatures(t,x,y)}${scout?`<g pointer-events="none"><path d="M${x} ${y-21}v-22" stroke="#203945" stroke-width="2"/><path d="M${x} ${y-43}l13 4 -13 5z" fill="${G.players[scout.owner]?.color||'#eac585'}"/></g>`:''}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}</g>${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}</g>`);
  }
   const waterways=(G.rivers||[]).map(river=>{
    // Vertices are shared by two land hexes; project AFTER camera yaw/tilt.
@@ -1506,15 +1734,9 @@ function renderMap(){
    const d='M'+projected.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L');
    return `<g class="river-course" pointer-events="none"><path d="${d}" stroke="#49675b" stroke-width="12" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".82"/><path d="${d}" stroke="#398aab" stroke-width="8.2" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="${d}" stroke="#a0dbe5" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".77"/></g>`;
   }).join('');
- const tradeLines=(G.tradeRoutes||[]).map(route=>{
-  const points=(route.points||[]).map(p=>project(p.x,p.y));if(points.length<2)return '';
-  const progress=route.status==='active'?1:(route.rounds-route.remaining)/route.rounds;
-  const length=Math.max(2,Math.floor((points.length-1)*Math.max(.07,progress)));
-  const visible=route.status==='active'?points:points.slice(0,Math.min(points.length,length+1));
-  const d='M'+visible.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L');
-  return `<g class="gs-trade-path ${route.status==='active'?'active':'building'}" pointer-events="none"><path d="${d}" fill="none" stroke="#4a3c27" stroke-width="7" stroke-linejoin="round"/><path d="${d}" fill="none" stroke="#edc277" stroke-width="3.4" stroke-linejoin="round" ${route.status==='active'?'':'stroke-dasharray="6 4"'}/></g>`;
- }).join('');
- el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="world-features">${decorations.join('')}</g>`;
+ const tradeLines=roadVisuals();
+ const movementOverlays=falconVisuals()+expeditionTrailVisuals()+caravanVisuals();
+ el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g>`;
  boardTileVisuals=[...el('mapContent').querySelectorAll('.tile-visual')].map((node,i)=>({node,...visualAnchors[i]}));
  cameraYaw=savedYaw;syncBoardRotation();
 }
@@ -1591,7 +1813,11 @@ function bindEvents(){
  el('researchBtn').addEventListener('click',()=>{if(G)showSheet('research');});
  el('closeResearchBtn').addEventListener('click',closeSheet);
  el('closeBuildBtn').addEventListener('click',()=>{showBuild=false;render();});
- el('tradeBody').addEventListener('click',e=>{const propose=e.target.closest('[data-trade-propose]');if(propose){const to=Number(propose.dataset.tradePropose);const select=el('tradeBody').querySelector(`[data-trade-share="${to}"]`);proposeTradeRoute(to,Number(select?.value||50));return;}const ans=e.target.closest('[data-trade-answer]');if(ans)respondTradeOffer(Number(ans.dataset.tradeAnswer),ans.dataset.accept==='yes');});
+ el('tradeBody').addEventListener('click',e=>{const propose=e.target.closest('[data-trade-propose]');if(propose){const to=Number(propose.dataset.tradePropose);const panel=el('tradeBody');const select=panel.querySelector(`[data-trade-share="${to}"]`);
+  const from=panel.querySelector(`[data-road-from="${to}"]`)?.value,dest=panel.querySelector(`[data-road-to="${to}"]`)?.value;
+  proposeTradeRoute(to,Number(select?.value||50),0,from,dest);return;}const ans=e.target.closest('[data-trade-answer]');if(ans)respondTradeOffer(Number(ans.dataset.tradeAnswer),ans.dataset.accept==='yes');});
+ el('economySummary').addEventListener('change',e=>{if(e.target.matches('[data-caravan-policy]')){getCountry().caravanPolicy=e.target.value;save();render();}});
+ el('tradeBody').addEventListener('change',e=>{const field=e.target.closest('[data-road-from],[data-road-to],[data-trade-share]');if(field)refreshRouteEstimate(Number(field.dataset.roadFrom||field.dataset.roadTo||field.dataset.tradeShare));});
  el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
  el('territoryDetails').addEventListener('change',e=>{const t=getSelected();if(!t)return;const r=e.target.closest('[data-route-site]');if(r){setDeliveryRoute(t,Number(r.dataset.routeSite),r.dataset.routeGood,r.value);return;}const recipe=e.target.closest('[data-recipe-site]');if(recipe)setFactoryRecipe(t,Number(recipe.dataset.recipeSite),recipe.value);});
  el('buildOptions').addEventListener('click',e=>{const b=e.target.closest('[data-build]');if(b&&canAct())doBuild(getSelected(),b.dataset.build);});
@@ -1655,5 +1881,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
+window.GS_TEST={getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
 })();
