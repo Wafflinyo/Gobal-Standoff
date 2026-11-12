@@ -1,15 +1,16 @@
-/* Global Standoff 0.4.7 — domestic roads and faster internal travel. */
+/* Global Standoff 0.4.8 — custom icon atlas, billboarded expeditions, consistent 3D map depth. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
 const OLD_SAVE_KEY='global_standoff_v01_save';
 // Original silver five-sided coin: the currency is Silver Pents (SP), not SP.
+const icoMarkup=name=>'<svg class="gs-glyph" aria-hidden="true" viewBox="0 0 32 32"><use href="#gs-i-'+name+'"></use></svg>';
 const silverPentIcon=(size=21)=>`<svg class="gs-silver-pent" width="${size}" height="${size}" viewBox="0 0 40 40" aria-label="Silver Pents" role="img"><path d="M20 2L37 14L30.5 35H9.5L3 14Z" fill="#dbe2e7" stroke="#617889" stroke-width="2.4"/><path d="M20 7L31.5 16L27 30H13L8.5 16Z" fill="#a8b9c4" stroke="#f4f9fa" stroke-width="1.5"/><path d="M20 11L20 29M12 17L28 17M14 26L26 26" stroke="#465d6d" stroke-width="1.5" opacity=".4"/><text x="20" y="25.5" text-anchor="middle" font-size="14" font-weight="900" fill="#203e4e" stroke="#edf2f2" stroke-width=".6" paint-order="stroke">SP</text></svg>`;
 const moneyLabel=amount=>`${amount} SP`;
 
 const RADIUS=7, HEX=40, MAX_ROUNDS=24, MAJOR_ACTIONS=3; // 169 hexes; three major actions per turn
 const COLORS=['#7ed0b7','#e6af79','#b7a1e9','#f08b87'];
-const NPCS=[{name:'Alder Union',capital:'Oakspire',sigil:'♣'},{name:'Coral Dominion',capital:'Sunport',sigil:'◆'},{name:'Vesper Republic',capital:'Duskfall',sigil:'✧'}];
+const NPCS=[{name:'Alder Union',capital:'Oakspire',sigil:'A'},{name:'Coral Dominion',capital:'Sunport',sigil:'◆'},{name:'Vesper Republic',capital:'Duskfall',sigil:'V'}];
 const TERRAIN={
  plains:{name:'Plains',color:'#bbc885',yield:{},slots:8,population:30,desc:'Roomy, fertile land ideal for large settlements.'},
  forest:{name:'Forest',color:'#66a17c',yield:{},slots:6,population:20,desc:'Wooded land. Timber must be worked and shipped to be used.'},
@@ -21,22 +22,22 @@ const TERRAIN={
 // Mountain mineral veins are fixed at world generation. Diamonds are rare both
 // as deposits and as individual mining successes; no generic Ore is produced.
 const MINERALS={
- coal:{name:'Coal',icon:'⚫',weight:26,price:2,chance:1,rate:2,reserve:36},
- iron:{name:'Iron',icon:'🔩',weight:20,price:3,chance:.95,rate:2,reserve:30},
- copper:{name:'Copper',icon:'🟠',weight:9,price:5,chance:.85,rate:2,reserve:18},
- silver:{name:'Silver',icon:'🥈',weight:5,price:9,chance:.6,rate:1,reserve:12},
- goldOre:{name:'Gold Ore',icon:'🥇',weight:3,price:16,chance:.35,rate:1,reserve:8},
- diamond:{name:'Diamonds',icon:'💎',weight:1,price:40,chance:.12,rate:1,reserve:4}
+ coal:{name:'Coal',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-coal"></use></svg>',weight:26,price:2,chance:1,rate:2,reserve:36},
+ iron:{name:'Iron',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>',weight:20,price:3,chance:.95,rate:2,reserve:30},
+ copper:{name:'Copper',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-copper"></use></svg>',weight:9,price:5,chance:.85,rate:2,reserve:18},
+ silver:{name:'Silver',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-silver"></use></svg>',weight:5,price:9,chance:.6,rate:1,reserve:12},
+ goldOre:{name:'Gold Ore',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-gold-ore"></use></svg>',weight:3,price:16,chance:.35,rate:1,reserve:8},
+ diamond:{name:'Diamonds',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-diamond"></use></svg>',weight:1,price:40,chance:.12,rate:1,reserve:4}
 };
 const MINERAL_KEYS=Object.keys(MINERALS);
 const START_MINERALS={coal:2,iron:5,copper:0,silver:0,goldOre:0,diamond:0,steel:0};
 // Armor is worn by individual named soldiers; Steel requires smelting Iron + Coal.
 const GEAR={
- leather:{name:'Leather Armor',icon:'🧥',bonus:2,item:'leatherArmor'},
- iron:{name:'Iron Armor',icon:'🛡',bonus:4,item:'ironArmor'},
- steel:{name:'Steel Armor',icon:'⚙️',bonus:7,item:'steelArmor'},
- gold:{name:'Gold-Reinforced Steel',icon:'🥇',bonus:10,item:'goldArmor'},
- diamond:{name:'Diamond-Reinforced Steel',icon:'💎',bonus:14,item:'diamondArmor'}
+ leather:{name:'Leather Armor',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-leather"></use></svg>',bonus:2,item:'leatherArmor'},
+ iron:{name:'Iron Armor',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-shield"></use></svg>',bonus:4,item:'ironArmor'},
+ steel:{name:'Steel Armor',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-steel"></use></svg>',bonus:7,item:'steelArmor'},
+ gold:{name:'Gold-Reinforced Steel',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-gold-ore"></use></svg>',bonus:10,item:'goldArmor'},
+ diamond:{name:'Diamond-Reinforced Steel',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-diamond"></use></svg>',bonus:14,item:'diamondArmor'}
 };
 const GEAR_ORDER=['leather','iron','steel','gold','diamond'];
 const RECIPES={
@@ -86,24 +87,24 @@ function mineralCount(p,key){return Math.max(0,Math.floor(p.minerals?.[key]||0))
 function gearReadiness(c){return 10+2*(c.military?.training||1)+Math.floor((c.military?.experience||0)/3)+(GEAR[c.military?.gear]?.bonus||0)+(c.military?.shield==='woodShield'?2:0)+(c.military?.weapon?.startsWith('stone')?2:0);}
 
 const BUILDINGS={
- farm:{name:'Farm',icon:'🌾',gold:4,wood:2,iron:0,space:2,rounds:1,upkeep:1,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Workers produce Food and raw Leather · both must be delivered'},
- lumber:{name:'Lumber Camp',icon:'🌲',gold:4,wood:1,iron:0,space:2,rounds:2,upkeep:1,jobs:[2,4,6],production:{},allow:['forest'],text:'Workers harvest Timber Logs · ship logs to Woodworks'},
- mine:{name:'Mine',icon:'⛏',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['mountain'],text:'Produces Stone on EVERY mountain plus any mineral veins'},
- homes:{name:'Homes',icon:'🏘',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces · caretakers employed for upkeep'},
- market:{name:'Marketplace',icon:'⚖',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'Silver Pents income scales with worker staffing and morale'},
- academy:{name:'Academy',icon:'📚',gold:8,wood:2,iron:2,space:2,rounds:3,upkeep:2,jobs:[2,3,4],production:{knowledge:3},allow:['plains','forest','hills','desert','mountain'],text:'Research output requires staffed teachers'},
+ farm:{name:'Farm',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>',gold:4,wood:2,iron:0,space:2,rounds:1,upkeep:1,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Workers produce Food and raw Leather · both must be delivered'},
+ lumber:{name:'Lumber Camp',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-forest"></use></svg>',gold:4,wood:1,iron:0,space:2,rounds:2,upkeep:1,jobs:[2,4,6],production:{},allow:['forest'],text:'Workers harvest Timber Logs · ship logs to Woodworks'},
+ mine:{name:'Mine',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-mine"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['mountain'],text:'Produces Stone on EVERY mountain plus any mineral veins'},
+ homes:{name:'Homes',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-homes"></use></svg>',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces · caretakers employed for upkeep'},
+ market:{name:'Marketplace',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-market"></use></svg>',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'Silver Pents income scales with worker staffing and morale'},
+ academy:{name:'Academy',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-book"></use></svg>',gold:8,wood:2,iron:2,space:2,rounds:3,upkeep:2,jobs:[2,3,4],production:{knowledge:3},allow:['plains','forest','hills','desert','mountain'],text:'Research output requires staffed teachers'},
  caravanWarehouse:{name:'Caravan Warehouse',icon:'▣',gold:8,wood:5,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert'],text:'Houses 1 / 2 / 3 caravans by level; shipments require an available wagon'},
  storageWarehouse:{name:'Storage Warehouse',icon:'▤',gold:7,wood:4,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Holds 40 / 80 / 140 goods at levels 1 / 2 / 3. Nearby factories can collect supplies here.'},
- builderBunk:{name:'Builders’ Bunk',icon:'🛖',gold:8,wood:3,iron:0,space:1,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Houses 1 / 2 / 3 active builders by level. Builders travel before working'},
- post:{name:'Military Post',icon:'🛡',gold:8,wood:2,iron:2,space:2,rounds:2,upkeep:2,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Administrative staff support recruitment and the 12-troop garrison'},
- foundry:{name:'Steelworks Factory',icon:'🏭',gold:10,wood:3,iron:3,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Receives Iron + Coal shipments and smelts Steel'},
- leatherFactory:{name:'Leather Factory',icon:'🧵',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Raw Leather → Leather Armor; send gear to a military post'},
- woodworks:{name:'Woodworks Factory',icon:'🪚',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['forest','plains','hills'],text:'Timber Logs → Construction Wood or Wooden Shields'},
- stoneworks:{name:'Stone Workshop',icon:'🪓',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['plains','hills','mountain'],text:'Stone + Wood → axes, pickaxes, swords or clubs'},
- armory:{name:'Armory',icon:'⚒',gold:10,wood:2,iron:2,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Produces Iron, Steel, SP and Diamond armor from delivered metal'}
+ builderBunk:{name:'Builders’ Bunk',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-builder"></use></svg>',gold:8,wood:3,iron:0,space:1,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Houses 1 / 2 / 3 active builders by level. Builders travel before working'},
+ post:{name:'Military Post',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-shield"></use></svg>',gold:8,wood:2,iron:2,space:2,rounds:2,upkeep:2,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Administrative staff support recruitment and the 12-troop garrison'},
+ foundry:{name:'Steelworks Factory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-foundry"></use></svg>',gold:10,wood:3,iron:3,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Receives Iron + Coal shipments and smelts Steel'},
+ leatherFactory:{name:'Leather Factory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-thread"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Raw Leather → Leather Armor; send gear to a military post'},
+ woodworks:{name:'Woodworks Factory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-saw"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['forest','plains','hills'],text:'Timber Logs → Construction Wood or Wooden Shields'},
+ stoneworks:{name:'Stone Workshop',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-axe"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['plains','hills','mountain'],text:'Stone + Wood → axes, pickaxes, swords or clubs'},
+ armory:{name:'Armory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-builder"></use></svg>',gold:10,wood:2,iron:2,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Produces Iron, Steel, SP and Diamond armor from delivered metal'}
 };
-const TECHS={irrigation:{name:'Irrigation',icon:'💧',gold:3,knowledge:4,desc:'+1 Food per Farm, every round.'},commerce:{name:'Commerce',icon:'⚜',gold:4,knowledge:5,desc:'+1 Silver Pent per Marketplace, every round.'},cartography:{name:'Cartography',icon:'🧭',gold:4,knowledge:5,desc:'Expansion costs 2 less SP.'}};
-const CARDS={grant:{name:'Royal Grant',icon:'SP',desc:'Gain 6 SP.'},harvest:{name:'Great Harvest',icon:'🌽',desc:'Gain 5 Food.'},supplies:{name:'Supply Caravan',icon:'📦',desc:'Gain 3 Wood and 2 Iron.'},insight:{name:'Discovery',icon:'📜',desc:'Gain 3 Knowledge.'},charter:{name:'Frontier Charter',icon:'🗺',desc:'Next expansion costs 3 less SP.'},permit:{name:'Building Permit',icon:'🏛',desc:'Next building costs 3 less SP.'}};
+const TECHS={irrigation:{name:'Irrigation',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-water"></use></svg>',gold:3,knowledge:4,desc:'+1 Food per Farm, every round.'},commerce:{name:'Commerce',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>',gold:4,knowledge:5,desc:'+1 Silver Pent per Marketplace, every round.'},cartography:{name:'Cartography',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-compass"></use></svg>',gold:4,knowledge:5,desc:'Expansion costs 2 less SP.'}};
+const CARDS={grant:{name:'Royal Grant',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-pent"></use></svg>',desc:'Gain 6 SP.'},harvest:{name:'Great Harvest',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>',desc:'Gain 5 Food.'},supplies:{name:'Supply Caravan',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg>',desc:'Gain 3 Wood and 2 Iron.'},insight:{name:'Discovery',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-scroll"></use></svg>',desc:'Gain 3 Knowledge.'},charter:{name:'Frontier Charter',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-map"></use></svg>',desc:'Next expansion costs 3 less SP.'},permit:{name:'Building Permit',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg>',desc:'Next building costs 3 less SP.'}};
 const CARD_POOL=['grant','harvest','supplies','grant','insight','charter','permit','supplies','harvest','grant','insight','permit'];
 const CAPITAL_SPOTS=[[-5,-1],[5,1],[-1,5],[1,-5]];
 const PREFIX=['Silver','Oak','Raven','Stone','High','Dawn','West','Green','Amber','Cinder','Iron','Sun','River','Frost','Moss','Ash','Bright','Elder','Wolf','Pine','Star','Cloud'];
@@ -371,7 +372,8 @@ function endpointAdd(p,endpoint,item,change){
  if(change<0){const amount=-Math.min(-change,localCount(found.site,item));addLocal(found.site,item,amount);return amount;}
  return putLocalBounded(p,endpoint,item,change);
 }
-
+// Domestic roads occupy a shared hex boundary. Only a country's own adjacent
+// tiles are eligible; completed paved edges improve all subsequent movement.
 const LOCAL_ROAD_SP=3,LOCAL_ROAD_WOOD=1;
 const domesticRoadKey=(a,b)=>[a,b].sort().join('|');
 function domesticRoadExists(a,b){
@@ -381,48 +383,42 @@ function domesticRoadExists(a,b){
 }
 function roadJobBetween(a,b){const k=domesticRoadKey(a.id,b.id);return (G.domesticRoadJobs||[]).find(j=>j.key===k);}
 function domesticMoveCost(a,b){return roadExistsBetween(a,b)?1:2;}
-// Paved borders cost one point; ordinary borders cost two. Every traveler has
-// two movement points each turn. The shortest route is by movement time.
+// Dijkstra prefers a fully paved route, even when it is slightly longer in hexes.
 function countryTravelRoute(owner,start,end,allowNeutralDestination=false){
  if(!start||!end||start.owner!==owner||end.terrain==='water'||(end.owner!==owner&&!(allowNeutralDestination&&end.owner===null)))return null;
  const lookup=new Map(G.tiles.map(t=>[t.id,t])),dist=new Map([[start.id,0]]),prev=new Map(),pending=new Set([start.id]);
- while(pending.size){
-  let at=null,best=Infinity;for(const id of pending){const d=dist.get(id);if(d<best){best=d;at=id;}}pending.delete(at);
+ while(pending.size){let at=null,best=Infinity;for(const id of pending){const d=dist.get(id);if(d<best){best=d;at=id;}}pending.delete(at);
   if(at===end.id)break;
   const tile=lookup.get(at);if(!tile)continue;
   for(const n of neighbors(tile)){
    if(n.owner!==owner&&!(allowNeutralDestination&&n.id===end.id&&n.owner===null))continue;
-   const candidate=best+domesticMoveCost(tile,n);
+   const weight=domesticMoveCost(tile,n),candidate=best+weight;
    if(candidate<(dist.get(n.id)??Infinity)){dist.set(n.id,candidate);prev.set(n.id,at);pending.add(n.id);}
   }
  }
  if(!dist.has(end.id))return null;
- const path=[end.id];while(path[0]!==start.id){const p=prev.get(path[0]);if(p==null)return null;path.unshift(p);}
+ const path=[end.id];while(path[0]!==start.id){const parent=prev.get(path[0]);if(parent==null)return null;path.unshift(parent);}
  return {path,cost:dist.get(end.id),turns:Math.ceil(dist.get(end.id)/2)};
 }
 function ownedPath(owner,a,b){return countryTravelRoute(owner,a,b)?.path||null;}
-function pathCost(owner,path){
- let cost=0;for(let i=1;i<(path?.length||0);i++){
-  const a=G.tiles.find(t=>t.id===path[i-1]),b=G.tiles.find(t=>t.id===path[i]);
-  if(a&&b)cost+=domesticMoveCost(a,b);
+function pathCost(owner,path){let cost=0;for(let i=1;i<(path?.length||0);i++){
+ const a=G.tiles.find(t=>t.id===path[i-1]),b=G.tiles.find(t=>t.id===path[i]);if(a&&b)cost+=domesticMoveCost(a,b);
  }return cost;
 }
 function canStartDomesticRoad(a,b,owner){
- const p=G.players[owner];
- return !!a&&!!b&&a.owner===owner&&b.owner===owner&&a.terrain!=='water'&&b.terrain!=='water'&&distance(a,b)===1&&
- !domesticRoadExists(a,b)&&!roadJobBetween(a,b)&&idleBuilders(p).length>0&&hasMoney(p,LOCAL_ROAD_SP)&&p.wood>=LOCAL_ROAD_WOOD;
+ const p=G.players[owner];return !!a&&!!b&&a.owner===owner&&b.owner===owner&&a.terrain!=='water'&&b.terrain!=='water'&&distance(a,b)===1&&!domesticRoadExists(a,b)&&!roadJobBetween(a,b)&&idleBuilders(p).length>0&&hasMoney(p,LOCAL_ROAD_SP)&&p.wood>=LOCAL_ROAD_WOOD;
 }
 function startDomesticRoad(aId,bId,owner=0){
  const p=G.players[owner],a=G.tiles.find(t=>t.id===aId),b=G.tiles.find(t=>t.id===bId);
  if(!canCountryAct(p,owner)||!canStartDomesticRoad(a,b,owner))return false;
- const worker=idleBuilders(p)[0],origin=G.tiles.find(t=>t.id===worker.builder.locationId)||capitalOf(owner);
- const route=countryTravelRoute(owner,origin||a,a);if(!route)return false;
- const id=G.nextDomesticRoadId++,job={id,key:domesticRoadKey(aId,bId),owner,aId,bId,builderId:worker.id,remaining:2,startedClock:G.turnClock||0};
+ const worker=idleBuilders(p)[0],origin=G.tiles.find(t=>t.id===worker.builder.locationId)||capitalOf(owner),roadId=G.nextDomesticRoadId++;
+ const route=countryTravelRoute(owner,origin,a);if(!route)return false;
+ const job={id:roadId,key:domesticRoadKey(aId,bId),owner,aId,bId,builderId:worker.id,remaining:2,startedClock:G.turnClock||0};
  p.gold-=LOCAL_ROAD_SP;p.wood-=LOCAL_ROAD_WOOD;
- worker.builder.projectId='domestic-'+id;worker.builder.travelRemaining=route.turns;worker.builder.destinationId=a.id;
- G.domesticRoadJobs.push(job);
- useAction(p,p.name+' began paving a domestic road between '+a.name+' and '+b.name+'.',{tileId:a.id,kind:'road'});
- if(owner===0)showToast('Road crew dispatched: '+route.turns+'T travel + 2T construction');
+ worker.builder.projectId='domestic-'+roadId;worker.builder.travelRemaining=route.turns;
+ worker.builder.destinationId=a.id;G.domesticRoadJobs.push(job);
+ useAction(p,`${p.name} began paving the border between ${a.name} and ${b.name}.`,{tileId:a.id,kind:'road'});
+ if(owner===0)showToast(`Road crew dispatched · ${route.turns}T travel + 2T construction`);
  return true;
 }
 function progressDomesticRoads(){
@@ -430,32 +426,31 @@ function progressDomesticRoads(){
   if((G.turnClock||0)<=j.startedClock+1)continue;
   const a=G.tiles.find(t=>t.id===j.aId),b=G.tiles.find(t=>t.id===j.bId),p=G.players[j.owner],worker=p?.citizens.find(c=>c.id===j.builderId);
   if(!a||!b||a.owner!==j.owner||b.owner!==j.owner||!worker?.builder){
-   if(worker?.builder){worker.builder.projectId=null;worker.builder.travelRemaining=0;worker.builder.destinationId=null;}
+   if(worker?.builder){worker.builder.projectId=null;worker.builder.destinationId=null;worker.builder.travelRemaining=0;}
    G.domesticRoadJobs.splice(G.domesticRoadJobs.indexOf(j),1);continue;
   }
-  if(worker.builder.travelRemaining>0){
-   worker.builder.travelRemaining--;if(worker.builder.travelRemaining===0)worker.builder.locationId=a.id;continue;
-  }
+  if(worker.builder.travelRemaining>0){worker.builder.travelRemaining--;if(worker.builder.travelRemaining===0)worker.builder.locationId=a.id;continue;}
   j.remaining--;if(j.remaining>0)continue;
   G.domesticRoads.push({id:j.id,key:j.key,owner:j.owner,aId:j.aId,bId:j.bId});
   worker.builder.projectId=null;worker.builder.destinationId=null;worker.builder.travelRemaining=0;worker.builder.locationId=a.id;
   G.domesticRoadJobs.splice(G.domesticRoadJobs.indexOf(j),1);
   G.completedScenes.push({projectId:'domestic-road-'+j.id,owner:j.owner,tileId:a.id,kind:'road'});
-  addLog(p.name+' opened the paved road between '+a.name+' and '+b.name+'.');
+  addLog(`${p.name} opened the paved road between ${a.name} and ${b.name}. Movement is now faster there.`);
  }
 }
+// Compute SVG endpoints for the actual common border (not the hex centers).
+function domesticRoadEdge(a,b){
+ const corners=t=>Array.from({length:6},(_,i)=>{const xy=coords(t),rad=i*Math.PI/3+Math.PI/6;return {x:xy.x+HEX*Math.cos(rad),y:xy.y+HEX*Math.sin(rad)};});
+ const ac=corners(a),bc=corners(b);return ac.filter(v=>bc.some(w=>Math.hypot(v.x-w.x,v.y-w.y)<.1)).slice(0,2);
+}
 function domesticRoadVisuals(){
- let out='';
- for(const road of [...(G.domesticRoads||[]),...(G.domesticRoadJobs||[])]){
+ const visuals=[];for(const road of [...(G.domesticRoads||[]),...(G.domesticRoadJobs||[])]){
   const a=G.tiles.find(t=>t.id===road.aId),b=G.tiles.find(t=>t.id===road.bId);if(!a||!b)continue;
-  const ca=coords(a),cb=coords(b),mx=(ca.x+cb.x)/2,my=(ca.y+cb.y)/2,dx=cb.x-ca.x,dy=cb.y-ca.y;
-  const len=Math.hypot(dx,dy)||1,ux=-dy/len*HEX/2,uy=dx/len*HEX/2;
-  const pa=project(mx+ux,my+uy),pb=project(mx-ux,my-uy);
-  const line='M'+pa.x.toFixed(1)+','+pa.y.toFixed(1)+' L'+pb.x.toFixed(1)+','+pb.y.toFixed(1);
-  const working=road.remaining!=null;
-  out+='<g class="gs-domestic-road '+(working?'building':'paved')+'" pointer-events="none"><path d="'+line+'" fill="none" stroke="#34484a" stroke-width="7" stroke-linecap="round"/><path d="'+line+'" fill="none" stroke="'+(working?'#c7a873':'#f1d38b')+'" stroke-width="3.4" stroke-linecap="round" '+(working?'stroke-dasharray="6 4"':'')+'/></g>';
- }
- return out;
+  const points=domesticRoadEdge(a,b);if(points.length!==2)continue;
+  const line='M'+points.map(v=>{const p=project(v.x,v.y);return p.x.toFixed(1)+','+p.y.toFixed(1)}).join(' L');
+  const building=road.remaining!=null;
+  visuals.push(`<g class="gs-domestic-road ${building?'building':'paved'}" pointer-events="none"><path d="${line}" fill="none" stroke="#334d4d" stroke-width="7" stroke-linecap="round"/><path d="${line}" fill="none" stroke="${building?'#d0ad6e':'#f1d38b'}" stroke-width="3.4" stroke-linecap="round" ${building?'stroke-dasharray="6 4"':''}/></g>`);
+ }return visuals.join('');
 }
 // Caravans are physical, limited units housed in Caravan Warehouses, not invisible timers.
 function caravanWarehouses(p){
@@ -508,7 +503,18 @@ function finishCaravanJob(job,cart,p){
 function moveCaravanToStage(job,cart,p){
  // Deliveries take at least one later player turn per hex. There is no teleportation.
  const stage=job.stage,path=job.path||[];
- if(job.step<path.length-1){let budget=2;while(job.step<path.length-1){const a=G.tiles.find(t=>t.id===path[job.step]),b=G.tiles.find(t=>t.id===path[job.step+1]);if(!a||!b)break;const need=domesticMoveCost(a,b);if(need>budget)break;budget-=need;job.step++;cart.currentTileId=path[job.step];}job.remaining=Math.ceil(pathCost(job.owner,path.slice(job.step))/2);return;}
+ if(job.step<path.length-1){
+  // A wagon has two movement points per turn: paved borders cost 1, unpaved cost 2.
+  let budget=2;
+  while(job.step<path.length-1){
+   const a=G.tiles.find(t=>t.id===path[job.step]),b=G.tiles.find(t=>t.id===path[job.step+1]);
+   if(!a||!b)break;
+   const need=domesticMoveCost(a,b);if(need>budget)break;
+   budget-=need;job.step++;cart.currentTileId=path[job.step];
+  }
+  job.remaining=Math.ceil(pathCost(job.owner,path.slice(job.step))/2);
+  return;
+ }
  if(stage==='pickup'){
   const available=Math.min(job.qty,endpointCount(p,job.from,job.item));
   if(available<=0){job.qty=0;job.stage='return';}
@@ -787,7 +793,7 @@ function generateWaterways(tiles,rng,options){
 function createWorld(seed,name,capital,color){
  const rng=mulberry32(hash(seed));
  const colors=[COLORS[color],...COLORS.filter((_,i)=>i!==color)];
- const players=[{name,capital,sigil:'✦'},...NPCS].map((p,i)=>({id:i,name:p.name,capital:p.capital,sigil:p.sigil,color:colors[i],gold:34,food:14,wood:16,minerals:{...START_MINERALS},knowledge:0,marketingUntil:0,warehouse:{},tech:[],hand:[],discountExpand:0,discountBuild:0,acted:false,actionsUsed:0,expansionsThisTurn:0,levyUsed:false,cardPlayed:false,logisticsUsed:false,citizens:[],nextCitizenId:0,caravans:[],caravanPolicy:'nearest'}));
+ const players=[{name,capital,sigil:'GS'},...NPCS].map((p,i)=>({id:i,name:p.name,capital:p.capital,sigil:p.sigil,color:colors[i],gold:34,food:14,wood:16,minerals:{...START_MINERALS},knowledge:0,marketingUntil:0,warehouse:{},tech:[],hand:[],discountExpand:0,discountBuild:0,acted:false,actionsUsed:0,expansionsThisTurn:0,levyUsed:false,cardPlayed:false,logisticsUsed:false,citizens:[],nextCitizenId:0,caravans:[],caravanPolicy:'nearest'}));
  const usedNames=new Set(),tiles=[];
  for(let q=-RADIUS;q<=RADIUS;q++)for(let r=-RADIUS;r<=RADIUS;r++){
   if(Math.abs(q+r)>RADIUS)continue;
@@ -1222,7 +1228,7 @@ function closeModal(){el('modalLayer').classList.add('hidden');}
 function mountMapUi(){
  // Reparent the existing, fully functional panels. No duplicated actions or game state.
  const sheet=el('sheetBody');
- const mineralPanel=document.createElement('div');mineralPanel.id='mineralPanel';mineralPanel.className='gs-mineral-panel';mineralPanel.innerHTML='<h3>⛏ Mineral Exchange</h3><p class="gs-mineral-caption">Sell minerals for Silver Pents. Essential Coal and Iron can also be imported at a premium. Trading uses one major action.</p><div id="mineralBody"></div>';el('economySummary').after(mineralPanel);
+ const mineralPanel=document.createElement('div');mineralPanel.id='mineralPanel';mineralPanel.className='gs-mineral-panel';mineralPanel.innerHTML='<h3><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-mine"></use></svg> Mineral Exchange</h3><p class="gs-mineral-caption">Sell minerals for Silver Pents. Essential Coal and Iron can also be imported at a premium. Trading uses one major action.</p><div id="mineralBody"></div>';el('economySummary').after(mineralPanel);
  const war=document.createElement('section');war.id='warPanel';war.className='panel gs-war-panel';war.innerHTML='<div class="panel-heading"><h2>Falcon Diplomacy & War Room</h2></div><div id="warBody"></div>';sheet.appendChild(war);
  const trade=document.createElement('section');trade.id='tradePanel';trade.className='panel gs-trade-panel';trade.innerHTML='<div class="panel-heading"><h2>Diplomacy & Trade Routes</h2></div><div id="tradeBody"></div>';sheet.appendChild(trade);
  for(const selector of ['.territory-panel','.build-panel','.research-panel','.treasury-panel','.population-panel','.roster-panel','.feed-panel','.standings-panel']){
@@ -1286,7 +1292,8 @@ async function playMapScenePlayback(playback){
   }
   if(playback.kind==='build')showToast(`${BUILDINGS[playback.buildingType]?.name||'Building'} completed`);
   if(playback.kind==='work')showToast(`${BUILDINGS[playback.buildingType]?.name||'Building'} construction underway`);
-  else if(playback.kind==='expand')showToast(`${tile.name} claimed`);else if(playback.kind==='road')showToast('Domestic road completed near '+tile.name);
+  else if(playback.kind==='expand')showToast(`${tile.name} claimed`);
+  else if(playback.kind==='road')showToast(`Domestic road completed near ${tile.name}`);
  }
 }
 
@@ -1377,12 +1384,12 @@ function animatePlayedCard(type,who){
  });
  cardEffectPromise=effect;return effect;
 }
-function cardSuit(type){return ['grant','harvest','supplies'].includes(type)?['◈','ECONOMY']:['charter','permit'].includes(type)?['⌘','DEVELOPMENT']:['✦','DISCOVERY'];}
+function cardSuit(type){return ['grant','harvest','supplies'].includes(type)?['◈','ECONOMY']:['charter','permit'].includes(type)?['⌘','DEVELOPMENT']:['<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>','DISCOVERY'];}
 function openCardPreview(index){
  if(!G||!Number.isInteger(index)||index<0||index>=getCountry().hand.length)return;
  previewCardIndex=index;const type=getCountry().hand[index],data=CARDS[type],suit=cardSuit(type);
  const canPlay=active()&&!getCountry().cardPlayed;
- el('cardPreviewContent').innerHTML=`<button class="card-preview-close" type="button" data-preview="close" aria-label="Close card">✕</button><div class="expanded-card type-${type}"><div class="expanded-card-top"><span>${suit[0]} ${suit[1]}</span><span>✧</span></div><div class="expanded-card-art"><span class="expanded-card-halo"></span><span class="expanded-card-icon">${data.icon}</span></div><div class="expanded-card-details"><div class="expanded-card-name">${esc(data.name)}</div><div class="expanded-card-rule">${esc(data.desc)}</div></div><div class="expanded-card-footer">GLOBAL STANDOFF · ACTION CARD</div></div><div class="preview-actions"><button class="secondary" type="button" data-preview="close">Back to hand</button><button class="primary" type="button" data-preview="play" ${canPlay?'':'disabled'}>${canPlay?'PLAY CARD ↗':!active()?'Wait for your turn':'Card already played this turn'}</button></div>`;
+ el('cardPreviewContent').innerHTML=`<button class="card-preview-close" type="button" data-preview="close" aria-label="Close card"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-close"></use></svg></button><div class="expanded-card type-${type}"><div class="expanded-card-top"><span>${suit[0]} ${suit[1]}</span><span><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg></span></div><div class="expanded-card-art"><span class="expanded-card-halo"></span><span class="expanded-card-icon">${data.icon}</span></div><div class="expanded-card-details"><div class="expanded-card-name">${esc(data.name)}</div><div class="expanded-card-rule">${esc(data.desc)}</div></div><div class="expanded-card-footer">GLOBAL STANDOFF · ACTION CARD</div></div><div class="preview-actions"><button class="secondary" type="button" data-preview="close">Back to hand</button><button class="primary" type="button" data-preview="play" ${canPlay?'':'disabled'}>${canPlay?'PLAY CARD ↗':!active()?'Wait for your turn':'Card already played this turn'}</button></div>`;
  el('cardPreview').classList.remove('hidden');el('cardPreview').setAttribute('aria-hidden','false');
 }
 function closeCardPreview(){previewCardIndex=-1;el('cardPreview').classList.add('hidden');el('cardPreview').setAttribute('aria-hidden','true');}
@@ -1494,7 +1501,7 @@ function renderMineralMarket(){
  const p=getCountry();
  node.innerHTML=MINERAL_KEYS.map(key=>{const m=MINERALS[key],q=mineralCount(p,key),buy=Math.ceil(m.price*2.1);
   return `<div class="gs-mineral-item"><span class="gs-mineral-symbol">${m.icon}</span><div class="gs-mineral-copy"><strong>${m.name} × ${q}</strong><small>Sell: ${m.price} SP${['coal','iron','copper','silver'].includes(key)?` · Buy: ${buy} SP`: ' · Mine or trade to acquire'}</small></div><div class="gs-mineral-actions"><button data-mineral="${key}" data-direction="sell" ${!canAct()||q<=0?'disabled':''}>Sell</button>${['coal','iron','copper','silver'].includes(key)?`<button data-mineral="${key}" data-direction="buy" ${!canAct()||!hasMoney(p,buy)?'disabled':''}>Buy</button>`:''}</div></div>`;
- }).join('')+`<div class="gs-mineral-item"><span class="gs-mineral-symbol">⚙️</span><div class="gs-mineral-copy"><strong>Steel × ${mineralCount(p,'steel')}</strong><small>Delivered Steel in capital warehouse · manufacture in staffed Steelworks from 2 Iron + 1 Coal</small></div><div class="gs-mineral-actions"><small>Factory only</small></div></div>`;
+ }).join('')+`<div class="gs-mineral-item"><span class="gs-mineral-symbol"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-steel"></use></svg></span><div class="gs-mineral-copy"><strong>Steel × ${mineralCount(p,'steel')}</strong><small>Delivered Steel in capital warehouse · manufacture in staffed Steelworks from 2 Iron + 1 Coal</small></div><div class="gs-mineral-actions"><small>Factory only</small></div></div>`;
 }
 function useAction(p,text,visual=null){
  p.actionsUsed=actionsUsed(p)+1;p.acted=actionsRemaining(p)===0;
@@ -1745,7 +1752,10 @@ function runCpu(id){
  const posts=getMilitaryPosts(id);
  if(!posts.length&&G.round>=5&&tryBuild('post'))return;
  if(posts.length&&G.round%5===0&&p.marketingUntil<G.round&&doMarketing(posts[0],id))return;
- if(G.round>=4&&p.gold>=24&&p.wood>=3&&idleBuilders(p).length&&owned.length>1){const pair=owned.flatMap(t=>neighbors(t).filter(n=>n.owner===id&&t.id<n.id).map(n=>({t,n}))).find(({t,n})=>canStartDomesticRoad(t,n,id));if(pair&&startDomesticRoad(pair.t.id,pair.n.id,id))return;}
+ if(G.round>=4&&p.gold>=24&&p.wood>=3&&idleBuilders(p).length&&owned.length>1){
+  const candidate=owned.flatMap(t=>neighbors(t).filter(n=>n.owner===id&&t.id<n.id).map(n=>({t,n}))).find(({t,n})=>canStartDomesticRoad(t,n,id));
+  if(candidate&&startDomesticRoad(candidate.t.id,candidate.n.id,id))return;
+ }
  if(owned.length<15&&tryExpand())return;
  if(tryBuild('homes')||tryBuild('market')||tryBuild('farm')||tryBuild('academy')||tryBuild('lumber')||tryBuild('storageWarehouse')||tryBuild('post')||tryBuild('mine')||tryBuild('leatherFactory')||tryBuild('woodworks')||tryBuild('stoneworks')||tryBuild('armory')||tryBuild('foundry'))return;
  if(tryExpand())return;
@@ -1762,13 +1772,13 @@ function render(){if(!G)return;
  el('roundBadge').textContent=`ROUND ${G.round} / ${G.maxRounds}`;
  el('worldTitle').textContent=G.worldName;
  el('nationLabel').textContent=p.name;el('capitalFlag').style.setProperty('--nation-color',p.color);
- el('capitalFlag').textContent=p.sigil;
+ el('capitalFlag').innerHTML=icoMarkup('shield')+'<span class="gs-flag-initial">'+esc(p.id===0?'GS':p.name.slice(0,1))+'</span>';
  el('turnCounter').textContent=`Round ${G.round} of ${G.maxRounds} · ${G.tiles.length} hexes · ${G.tiles.filter(t=>t.owner===0).length} owned`;
  el('turnLabel').textContent=G.finished?'TEST COMPLETE':G.turnIndex===0&&!cpuBusy?'YOUR TURN':'CPU TURN';el('turnLabel').classList.toggle('cpu-turn',G.turnIndex!==0||cpuBusy);
- el('resources').innerHTML=[['gold',silverPentIcon(23),'Silver Pents'],['food','🌾','Food'],['wood','🪵','Wood'],['iron','🔩','Iron'],['knowledge','✦','Knowledge']].map(([field,icon,name])=>`<div class="resource ${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
- el('quickStats').innerHTML=[['gold',silverPentIcon(16)],['food','🌾'],['wood','🪵'],['iron','🔩'],['knowledge','✦']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</b></span>`).join('');
- el('economySummary').innerHTML=`<span>Silver Pents income <strong>+${e.gold}</strong></span> · <span>Upkeep <strong>−${e.upkeep}</strong></span> · <span>Net <strong class="${e.netGold>=0?'positive':'negative'}">${e.netGold>=0?'+':''}${e.netGold}</strong>/round</span><span> · Wages <strong>−${e.wages}</strong>/round</span><span> · Employed <strong>${workforceSummary(p).employed}</strong> / Available <strong>${workforceSummary(p).available}</strong></span><span> · Food <strong class="${e.netFood>=0?'positive':'negative'}">${e.netFood>=0?'+':''}${e.netFood}</strong>/round</span>${p.gold<0?'<div class="economy-alert">⚠ In debt: building and recruitment are locked until the treasury recovers.</div>':''}`;
- el('economySummary').innerHTML+=`<div class="gs-depot-note">🏛 Capital warehouse: ${Object.entries(p.warehouse||{}).filter(([k,v])=>v>0).map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · ')||'No crafted goods yet'}</div>`+shippingDashboard();
+ el('resources').innerHTML=[['gold',silverPentIcon(23),'Silver Pents'],['food','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>','Food'],['wood','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg>','Wood'],['iron','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>','Iron'],['knowledge','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>','Knowledge']].map(([field,icon,name])=>`<div class="resource ${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
+ el('quickStats').innerHTML=[['gold',silverPentIcon(16)],['food','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>'],['wood','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg>'],['iron','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>'],['knowledge','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</b></span>`).join('');
+ el('economySummary').innerHTML=`<span>Silver Pents income <strong>+${e.gold}</strong></span> · <span>Upkeep <strong>−${e.upkeep}</strong></span> · <span>Net <strong class="${e.netGold>=0?'positive':'negative'}">${e.netGold>=0?'+':''}${e.netGold}</strong>/round</span><span> · Wages <strong>−${e.wages}</strong>/round</span><span> · Employed <strong>${workforceSummary(p).employed}</strong> / Available <strong>${workforceSummary(p).available}</strong></span><span> · Food <strong class="${e.netFood>=0?'positive':'negative'}">${e.netFood>=0?'+':''}${e.netFood}</strong>/round</span>${p.gold<0?'<div class="economy-alert"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-warning"></use></svg> In debt: building and recruitment are locked until the treasury recovers.</div>':''}`;
+ el('economySummary').innerHTML+=`<div class="gs-depot-note"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> Capital warehouse: ${Object.entries(p.warehouse||{}).filter(([k,v])=>v>0).map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · ')||'No crafted goods yet'}</div>`+shippingDashboard();
   el('populationSummary').innerHTML=`<div class="population-stat"><strong>${people.count}</strong><span>Citizens</span></div><div class="population-stat"><strong>${people.housed} / ${people.housing}</strong><span>Housed / Beds</span></div><div class="population-stat ${people.homeless?'population-warning':''}"><strong>${people.homeless}</strong><span>Homeless</span></div><div class="population-stat"><strong>${people.soldiers}</strong><span>Troops</span></div>`;
  el('populationAdvice').textContent=people.homeless>0?`${people.homeless} citizens need homes. Build on an owned tile with open space, or expand to make room.`:people.housing<=people.count+2?'Housing is nearly full. Consider additional homes before the next population increase.':'Each round can bring new citizens when Food is available. Homes need building space, and terrain limits residents.';
  renderMap();renderTile(tile);renderHand();renderResearch();renderStandings();renderLog();renderRoster();renderTradePanel();renderWarPanel();renderMineralMarket();
@@ -1788,9 +1798,9 @@ function renderTile(t){
  el('territoryTag').textContent=t.capital?'CAPITAL':t.terrain.toUpperCase();if(sheetMode==='territory')el('sheetTitle').textContent=t.name;
  let html=`<div class="tile-head"><div><h3 class="tile-title">${esc(t.name)}</h3><div class="tile-sub">${terrain.name} · ${t.q}, ${t.r}</div></div><span class="owner-pill" style="background:${owner?owner.color:'#c6d8c1'}">${owner?esc(owner.name):'Unclaimed'}</span></div><p class="tile-description">${terrain.desc}</p>`;
  html+=`<div class="capacity-grid"><div><b>${buildFree(t)} / ${terrain.slots}</b><small>Building space free</small></div><div><b>${residents} / ${tileResidentCap(t)}</b><small>Residents / available housing</small></div><div><b>${terrain.population}</b><small>Terrain population ceiling</small></div></div><div class="terrain-data">`;
- if(t.capital)html+='<span>🏰 Capital: 2 spaces + 12 housing</span>';
+ if(t.capital)html+='<span><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-castle"></use></svg> Capital: 2 spaces + 12 housing</span>';
  if(t.river)html+='<span>〰️ River crossing</span>';
-  if(t.terrain==='mountain'){html+='<span>🪨 Stone obtainable from any staffed Mine</span>';html+=t.vein?`<span>⛏ ${MINERALS[t.vein.kind].name} · ${t.vein.remaining}/${t.vein.capacity} in vein</span>`:'<span>⛰ Barren of rare minerals — still provides Stone when mined</span>';if(t.coalVein)html+=`<span>⚫ Coal (secondary) · ${t.coalVein.remaining}/${t.coalVein.capacity} in vein</span>`;}
+  if(t.terrain==='mountain'){html+='<span><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-stone"></use></svg> Stone obtainable from any staffed Mine</span>';html+=t.vein?`<span><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-mine"></use></svg> ${MINERALS[t.vein.kind].name} · ${t.vein.remaining}/${t.vein.capacity} in vein</span>`:'<span><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-mine"></use></svg> Barren of rare minerals — still provides Stone when mined</span>';if(t.coalVein)html+=`<span><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-coal"></use></svg> Coal (secondary) · ${t.coalVein.remaining}/${t.coalVein.capacity} in vein</span>`;}
  for(const k of Object.keys(terrain.yield))html+=`<span>+${terrain.yield[k]} ${k} / round</span>`;
  html+='</div>';
  if(t.buildings?.length){html+='<div class="building-roster"><strong>Buildings & jobs in this hex</strong>';
@@ -1802,7 +1812,7 @@ function renderTile(t){
   const storageLimit=siteStorageCapacity(type,meta.level),stored=stockUsed(meta);
   if(storageLimit>0)html+=`<div class="gs-storage-gauge"><b>Storage:</b> ${stored}/${storageLimit} units${stored>=storageLimit?' · FULL — production halted until collected':''}<div class="gs-storage-track"><span style="width:${Math.min(100,100*stored/storageLimit)}%"></span></div><small>Higher building levels increase storage capacity.</small></div>`;
   const outgoing=G.shipments.filter(job=>job.owner===p.id&&job.from===meta.id);
-  html+=`<div class="gs-site-inventory"><small>📦 On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>On the road: ${outgoing.slice(0,4).map(job=>`${job.qty} ${GOOD_NAMES[job.item]||job.item} (${job.remaining}T)`).join(' · ')}`:''}</small></div>`;
+  html+=`<div class="gs-site-inventory"><small><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>On the road: ${outgoing.slice(0,4).map(job=>`${job.qty} ${GOOD_NAMES[job.item]||job.item} (${job.remaining}T)`).join(' · ')}`:''}</small></div>`;
   if(isOwn&&type==='storageWarehouse'&&stockList.length){
    const targets=routingTargets(p,meta.id);
    html+=`<div class="gs-storage-actions"><strong>Send stored goods with an available caravan</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship up to 10</button></div>`).join('')}</div>`;
@@ -1811,54 +1821,51 @@ function renderTile(t){
   if(isOwn&&OUTPUTS[type]?.length){const targets=routingTargets(p,meta.id);
    const current=FACTORY_RECIPES[type]?[meta.recipe]:OUTPUTS[type].filter(item=>type!=='mine'||item==='stone'||(t.vein?.kind===item)||(t.coalVein?.kind===item));
    for(const item of current){const route=meta.routes?.[item]||'depot';
-    html+=`<label class="gs-routing-label">🚚 ${GOOD_NAMES[item]||item} destination <select data-route-site="${i}" data-route-good="${item}">${targets.map(target=>`<option value="${target.id}" ${String(route)===String(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>`;}
+    html+=`<label class="gs-routing-label"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-caravan"></use></svg> ${GOOD_NAMES[item]||item} destination <select data-route-site="${i}" data-route-good="${item}">${targets.map(target=>`<option value="${target.id}" ${String(route)===String(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>`;}
   }
   if(isOwn){html+=`<div class="gs-job-controls">${q.slots?`<button data-action="hire-worker" data-index="${i}" ${!active()||q.count>=q.slots||!p.citizens.some(c=>eligibleWorker(c)&&!c.job)?'disabled':''}>Hire</button><button data-action="release-worker" data-index="${i}" ${!active()||!q.count?'disabled':''}>Release</button><button data-action="auto-workers" data-index="${i}" ${!active()?'disabled':''}>Auto ${meta.autoHire?'ON':'OFF'}</button>`:''}`;
-   if(upgrade)html+=`<button data-action="upgrade" data-index="${i}" ${!canAct()||!idleBuilders(p).length||inProgress||!hasMoney(p,upgrade.gold)||p.wood<upgrade.wood||mineralCount(p,'iron')<upgrade.iron?'disabled':''}>${inProgress?'Upgrading…':`Upgrade L${meta.level+1}: ${upgrade.gold} SP ${upgrade.wood} 🪵 ${upgrade.iron} 🔩`}</button>`;
+   if(upgrade)html+=`<button data-action="upgrade" data-index="${i}" ${!canAct()||!idleBuilders(p).length||inProgress||!hasMoney(p,upgrade.gold)||p.wood<upgrade.wood||mineralCount(p,'iron')<upgrade.iron?'disabled':''}>${inProgress?'Upgrading…':`Upgrade L${meta.level+1}: ${upgrade.gold} SP ${upgrade.wood} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg> ${upgrade.iron} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>`}</button>`;
    html+=`<button data-action="sell" data-index="${i}" ${!canAct()||occupied>0||inProgress?'disabled':''}>Sell +${Math.max(2,Math.floor(b.gold*.6))} SP</button></div>`;
   }
   html+='</div>';
  });html+='</div>';}
 
  const jobs=(G.projects||[]).filter(j=>j.tileId===t.id);
- if(jobs.length){html+='<div class="building-roster"><strong>🚧 Under construction</strong>'+jobs.map(j=>{
+ if(jobs.length){html+='<div class="building-roster"><strong><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-construction"></use></svg> Under construction</strong>'+jobs.map(j=>{
   const assigned=assignedBuilders(G.players[j.owner],j.id),enRoute=assigned.filter(c=>c.builder.travelRemaining>0).length;
-  const extra=isOwn&&idleBuilders(p).length?`<button data-action="add-builder" data-job="${j.id}">➕ Assign another builder</button>`:'';
+  const extra=isOwn&&idleBuilders(p).length?`<button data-action="add-builder" data-job="${j.id}"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-plus"></use></svg> Assign another builder</button>`:'';
   return `<div class="building-row"><span>${BUILDINGS[j.type].icon} ${BUILDINGS[j.type].name}<small>${j.remaining} work turns left · ${assigned.length} builder${assigned.length===1?'':'s'} (${enRoute} en route) · ${j.upgradeSiteId?'upgrading existing building':BUILDINGS[j.type].space+' space reserved'}</small></span>${extra}</div>`;
  }).join('')+'</div>';}
- if(isOwn){const b=buildersSummary(p),exp=(p.expeditions||[])[0];html+=`<div class="gs-crew-status">🛠 Builders: ${b.free}/${b.total} available (capacity ${b.capacity}) · 🧭 Expedition: ${exp?.targetId?'traveling ('+exp.remaining+' turns)':'ready'}</div>`;}
+ if(isOwn){const b=buildersSummary(p),exp=(p.expeditions||[])[0];html+=`<div class="gs-crew-status"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-builder"></use></svg> Builders: ${b.free}/${b.total} available (capacity ${b.capacity}) · <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-compass"></use></svg> Expedition: ${exp?.targetId?'traveling ('+exp.remaining+' turns)':'ready'}</div>`;}
 
  html+='<div class="tile-actions">';
- if(frontier){const cost=expansionCost(p),afford=hasMoney(p,cost)&&p.food>=2;html+=`<button class="action-btn primary-action" data-action="expand" ${!canAct()||!afford?'disabled':''}>Send expedition <span>${cost} SP + 2 🌾 · travel required</span></button>`;if(!afford)html+='<div class="disabled-help">Not enough Silver Pents or Food to expand.</div>';}
- else if(t.owner===null&&pendingClaim(t.id)){const exp=expeditionForTile(t.id);html+=`<div class="feature-locked">🧭 ${esc(G.players[exp.owner].name)} expedition approaching · ${exp.remaining} turn${exp.remaining===1?'':'s'} remaining</div>`;}
- else if(t.owner===null&&t.terrain==='water'){html+='<div class="feature-locked">🌊 Lakes cannot currently be claimed or built upon.</div>';}
+ if(frontier){const cost=expansionCost(p),afford=hasMoney(p,cost)&&p.food>=2;html+=`<button class="action-btn primary-action" data-action="expand" ${!canAct()||!afford?'disabled':''}>Send expedition <span>${cost} SP + 2 <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg> · travel required</span></button>`;if(!afford)html+='<div class="disabled-help">Not enough Silver Pents or Food to expand.</div>';}
+ else if(t.owner===null&&pendingClaim(t.id)){const exp=expeditionForTile(t.id);html+=`<div class="feature-locked"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-compass"></use></svg> ${esc(G.players[exp.owner].name)} expedition approaching · ${exp.remaining} turn${exp.remaining===1?'':'s'} remaining</div>`;}
+ else if(t.owner===null&&t.terrain==='water'){html+='<div class="feature-locked"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-water"></use></svg> Lakes cannot currently be claimed or built upon.</div>';}
  else if(t.owner===null){html+='<p class="empty-note">Expand from your own border to reach this territory.</p>';}
  else if(isOwn){
-  const pavedNeighbors=neighbors(t).filter(n=>n.owner===0&&n.terrain!=='water');
-  if(pavedNeighbors.length){
-   html+='<div class="gs-local-road-list"><strong>Domestic Roads</strong><small>Build a paved border for 3 Silver Pents and 1 Wood. One idle builder must travel and work for 2 turns. Roads improve internal travel.</small>';
-   for(const n of pavedNeighbors){
-    const done=domesticRoadExists(t,n),pending=roadJobBetween(t,n),possible=canStartDomesticRoad(t,n,0);
-    html+='<div class="gs-local-road-row"><span>'+esc(n.name)+' <small>'+(done?'Paved · Faster travel':pending?'Under construction · '+pending.remaining+'T work left':'Unpaved border')+'</small></span>'+
-    (!done&&!pending?'<button data-action="domestic-road" data-road-neighbor="'+esc(n.id)+'" '+(!canAct()||!possible?'disabled':'')+'>Build · 3 SP</button>':'')+'</div>';
+  const adjacentOwned=neighbors(t).filter(n=>n.owner===0&&n.terrain!=='water');
+  if(adjacentOwned.length){
+   html+='<div class="gs-local-road-list"><strong>Domestic roads · Faster internal travel</strong><small>Pave the shared border for 3 SP + 1 Wood. Requires an idle builder, travel time, and 2 construction turns. Completed roads speed up caravans, builders, expeditions and soldiers.</small>';
+   for(const n of adjacentOwned){const paved=domesticRoadExists(t,n),job=roadJobBetween(t,n),afford=canStartDomesticRoad(t,n,0);
+    html+=`<div class="gs-local-road-row"><span>${esc(n.name)} <small>${paved?'Paved road operational':job?'Crew constructing · '+job.remaining+'T work left':'Unpaved border'}</small></span>${!paved&&!job?`<button data-action="domestic-road" data-road-neighbor="${esc(n.id)}" ${!canAct()||!afford?'disabled':''}>Build road · 3 SP</button>`:''}</div>`;
    }
    html+='</div>';
   }
-
   if(buildFree(t)>0)html+=`<button class="action-btn primary-action" data-action="open-build" ${!canAct()?'disabled':''}>Construct building <span>${buildFree(t)} space available →</span></button>`;
-  else html+='<div class="feature-locked">🏘 This hex is full. Expand into another territory for more construction space.</div>';
+  else html+='<div class="feature-locked"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-homes"></use></svg> This hex is full. Expand into another territory for more construction space.</div>';
   if(buildingCount(t,'post')){
    const count=postGarrison(p,t.id).length,available=p.citizens.filter(c=>c.age>=18&&!c.military).length;
-   html+=`<div class="post-actions"><strong>🛡 Military post · ${count}/12 stationed</strong><button class="action-btn" data-action="recruit" ${!canAct()||count>=12||!available||!hasMoney(p,4)?'disabled':''}>Recruitment marketing <span>4 SP · 2 rounds boost</span></button><button class="action-btn" data-action="train" ${!canAct()||!count||!hasMoney(p,3)||p.food<1?'disabled':''}>Train up to 3 troops <span>3 SP + 1 🌾</span></button></div>`;
+   html+=`<div class="post-actions"><strong><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-shield"></use></svg> Military post · ${count}/12 stationed</strong><button class="action-btn" data-action="recruit" ${!canAct()||count>=12||!available||!hasMoney(p,4)?'disabled':''}>Recruitment marketing <span>4 SP · 2 rounds boost</span></button><button class="action-btn" data-action="train" ${!canAct()||!count||!hasMoney(p,3)||p.food<1?'disabled':''}>Train up to 3 troops <span>3 SP + 1 <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg></span></button></div>`;
   }
-  if(!idleBuilders(p).length)html+='<div class="disabled-help">🛠 All builders are assigned. Finish a project or upgrade/build another Builders’ Bunk.</div>';
-   if(peopleSummary(p).homeless>0)html+='<div class="disabled-help">💡 Build Homes here if space allows. Each adds 8 housing spaces, up to the terrain population ceiling.</div>';
- }else{html+='<div class="feature-locked">⚔ Warfare and reconnaissance arrive in a later version.</div>';}
+  if(!idleBuilders(p).length)html+='<div class="disabled-help"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-builder"></use></svg> All builders are assigned. Finish a project or upgrade/build another Builders’ Bunk.</div>';
+   if(peopleSummary(p).homeless>0)html+='<div class="disabled-help"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg> Build Homes here if space allows. Each adds 8 housing spaces, up to the terrain population ceiling.</div>';
+ }else{html+='<div class="feature-locked"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-sword"></use></svg> Warfare and reconnaissance arrive in a later version.</div>';}
  html+='</div>';container.innerHTML=html;
  if(showBuild){if(!isOwn||buildFree(t)<=0){showBuild=false;el('buildPanel').classList.add('hidden');}else renderBuildOptions(t);}
 }
 function renderBuildOptions(t){
- const p=getCountry();el('buildOptions').innerHTML=Object.entries(BUILDINGS).filter(([k,b])=>b.allow.includes(t.terrain)).map(([k,b])=>`<button class="build-option" data-build="${k}" ${!canAct()||!canBuild(p,t,b)?'disabled':''}><span class="build-symbol">${b.icon}</span><span class="build-main"><span class="build-name">${b.name}</span><span class="build-desc" style="display:block">${b.text} · ${b.space} space · ${Math.max(2,b.rounds*2)} work turns + builder travel · −${b.upkeep} Silver Pents upkeep</span></span><span class="build-cost">${buildingCost(p,b)} SP<br>${b.wood} 🪵 · ${b.iron} 🔩</span></button>`).join('');
+ const p=getCountry();el('buildOptions').innerHTML=Object.entries(BUILDINGS).filter(([k,b])=>b.allow.includes(t.terrain)).map(([k,b])=>`<button class="build-option" data-build="${k}" ${!canAct()||!canBuild(p,t,b)?'disabled':''}><span class="build-symbol">${b.icon}</span><span class="build-main"><span class="build-name">${b.name}</span><span class="build-desc" style="display:block">${b.text} · ${b.space} space · ${Math.max(2,b.rounds*2)} work turns + builder travel · −${b.upkeep} Silver Pents upkeep</span></span><span class="build-cost">${buildingCost(p,b)} SP<br>${b.wood} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg> · ${b.iron} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg></span></button>`).join('');
 }
 function renderRoster(){
  const p=getCountry(),posts=getMilitaryPosts(0),troops=p.citizens.filter(c=>!!c.military);
@@ -1878,13 +1885,13 @@ function renderRoster(){
   }).join(''):`<p class="empty-note">No troops enlisted yet. Build a Military Post, then eligible adults can volunteer each round. Run a marketing campaign to increase interest.</p>`;
  }
 }
-function renderResearch(){const p=getCountry();el('researchOptions').innerHTML=Object.entries(TECHS).map(([k,t])=>`<button class="build-option" data-tech="${k}" ${!canAct()||p.tech.includes(k)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge?'disabled':''}><span class="build-symbol">${t.icon}</span><span class="build-main"><span class="build-name">${t.name} ${p.tech.includes(k)?'✓':''}</span><span class="build-desc" style="display:block">${t.desc}</span></span><span class="build-cost">${t.gold} SP<br>${t.knowledge} ✦</span></button>`).join('');}
+function renderResearch(){const p=getCountry();el('researchOptions').innerHTML=Object.entries(TECHS).map(([k,t])=>`<button class="build-option" data-tech="${k}" ${!canAct()||p.tech.includes(k)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge?'disabled':''}><span class="build-symbol">${t.icon}</span><span class="build-main"><span class="build-name">${t.name} ${p.tech.includes(k)?'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-check"></use></svg>':''}</span><span class="build-desc" style="display:block">${t.desc}</span></span><span class="build-cost">${t.gold} SP<br>${t.knowledge} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg></span></button>`).join('');}
 function renderHand(){
  const p=getCountry(),n=p.hand.length;el('cardCount').textContent=cpuBusy?'YOUR HAND':`${n} / 4`;
  if(cpuBusy){
   el('hand').innerHTML=`<div class="gs-watching-hand"><span class="gs-watching-title">YOUR CARDS</span>${p.hand.map(c=>`<span class="gs-watching-name">${esc(CARDS[c].name)}</span>`).join('')}</div>`;
   const cpu=G.players[G.turnIndex],deck=el('opponentDeck');
-  if(deck&&cpu){deck.classList.remove('hidden');deck.style.setProperty('--cpu-color',cpu.color);deck.innerHTML=`<span>${esc(cpu.name)} · ${cpu.hand.length} cards</span><div class="gs-deck-backs">${cpu.hand.map((_,i)=>`<div class="gs-card-back" style="--position:${i}"><b>GS ✦</b></div>`).join('')}</div>`;}
+  if(deck&&cpu){deck.classList.remove('hidden');deck.style.setProperty('--cpu-color',cpu.color);deck.innerHTML=`<span>${esc(cpu.name)} · ${cpu.hand.length} cards</span><div class="gs-deck-backs">${cpu.hand.map((_,i)=>`<div class="gs-card-back" style="--position:${i}"><b>GS <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg></b></div>`).join('')}</div>`;}
   return;
  }
  el('opponentDeck')?.classList.add('hidden');
@@ -1903,6 +1910,32 @@ const POV_ANGLES=[-.24,.36,.92,1.48];
 const smooth=t=>t*t*(3-2*t);
 const blend=(a,b,t)=>a+(b-a)*t;
 let cameraYaw=POV_ANGLES[0],cameraMoveFrame=0,cameraResolve=null,cpuPlaybackToken=0,skipCpuPlayback=false,actionTileId=null,actionKind='';
+let boardBaseYaw=cameraYaw,boardBillboards=[],boardFootprints=[];
+function billboardSvg(x,y,contents){return `<g data-gs-billboard="1" data-anchor-x="${x.toFixed(2)}" data-anchor-y="${y.toFixed(2)}">${contents}</g>`;}
+// The plane rotates in camera yaw. These screen-facing sprites counter-rotate
+// around their original anchor; flags, houses and labels always remain upright.
+function syncBoardRotation(){
+ const map=el('mapContent');if(!map)return;
+ const d=cameraYaw-boardBaseYaw,co=Math.cos(d),sn=Math.sin(d),b=VIEW_TILT*sn,c=-sn/VIEW_TILT;
+ map.setAttribute('transform',`matrix(${co.toFixed(7)} ${b.toFixed(7)} ${c.toFixed(7)} ${co.toFixed(7)} 0 0)`);
+ const ib=-b,ic=-c;
+ for(const {node,x,y} of boardBillboards){
+  const px=co*x+c*y,py=b*x+co*y;
+  // Billboard culling: far-offscreen 3D scenery need not update every frame.
+  if(px<view.x-190||px>view.x+view.w+190||py<view.y-190||py>view.y+view.h+190)continue;
+  const tx=x-(co*x+ic*y),ty=y-(ib*x+co*y);
+  node.setAttribute('transform',`matrix(${co.toFixed(7)} ${ib.toFixed(7)} ${ic.toFixed(7)} ${co.toFixed(7)} ${tx.toFixed(3)} ${ty.toFixed(3)})`);
+ }
+ // Reorient the stepping trail when the viewpoint changes so it still points
+ // from the expedition origin toward its destination.
+ for(const f of boardFootprints){
+  const heading=project(f.dx,f.dy,cameraYaw);
+  const degrees=Math.atan2(heading.y,heading.x)*180/Math.PI-f.baseHeading;
+  f.node.setAttribute('transform',`rotate(${degrees.toFixed(2)} ${f.x.toFixed(1)} ${f.y.toFixed(1)})`);
+ }
+}
+function unprojectScreen(x,y,yaw){const co=Math.cos(yaw),sn=Math.sin(yaw),fy=y/VIEW_TILT;return {x:x*co+fy*sn,y:-x*sn+fy*co};}
+
 const project=(x,y,yaw=cameraYaw)=>({x:x*Math.cos(yaw)-y*Math.sin(yaw),y:(x*Math.sin(yaw)+y*Math.cos(yaw))*VIEW_TILT});
 const sceneCoords=(tile,yaw=cameraYaw)=>{const c=coords(tile);return project(c.x,c.y,yaw);};
 function hexPoints(tile,r=HEX-1,yaw=cameraYaw){
@@ -1939,7 +1972,7 @@ function buildingSprite(type,x,y,color){
  if(type==='farm')return `<g pointer-events="none" class="map-sprite"><path d="M${x-22} ${y+9}l20 -9 23 8 -20 10z" fill="#c3a265" stroke="#9f8151" stroke-width="1.2"/><path d="M${x-15} ${y+8}l15 -7m-7 12l16 -8m-17 4l15 -7" stroke="#f2d277" stroke-width="2"/></g>`+hutSprite(x+8,y-7,'#c66647',16,15);
  if(type==='lumber')return treeSprite(x-8,y,27,1)+hutSprite(x+8,y+5,'#8c6951',15,12)+`<path d="M${x-20} ${y+11}h18m-17 4h16" stroke="#9e6d41" stroke-width="4" pointer-events="none"/>`;
  if(type==='mine')return mountainSprite(x,y+5,24,28)+`<g pointer-events="none"><path d="M${x-12} ${y+8}v-11q12 -12 24 0v11z" fill="#383e43" stroke="#d5b077" stroke-width="2.2"/></g>`;
- if(type==='builderBunk')return `<g class="map-sprite" pointer-events="none"><rect x="${x-20}" y="${y-12}" width="40" height="22" rx="3" fill="#c8a778"/><path d="M${x-25} ${y-12}l25 -19 25 19Z" fill="#8f684c"/><text x="${x}" y="${y+6}" text-anchor="middle" fill="#553c2d" font-size="13">⚒</text></g>`;
+ if(type==='builderBunk')return `<g class="map-sprite" pointer-events="none"><rect x="${x-20}" y="${y-12}" width="40" height="22" rx="3" fill="#c8a778"/><path d="M${x-25} ${y-12}l25 -19 25 19Z" fill="#8f684c"/><use href="#gs-i-builder" x="${x-7}" y="${y-5}" width="14" height="14"/></g>`;
  if(type==='post')return `<g pointer-events="none" class="map-sprite"><ellipse cx="${x}" cy="${y+7}" rx="22" ry="7" fill="#26372f" opacity=".2"/><path d="M${x-22} ${y+8}v-15l8 -4v17m28 -1v-16l8 4v15" fill="none" stroke="#82643f" stroke-width="4" stroke-dasharray="3 2"/><path d="M${x-16} ${y+6}l16 -21 16 21z" fill="#f3dbc0" stroke="#94695c"/><path d="M${x} ${y-15}l16 21H${x}Z" fill="#d78365"/><path d="M${x} ${y-15}v-19m1 0h18l-4 8H${x+1}Z" fill="${color}" stroke="#775343" stroke-width="1"/></g>`;
  if(type==='academy')return `<g pointer-events="none" class="map-sprite"><ellipse cx="${x}" cy="${y+5}" rx="22" ry="6" fill="#22352d" opacity=".25"/><path d="M${x-20} ${y+4}v-19h40v19Z" fill="#ead6b2"/><path d="M${x-24} ${y-15}l24 -17 24 17Z" fill="#6f90a2"/><path d="M${x-13} ${y-14}v18m13 -18v18m13 -18v18" stroke="#7d8b8a" stroke-width="4"/></g>`;
  if(type==='foundry')return `<g class="map-sprite" pointer-events="none"><ellipse cx="${x}" cy="${y+6}" rx="23" ry="7" fill="#233431" opacity=".26"/><path d="M${x-22} ${y+5}v-20h44v20Z" fill="#b7a697" stroke="#7d6860" stroke-width="1.5"/><path d="M${x-24} ${y-15}l10 -13 14 10 12 -10 12 13Z" fill="#996e5e"/><rect x="${x+9}" y="${y-40}" width="8" height="29" fill="#82716c"/><path d="M${x+13} ${y-40}q-6 -6 0 -12q8 -4 7 -14" fill="none" stroke="#d0d3c8" stroke-width="5" opacity=".75"/><path d="M${x-12} ${y-9}h8v11h-8zm17 0h8v11h-8z" fill="#f4cb75"/></g>`;
@@ -1975,7 +2008,14 @@ function tileMiniatures(t,x,y){
  if(extra>3)s+=`<g pointer-events="none"><rect x="${x+10}" y="${y-36}" width="28" height="16" rx="8" fill="#182e36" stroke="#e5c994"/><text x="${x+24}" y="${y-25}" font-size="10" font-weight="bold" fill="#fff2d3" text-anchor="middle">+${extra-3}</text></g>`;
  if(scenePlayback?.kind==='build'&&scenePlayback.tileId===t.id&&scenePlayback.buildingIndex>2&&scenePlayback.phase==='play')s+=constructionDustSprite(x,y);
  const jobs=(G.projects||[]).filter(j=>j.tileId===t.id);
- if(jobs.length){const working=jobs.some(j=>assignedBuilders(G.players[j.owner],j.id).some(c=>c.builder.travelRemaining===0));s+=`<g class="gs-worksite" pointer-events="none"><ellipse cx="${x}" cy="${y+6}" rx="23" ry="8" fill="#bd9164"/><path d="M${x-15} ${y+6}v-20h30v20m-30 -20l30 20m-30 0l30 -20" stroke="#654934" stroke-width="2.6" fill="none"/><text x="${x}" y="${y-22}" text-anchor="middle" font-size="11" fill="#fff0c5">🔨</text>${working?`<g class="gs-work-dust"><circle cx="${x-16}" cy="${y-9}" r="8"/><circle cx="${x+8}" cy="${y-16}" r="9"/><circle cx="${x+18}" cy="${y-6}" r="6"/></g>`:`<text x="${x}" y="${y-37}" fill="#fff1c9" font-size="10" text-anchor="middle">🚶 Crew approaching</text>`}<text x="${x}" y="${y+23}" text-anchor="middle" fill="#fff1c9" font-size="10" font-weight="bold">${Math.min(...jobs.map(j=>j.remaining))}t</text></g>`;}
+ if(jobs.length){
+  const working=jobs.some(j=>assignedBuilders(G.players[j.owner],j.id).some(c=>c.builder.travelRemaining===0));
+  s+=`<g class="gs-worksite" pointer-events="none"><ellipse cx="${x}" cy="${y+6}" rx="23" ry="8" fill="#bd9164"/>
+   <path d="M${x-15} ${y+6}v-20h30v20m-30 -20l30 20m-30 0l30 -20" stroke="#654934" stroke-width="2.6" fill="none"/>
+   <use href="#gs-i-builder" x="${x-8}" y="${y-31}" width="16" height="16"/>
+   ${working?`<g class="gs-work-dust"><circle cx="${x-16}" cy="${y-9}" r="8"/><circle cx="${x+8}" cy="${y-16}" r="9"/><circle cx="${x+18}" cy="${y-6}" r="6"/></g>`:''}</g>`;
+ }
+
  return s;
 }
 
@@ -1984,7 +2024,23 @@ function routePolyline(points,stroke,width,dash=''){
  const d='M'+points.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L');
  return `<path d="${d}" fill="none" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round" ${dash?`stroke-dasharray="${dash}"`:''}/>`;
 }
-function foregroundTurnLabel(x,y,label){return `<g pointer-events="none"><rect x="${x-17}" y="${y-31}" width="34" height="16" rx="6" fill="#122c37" stroke="#d9b77c" stroke-width="1.3" opacity=".95"/><text class="gs-route-label" x="${x}" y="${y-20}" font-size="10" text-anchor="middle">${esc(label)}</text></g>`;}
+function foregroundTurnLabel(x,y,label,style='normal'){
+ const value=String(label),wide=Math.max(42,Math.min(130,16+value.length*6.1));
+ return billboardSvg(x,y,`<g class="gs-world-label ${style==='work'?'gs-label-work':''}" pointer-events="none">
+  <rect x="${(x-wide/2).toFixed(1)}" y="${(y-43).toFixed(1)}" width="${wide.toFixed(1)}" height="20" rx="7" fill="#132f3c" fill-opacity=".97" stroke="#e6c784" stroke-width="1.65"/>
+  <text x="${x.toFixed(1)}" y="${(y-29.6).toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="900">${esc(value)}</text>
+ </g>`);
+}
+function constructionHudLabels(){
+ return G.projects.map(job=>{
+  const tile=G.tiles.find(t=>t.id===job.tileId),p=G.players[job.owner];if(!tile||!p)return '';
+  const v=sceneCoords(tile),crew=assignedBuilders(p,job.id);
+  const moving=crew.length&&!crew.some(c=>c.builder.travelRemaining===0);
+  const description=moving?'BUILDER EN ROUTE':`${(BUILDINGS[job.type]?.name||'BUILD').toUpperCase()} · ${job.remaining}T`;
+  return foregroundTurnLabel(v.x,v.y-6,description,'work');
+ }).join('');
+}
+
 function roadVisuals(){
  return (G.tradeRoutes||[]).map(route=>{
   const points=(route.points||[]).map(p=>project(p.x,p.y)),len=Math.max(0,points.length-1);
@@ -2001,11 +2057,23 @@ function roadVisuals(){
    if(!builder?.builder?.projectId)continue;
    const progress=route[side+'Done']||0,at=points[side==='a'?Math.min(len,progress):Math.max(0,len-progress)];
    body+=`<g class="gs-road-builder" transform="translate(${at.x.toFixed(1)} ${at.y.toFixed(1)})" pointer-events="none"><path d="M-9 7L9 7L5 -3L-5 -3Z" fill="${G.players[route[side]].color}" stroke="#142c36" stroke-width="2"/><path d="M-8 -11L-1 -15L11 -5L6 0L-2 -7L-9 2" stroke="#f3d59b" stroke-width="3" fill="none" stroke-linecap="round"/><circle cx="0" cy="-7" r="4" fill="#eed4ad"/></g>`;
-   body+=foregroundTurnLabel(at.x,at.y,`${progress}/${route.split[side==='a'?'aSegments':'bSegments']}`);
+
   }
   return body;
  }).join('');
 }
+function roadHudLabels(){
+ return (G.tradeRoutes||[]).filter(r=>r.status==='construction').map(r=>{
+  const points=(r.points||[]).map(p=>project(p.x,p.y));if(points.length<2)return '';
+  return ['a','b'].map(side=>{
+   const done=r[side+'Done']||0,total=r.split?.[side==='a'?'aSegments':'bSegments']||0;
+   if(done>=total)return '';
+   const at=points[side==='a'?Math.min(points.length-1,done):Math.max(0,points.length-1-done)];
+   return foregroundTurnLabel(at.x,at.y,`ROAD ${done}/${total}`);
+  }).join('');
+ }).join('');
+}
+
 function falconVisuals(){
  return (G.tradeOffers||[]).filter(o=>o.status==='falcon').map(offer=>{
   const a=capitalOf(offer.from),b=capitalOf(offer.to);if(!a||!b)return '';
@@ -2016,14 +2084,32 @@ function falconVisuals(){
 }
 function expeditionTrailVisuals(){
  return G.players.flatMap(p=>(p.expeditions||[]).filter(c=>c.targetId).map(c=>{
-  const from=G.tiles.find(t=>t.id===c.originId||t.id===c.locationId),to=G.tiles.find(t=>t.id===c.targetId);if(!from||!to)return '';
-  const a=coords(from),b=coords(to),t=Math.min(.95,Math.max(.03,1-(c.remaining||0)/Math.max(1,c.travelTotal||c.remaining||1)));
-  const position=project(a.x+(b.x-a.x)*t,a.y+(b.y-a.y)*t);
-  const color=p.color;
-  const boots=Array.from({length:3},(_,i)=>`<ellipse class="gs-expedition-footstep" style="--step:${i}" cx="${(position.x-5-i*5).toFixed(1)}" cy="${(position.y+9+i*2).toFixed(1)}" rx="2.8" ry="4.2" fill="#f8e0ac" opacity=".8" transform="rotate(-30 ${(position.x-5-i*5).toFixed(1)} ${(position.y+9+i*2).toFixed(1)})"/>`).join('');
-  return `<g class="gs-expedition-moving" pointer-events="none">${boots}<path d="M${position.x} ${position.y+12}v-28" stroke="#2b3740" stroke-width="2.7"/><path d="M${position.x} ${position.y-16}l17 5 -17 7Z" fill="${color}" stroke="#fff0bd" stroke-width="1.5"/></g>${foregroundTurnLabel(position.x,position.y,`${c.remaining}T`)}`;
+  const from=G.tiles.find(t=>t.id===(c.originId||c.locationId)),to=G.tiles.find(t=>t.id===c.targetId);
+  if(!from||!to)return '';
+  const a=coords(from),b=coords(to),progress=Math.min(.97,Math.max(.04,1-(c.remaining||0)/Math.max(1,c.travelTotal||c.remaining||1)));
+  const position=project(a.x+(b.x-a.x)*progress,a.y+(b.y-a.y)*progress);
+  const dest=project(b.x,b.y),dx=dest.x-position.x,dy=dest.y-position.y;
+  const length=Math.max(1,Math.hypot(dx,dy)),ux=dx/length,uy=dy/length;
+  // Each print points along the heading and advances in sequence toward the target.
+  const px=-uy,py=ux;
+  const degrees=Math.atan2(uy,ux)*180/Math.PI+90;
+  const boots=Array.from({length:4},(_,i)=>{
+   const back=25-i*6,side=(i%2===0?-1:1)*3.4;
+   const x=position.x-ux*back+px*side,y=position.y-uy*back+py*side+7;
+   return `<g class="gs-expedition-boot" style="--step:${i}" transform="translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${degrees.toFixed(2)})">
+    <path d="M-2 4Q-4 2-3-2L-1-6Q1-8 3-5L3 1Q3 5-2 4Z" fill="#eed9ae" stroke="#304d52" stroke-width="1.1"/>
+    <path d="M-2 -4H2" stroke="#b08b5a" stroke-width="1.1"/>
+   </g>`;
+  }).join('');
+  const flag=`<g class="gs-expedition-banner" pointer-events="none"><ellipse cx="${position.x.toFixed(1)}" cy="${(position.y+7).toFixed(1)}" rx="8" ry="3" fill="#10252e" opacity=".4"/>
+   <path d="M${position.x.toFixed(1)} ${(position.y+7).toFixed(1)}v-29" stroke="#364a4d" stroke-width="2.7" stroke-linecap="round"/>
+   <path d="M${position.x.toFixed(1)} ${(position.y-22).toFixed(1)}l18 5-18 7Z" fill="${p.color}" stroke="#f3e4bb" stroke-width="1.7"/></g>`;
+  const baseHeading=Math.atan2(dy,dx)*180/Math.PI;
+  const footprintGroup=`<g class="gs-expedition-footprints" data-dir-x="${b.x-a.x}" data-dir-y="${b.y-a.y}" data-base-heading="${baseHeading.toFixed(4)}" data-anchor-x="${position.x.toFixed(2)}" data-anchor-y="${position.y.toFixed(2)}">${boots}</g>`;
+  return billboardSvg(position.x,position.y,`<g class="gs-expedition-moving" pointer-events="none">${footprintGroup}${flag}</g>`)+foregroundTurnLabel(position.x,position.y-34,`EXPEDITION · ${c.remaining}T`);
  })).join('');
 }
+
 function caravanVisuals(){
  return G.players.flatMap(p=>(p.caravans||[]).map(cart=>{
   const job=G.shipments.find(s=>s.id===cart.shipmentId),path=job?.path||[],index=Math.max(0,job?.step||0);
@@ -2031,7 +2117,7 @@ function caravanVisuals(){
   let pos=coords(at);
   if(job&&index>0&&path[index-1]){const prev=G.tiles.find(t=>t.id===path[index-1]);if(prev){const a=coords(prev);pos={x:(a.x+pos.x)/2,y:(a.y+pos.y)/2};}}
   const point=project(pos.x,pos.y);
-  return `<g class="gs-caravan" transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})" pointer-events="none"><g class="gs-caravan-rock"><path d="M-18 -5L16 -5L12 9L-14 9Z" fill="#a56843" stroke="#25323b" stroke-width="2"/><path d="M-18 -5L-11 -14L11 -14L16 -5Z" fill="${p.color}" stroke="#f4d9aa" stroke-width="1.7"/><path d="M-3 -14v23M-15 0H13" stroke="#f0d5a1" stroke-width="1.7"/><circle cx="-10" cy="12" r="5.5" fill="#34444d" stroke="#f5dfb0" stroke-width="2"/><circle cx="11" cy="12" r="5.5" fill="#34444d" stroke="#f5dfb0" stroke-width="2"/></g></g>`;
+  return billboardSvg(point.x,point.y,`<g class="gs-caravan" transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})" pointer-events="none"><g class="gs-caravan-rock"><path d="M-18 -5L16 -5L12 9L-14 9Z" fill="#a56843" stroke="#25323b" stroke-width="2"/><path d="M-18 -5L-11 -14L11 -14L16 -5Z" fill="${p.color}" stroke="#f4d9aa" stroke-width="1.7"/><path d="M-3 -14v23M-15 0H13" stroke="#f0d5a1" stroke-width="1.7"/><circle cx="-10" cy="12" r="5.5" fill="#34444d" stroke="#f5dfb0" stroke-width="2"/><circle cx="11" cy="12" r="5.5" fill="#34444d" stroke="#f5dfb0" stroke-width="2"/></g></g>`);
  })).join('');
 }
 
@@ -2052,14 +2138,35 @@ function renderMap(){
  for(const {t,c:{x,y}} of sorted){
   const claiming=scenePlayback?.tileId===t.id&&scenePlayback.kind==='expand';
   const owner=(t.owner===null||(claiming&&scenePlayback.phase==='prepare'))?null:G.players[t.owner],selected=!cpuBusy&&t.id===G.selectedId;
-  const top=hexPoints(t,HEX-1),lower=top.map(p=>({x:p.x,y:p.y+10}));
+  const top=hexPoints(t,HEX-1),center=sceneCoords(t);
+  const extrude=t.terrain==='water'?7:(t.terrain==='mountain'?14:11);
+  const lower=top.map(p=>({x:p.x,y:p.y+extrude}));
   const fill=t.terrain==='water'?'#478aa8':TERRAIN[t.terrain].color;
-  const border=owner?owner.color:'#6b775d';
-  const faces=top.map((p,i)=>{const n=(i+1)%6;return `<polygon points="${pts([p,top[n],lower[n],lower[i]])}" fill="${i<3?'#6d6549':'#514e3c'}" opacity=".9"/>`;}).join('');
-  bases.push(`<g class="tile-base" pointer-events="none"><polygon points="${pts(lower)}" fill="#202f2b" opacity=".33" transform="translate(2 2)"/>${faces}<polygon points="${pts(top)}" fill="${fill}" stroke="${border}" stroke-width="${owner?'2.5':'1.4'}"/><polygon points="${pts([top[4],top[5],top[0]])}" fill="#fff3c9" opacity=".07"/><polygon points="${pts([top[1],top[2],top[3]])}" fill="#2d312f" opacity=".08"/>${owner?`<polygon points="${pts(top)}" fill="${owner.color}" opacity=".14"/>`:''}${selected?`<polygon points="${pts(top)}" fill="none" stroke="#fff6c7" stroke-width="3.6"/>`:''}</g>`);
+  const border=owner?owner.color:'#627267';
+  const faces=top.map((p,i)=>{const n=(i+1)%6;
+   // Render the lower front wall of the miniature hex instead of flipping a fixed wall
+   // when the viewing angle changes between countries.
+   const front=(p.y+top[n].y)/2>center.y-.3;
+   return front?`<polygon class="gs-hex-side" points="${pts([p,top[n],lower[n],lower[i]])}" fill="${t.terrain==='water'?'#295773':i%2?'#685b47':'#776752'}" stroke="#283d3f" stroke-width=".7"/>`:'';
+  }).join('');
+  const inset=top.map(p=>({x:center.x+(p.x-center.x)*.92,y:center.y+(p.y-center.y)*.92}));
+  bases.push(`<g class="tile-base" pointer-events="none">
+   <polygon points="${pts(lower)}" fill="#172d30" opacity=".52" transform="translate(1 2)"/>
+   ${faces}
+   <polygon points="${pts(top)}" fill="${fill}" stroke="#364d4a" stroke-width="2.7"/>
+   <polygon points="${pts(inset)}" fill="${fill}" stroke="${t.terrain==='water'?'#8fc8da':'#e8dcad'}" stroke-opacity=".38" stroke-width="1.4"/>
+   <path d="M${top[0].x.toFixed(1)} ${top[0].y.toFixed(1)}L${top[1].x.toFixed(1)} ${top[1].y.toFixed(1)}L${top[2].x.toFixed(1)} ${top[2].y.toFixed(1)}" stroke="#f8efc8" opacity=".3" stroke-width="2" fill="none"/>
+   <polygon points="${pts(top)}" fill="${owner?owner.color:'#ffffff'}" opacity="${owner?'.11':'.025'}" stroke="${border}" stroke-width="${owner?'2.4':'1.0'}"/>
+   ${selected?`<polygon points="${pts(top)}" fill="none" stroke="#fff6c7" stroke-width="3.6"/>`:''}
+  </g>`);
   const action=t.id===actionTileId;
   const scout=expeditionForTile(t.id);
-  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/>${tileMiniatures(t,x,y)}${scout?`<g pointer-events="none"><path d="M${x} ${y-21}v-22" stroke="#203945" stroke-width="2"/><path d="M${x} ${y-43}l13 4 -13 5z" fill="${G.players[scout.owner]?.color||'#eac585'}"/></g>`:''}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}</g>`);
+  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}">
+   <polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/>
+   ${billboardSvg(x,y,tileMiniatures(t,x,y)+(owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''))}
+   ${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}
+   ${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}
+  </g>`);
  }
   const waterways=(G.rivers||[]).map(river=>{
    // Vertices are shared by two land hexes; project AFTER camera yaw/tilt.
@@ -2071,7 +2178,12 @@ function renderMap(){
   }).join('');
  const tradeLines=roadVisuals()+domesticRoadVisuals();
  const movementOverlays=falconVisuals()+diplomaticFalconVisuals()+expeditionTrailVisuals()+caravanVisuals()+visibleWarOrderMarkers();
- el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g>`;
+ const upperLabels=constructionHudLabels()+roadHudLabels();
+ el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g><g class="gs-map-frontlabels" pointer-events="none">${upperLabels}</g>`;
+ boardBaseYaw=cameraYaw;
+ boardBillboards=[...el('mapContent').querySelectorAll('[data-gs-billboard]')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY)}));
+ boardFootprints=[...el('mapContent').querySelectorAll('.gs-expedition-footprints')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY),dx:Number(node.dataset.dirX),dy:Number(node.dataset.dirY),baseHeading:Number(node.dataset.baseHeading)}));
+ syncBoardRotation();
 }
 function mapAspect(){const rect=el('worldMap').getBoundingClientRect();return rect.width>0&&rect.height>0?rect.width/rect.height:1.5;}
 function setCenter(cx,cy,width){const aspect=mapAspect();view.w=width;view.h=width/aspect;view.x=cx-width/2;view.y=cy-view.h/2;el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);}
@@ -2084,35 +2196,37 @@ function moveCamera(tile,targetYaw=cameraYaw,duration=800,targetWidth=460){
  if(cameraMoveFrame)cancelAnimationFrame(cameraMoveFrame);
  if(cameraResolve){const previous=cameraResolve;cameraResolve=null;previous();}
  const from={yaw:cameraYaw,cx:view.x+view.w/2,cy:view.y+view.h/2,width:view.w};
+ const fromWorld=unprojectScreen(from.cx,from.cy,from.yaw);
  const target=coords(tile),start=performance.now(),token=cpuPlaybackToken;
+ const aspect=mapAspect(),reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
  return new Promise(resolve=>{
   cameraResolve=resolve;
   const done=()=>{cameraMoveFrame=0;if(cameraResolve===resolve)cameraResolve=null;resolve();};
-  let lastDraw=-1000;function frame(now){
+  function frame(now){
    if(!G||token!==cpuPlaybackToken){done();return;}
-   const t=skipCpuPlayback||window.matchMedia('(prefers-reduced-motion: reduce)').matches||duration<=0?1:Math.min(1,(now-start)/duration),k=smooth(t);
-   const desiredYaw=blend(from.yaw,targetYaw,k),yawTravel=Math.abs(targetYaw-from.yaw);
-   // Rebuilding 169 textured SVG tiles on every animation frame caused phone lag.
-   // Pan and zoom are cheap viewBox-only updates every frame; only redraw for meaningful yaw changes.
-   if(t>=1||(yawTravel>.001&&now-lastDraw>=64)){
-    cameraYaw=desiredYaw;
-    if(yawTravel>.001)renderMap();
-    lastDraw=now;
-   }
-   const dest=project(target.x,target.y,cameraYaw);
-   setCenter(blend(from.cx,dest.x,k),blend(from.cy,dest.y,k),blend(from.width,targetWidth,k));
-   if(t<1)cameraMoveFrame=requestAnimationFrame(frame);else done();
+   const t=skipCpuPlayback||reduced||duration<=0?1:Math.min(1,(now-start)/duration);
+   const k=t*t*t*(t*(6*t-15)+10); // quintic smoothstep without sudden camera acceleration.
+   cameraYaw=blend(from.yaw,targetYaw,k);
+   syncBoardRotation();
+   const worldX=blend(fromWorld.x,target.x,k),worldY=blend(fromWorld.y,target.y,k);
+   const center=project(worldX,worldY,cameraYaw);
+   view.w=blend(from.width,targetWidth,k);view.h=view.w/aspect;
+   view.x=center.x-view.w/2;view.y=center.y-view.h/2;
+   el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
+   if(t<1)cameraMoveFrame=requestAnimationFrame(frame);
+   else{renderMap();done();} // Reproject each tile face once at final yaw.
   }
   cameraMoveFrame=requestAnimationFrame(frame);
  });
 }
+
 function flashAction(tile,kind='action'){
  if(!tile)return;actionTileId=tile.id;actionKind=kind;renderMap();
  const marker=el('mapContent').querySelector(`[data-hex="${tile.id}"]`);if(marker)marker.classList.add('hex-action-pop');
  setTimeout(()=>{if(actionTileId===tile.id){actionTileId=null;renderMap();}},1250);
 }
 
-function showEndGame(){const ranking=[...G.players].sort((a,b)=>prosperity(b)-prosperity(a));showModal(`<div class="section-kicker">END OF THE TEST</div><h2>World economy review</h2><p>After ${G.maxRounds} rounds, these countries have built the strongest economies. This is a sandbox score, <b>not</b> the final four-category victory system.</p><div class="modal-summary">${ranking.map((p,i)=>`<div class="mini-row"><span>${i===0?'🏆 ':''}${i+1}. ${esc(p.name)}</span><b>${prosperity(p)} pts</b></div>`).join('')}</div><div class="button-stack"><button class="primary" data-modal="continue">Continue playing this world</button><button class="secondary" data-modal="new-confirm">Generate a new world</button></div>`);}
+function showEndGame(){const ranking=[...G.players].sort((a,b)=>prosperity(b)-prosperity(a));showModal(`<div class="section-kicker">END OF THE TEST</div><h2>World economy review</h2><p>After ${G.maxRounds} rounds, these countries have built the strongest economies. This is a sandbox score, <b>not</b> the final four-category victory system.</p><div class="modal-summary">${ranking.map((p,i)=>`<div class="mini-row"><span>${i===0?'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-trophy"></use></svg> ':''}${i+1}. ${esc(p.name)}</span><b>${prosperity(p)} pts</b></div>`).join('')}</div><div class="button-stack"><button class="primary" data-modal="continue">Continue playing this world</button><button class="secondary" data-modal="new-confirm">Generate a new world</button></div>`);}
 function openMenu(){showModal(`<div class="section-kicker">MATCH SETTINGS</div><h2>${esc(G.worldName)}</h2><p>Round ${G.round}. World seed: <b>${esc(G.seed)}</b><br>Progress saves automatically in this browser.</p><div class="button-stack"><button class="secondary" data-modal="close">Return to match</button><button class="secondary" data-modal="new-confirm">Start a new world</button>${G.finished?'<button class="primary" data-modal="continue">Continue past the round limit</button>':''}</div>`);}
 function confirmNew(){showModal(`<div class="section-kicker">NEW WORLD</div><h2>Abandon this match?</h2><p>This will replace the current saved match. Your CPU opponents and map will be generated again.</p><div class="button-stack"><button class="primary" data-modal="new">Yes, start a new match</button><button class="secondary" data-modal="close">Keep playing</button></div>`);}
 function bindEvents(){
