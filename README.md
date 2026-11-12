@@ -1,4 +1,4 @@
-# Global Standoff — Prototype 0.4.0
+# Global Standoff — Prototype 0.4.5
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
@@ -175,3 +175,12 @@ The prototype currently includes a modest personal-income tax from housed adults
 - Trees, mountains, buildings, and other miniatures remain upright while the board rotates.
 - Camera travel caches layout measurements for the duration of each move.
 - Skip-turn and reduced-motion settings remain supported.
+
+## 0.4.5 — Messenger Falcons, Cooperative Roads & Caravans
+
+- You can propose an international road between **any two named, owned territories**, even before borders meet. Roads follow hex edges through neutral land; third-party owned land blocks routes without permission.
+- A messenger falcon carries proposals to the recipient's capital, taking individual turns. The receiving nation can accept or decline when it arrives.
+- The offered 10–90% cost share is rounded to **whole border segments** (mountain segments cost more). Each country prepays its exact segments and commits an **idle named builder**. Builders travel from their current location, then work from opposite ends; the country paying less finishes sooner and regains its builder.
+- Caravans are *physical* units stored in Caravan Warehouses. L1/L2/L3 warehouse provides 1/2/3 berths. A wagon travels to pickup, then delivery, then a warehouse; it cannot instantly deliver. Default final policy is the nearest available warehouse, with options to return home or stay at a warehouse destination where space permits.
+- Routes, falcons, expedition footsteps and wagons are drawn using original SVG primitives, not emoji images. Other older UI emoji are not yet replaced globally.
+- Older finished routes persist, while incompatible unaccepted proposals are marked rejected to avoid silent legacy charge or builder-lock problems.
