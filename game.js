@@ -2379,7 +2379,7 @@ function renderMap(){
  if(!G)return;
  const svg=el('worldMap');svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
  const sorted=G.tiles.map(t=>({t,c:sceneCoords(t)})).sort((a,b)=>a.c.y-b.c.y||a.c.x-b.c.x);
- const bases=[],decorations=[];
+ const bases=[],decorations=[],depthItems=[];
  for(const {t,c:{x,y}} of sorted){
   const claiming=scenePlayback?.tileId===t.id&&scenePlayback.kind==='expand';
   const owner=(t.owner===null||(claiming&&scenePlayback.phase==='prepare'))?null:G.players[t.owner],selected=!cpuBusy&&t.id===G.selectedId;
@@ -2406,12 +2406,13 @@ function renderMap(){
   </g>`);
   const action=t.id===actionTileId;
   const scout=expeditionForTile(t.id);
+  depthItems.push(...tileDepthSprites(t,x,y));
   decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}">
    <polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/>
-   ${billboardSvg(x,y,tileMiniatures(t,x,y)+(owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''))}
    ${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}
    ${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}
   </g>`);
+  if(owner)depthItems.push({x:x-24,y:y-13,html:billboardSvg(x-24,y-13,`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`)});
  }
   const waterways=(G.rivers||[]).map(river=>{
    // Vertices are shared by two land hexes; project AFTER camera yaw/tilt.
@@ -2423,10 +2424,13 @@ function renderMap(){
   }).join('');
  const tradeLines=roadVisuals()+domesticRoadVisuals();
  const ownerOutlines=ownedTerritoryOutlines();
- const movementOverlays=falconVisuals()+diplomaticFalconVisuals()+expeditionTrailVisuals()+caravanVisuals()+visibleWarOrderMarkers();
+ depthItems.push(...caravanVisuals(true));
+ const objects=depthItems.map((obj,index)=>`<g data-depth-x="${obj.x.toFixed(2)}" data-depth-y="${obj.y.toFixed(2)}" data-depth-order="${index}" pointer-events="none">${obj.html}</g>`).join('');
+ const movementOverlays=falconVisuals()+diplomaticFalconVisuals()+expeditionTrailVisuals()+visibleWarOrderMarkers();
  const upperLabels=constructionHudLabels()+roadHudLabels();
- // Ownership is laid over roads so its line is never hidden by paving or rivers.
- el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="gs-national-borders" pointer-events="none">${ownerOutlines}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g><g class="gs-map-frontlabels" pointer-events="none">${upperLabels}</g>`;
+ // Ground-sorted scenery and wagons. Territory taps and labels remain foreground.
+ el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="gs-national-borders" pointer-events="none">${ownerOutlines}</g><g id="gsWorldDepth" class="gs-world-depth" pointer-events="none">${objects}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g><g class="gs-map-frontlabels" pointer-events="none">${upperLabels}</g>`;
+ lastWorldDepthYaw=NaN;
  boardBaseYaw=cameraYaw;
  boardBillboards=[...el('mapContent').querySelectorAll('[data-gs-billboard]')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY)}));
  boardFootprints=[...el('mapContent').querySelectorAll('.gs-expedition-footprints')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY),dx:Number(node.dataset.dirX),dy:Number(node.dataset.dirY),baseHeading:Number(node.dataset.baseHeading)}));
