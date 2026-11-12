@@ -1,4 +1,9 @@
-# Global Standoff — Prototype 0.4.12
+# Global Standoff — Prototype 0.4.13
+
+## Version 0.4.13 — classic expedition footprint orientation
+
+- Flip the restored classic footprint artwork 180 degrees while preserving its exact SVG shape, spacing, left/right alternation and stepping animation.
+- No economy, caravan, or other gameplay-rule changes.
 
 ## Version 0.4.12 — family-home revenue, operating costs and classic footprints
 
