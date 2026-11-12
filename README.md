@@ -1,4 +1,4 @@
-# Global Standoff — Prototype 0.3.6
+# Global Standoff — Prototype 0.3.7
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
@@ -114,3 +114,18 @@ This is **2.5D illustrative artwork**, not actual 3D geometry, textured models, 
 - **Save migration:** v0.3.x saves retain map, player ownership, citizens, buildings, and progress. Old Materials holdings become approximately 60% Wood and 40% Ore. On old existing worlds, legacy extraction buildings remain where they were, but only newly constructed ones obey the terrain-specific rules.
 
 This update keeps the equal **3 major actions per turn** rule for all countries. Trade proposals and recruitment marketing each consume one major action; accepting an incoming diplomatic proposal does not.
+
+## Version 0.3.7 — Workforce, upgrades, mineral pairs and armor
+
+- Every mountain has either zero deposits, one primary deposit, or a primary deposit **plus Coal only**. Coal can also be the sole primary mineral. There are never two different non-Coal veins together. Deposits have limited reserves.
+- Troop armor progression: **Leather → Iron → Steel → Gold-Reinforced Steel → Diamond-Reinforced Steel**. Steel is manufactured from Iron and Coal, not mined.
+- Every completed building (including homes and military posts) has a staff capacity. Adults not enlisted in the army fill eligible jobs automatically unless the workplace is switched to manual staffing. Players can **Hire**, **Release**, or toggle **Auto ON/OFF** in a territory overlay; staffing changes do not spend major actions.
+- Each worker is a named citizen, can hold exactly one job, and costs **1 Gold in wages each round**, on top of the building's base upkeep. Worker morale affects how much the workplace produces. Empty workplaces produce no resources, although the treasury still pays fixed upkeep.
+- All buildings may be upgraded to **Level 2** and **Level 3** for more worker spaces, improved equipment and greater potential production. An upgrade takes time, costs Wood, Iron and Gold, increases base upkeep, and requires one major action. Example Mine slots: **2 / 4 / 6**.
+- Mines produce only from their fixed primary/secondary deposits. Staff quantity, worker morale, equipment level and rarity affect the chance of a successful extraction and its quantity. Empty mines produce nothing. A Coal co-deposit can continue producing after the primary vein is depleted.
+- New **Steelworks Factory** (plains and hills) has 2/4/6 staff positions and automatically uses 2 Iron + 1 Coal to make Steel per production batch, when staffed and supplied.
+- Older 0.3.x saved matches are migrated in place, keeping existing buildings and soldiers, adding worksite metadata, and mapping old Basic armor to Leather.
+
+The military readiness bonuses are tracked but combat is still a future system. Trade routes and player-vs-CPU interactions remain experimental.
+
+- Newly generated countries now begin with 34 Gold instead of 24, allowing a little more time to establish their first wages and buildings under the three-action turn system. Existing saves retain their Gold balance.
