@@ -43,6 +43,7 @@ function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a
 const randInt=(rng,n)=>Math.floor(rng()*n);
 let G=null,selectedColor=0,showBuild=false,showResearch=false,cpuBusy=false,toastTimer=0,suppressClick=false,drag=null,rosterTab="citizens";
 let view={x:-600,y:-490,w:1200,h:980};
+let sheetMode=null,previewCardIndex=-1;
 function getCountry(){return G.players[0];}
 function getSelected(){return G.tiles.find(t=>t.id===G.selectedId)||null;}
 function active(){return G&&!G.finished&&!cpuBusy&&G.turnIndex===0;}
@@ -250,8 +251,40 @@ function loadSaved(){
 function showToast(s){const t=el('toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2650);}
 function showModal(html){el('modalBody').innerHTML=html;el('modalLayer').classList.remove('hidden');}
 function closeModal(){el('modalLayer').classList.add('hidden');}
-function enterGame(){cpuPlaybackToken++;skipCpuPlayback=false;hideCpuHud();el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();focusHome(true);render();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));}
-function newMatch(){cpuPlaybackToken++;cancelAnimationFrame(cameraMoveFrame);hideCpuHud();if(cameraResolve){cameraResolve();cameraResolve=null;}G=null;cpuBusy=false;el('lobby').classList.remove('hidden');el('game').classList.add('hidden');el('topMenuBtn').classList.add('hidden');el('roundBadge').textContent='SOLO TEST';closeModal();renderLobby();}
+function mountMapUi(){
+ // Reparent the existing, fully functional panels. No duplicated actions or game state.
+ const sheet=el('sheetBody');
+ for(const selector of ['.territory-panel','.build-panel','.research-panel','.treasury-panel','.population-panel','.roster-panel','.feed-panel','.standings-panel']){
+  const panel=document.querySelector('#game '+selector);if(panel)sheet.appendChild(panel);
+ }
+ const hand=document.querySelector('#game .cards-panel');if(hand)el('handDock').appendChild(hand);
+ const turn=document.querySelector('#game .turn-panel');if(turn)el('turnMount').appendChild(turn);
+ document.body.classList.add('gs-ui-ready');
+}
+function showSheet(mode='territory'){
+ if(!G)return;
+ if(mode==='territory'&&!getSelected())return;
+ sheetMode=mode;
+ showResearch=mode==='research';if(mode!=='territory')showBuild=false;
+ el('sheetPanel').dataset.mode=mode;
+ const titles={territory:['SELECTED HEX','Territory actions'],nation:['YOUR COUNTRY','Nation & economy'],research:['KNOWLEDGE','Research'],roster:['POPULATION','Citizens & military'],world:['WORLD AFFAIRS','World powers & dispatches']};
+ const heading=titles[mode]||titles.territory;el('sheetKicker').textContent=heading[0];el('sheetTitle').textContent=heading[1];
+ el('sheetLayer').classList.remove('hidden');el('sheetLayer').setAttribute('aria-hidden','false');
+ render();
+}
+function closeSheet(){sheetMode=null;showBuild=false;showResearch=false;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');if(G)render();}
+function cardSuit(type){return ['grant','harvest','supplies'].includes(type)?['◈','ECONOMY']:['charter','permit'].includes(type)?['⌘','DEVELOPMENT']:['✦','DISCOVERY'];}
+function openCardPreview(index){
+ if(!G||!Number.isInteger(index)||index<0||index>=getCountry().hand.length)return;
+ previewCardIndex=index;const type=getCountry().hand[index],data=CARDS[type],suit=cardSuit(type);
+ const canPlay=active()&&!getCountry().cardPlayed;
+ el('cardPreviewContent').innerHTML=`<button class="card-preview-close" type="button" data-preview="close" aria-label="Close card">✕</button><div class="expanded-card type-${type}"><div class="expanded-card-top"><span>${suit[0]} ${suit[1]}</span><span>✧</span></div><div class="expanded-card-art"><span class="expanded-card-halo"></span><span class="expanded-card-icon">${data.icon}</span></div><div class="expanded-card-details"><div class="expanded-card-name">${esc(data.name)}</div><div class="expanded-card-rule">${esc(data.desc)}</div></div><div class="expanded-card-footer">GLOBAL STANDOFF · ACTION CARD</div></div><div class="preview-actions"><button class="secondary" type="button" data-preview="close">Back to hand</button><button class="primary" type="button" data-preview="play" ${canPlay?'':'disabled'}>${canPlay?'PLAY CARD ↗':!active()?'Wait for your turn':'Card already played this turn'}</button></div>`;
+ el('cardPreview').classList.remove('hidden');el('cardPreview').setAttribute('aria-hidden','false');
+}
+function closeCardPreview(){previewCardIndex=-1;el('cardPreview').classList.add('hidden');el('cardPreview').setAttribute('aria-hidden','true');}
+
+function enterGame(){document.body.classList.add('gs-playing');closeCardPreview();sheetMode=null;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');cpuPlaybackToken++;skipCpuPlayback=false;hideCpuHud();el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();focusHome(true);render();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));}
+function newMatch(){document.body.classList.remove('gs-playing');closeCardPreview();closeSheet();cpuPlaybackToken++;cancelAnimationFrame(cameraMoveFrame);hideCpuHud();if(cameraResolve){cameraResolve();cameraResolve=null;}G=null;cpuBusy=false;el('lobby').classList.remove('hidden');el('game').classList.add('hidden');el('topMenuBtn').classList.add('hidden');el('roundBadge').textContent='SOLO TEST';closeModal();renderLobby();}
 function renderLobby(){
  el('colorOptions').innerHTML=COLORS.map((c,i)=>`<button class="color-swatch" style="--swatch:${c}" aria-label="Choose ${['jade','amber','violet','coral'][i]}" aria-pressed="${i===selectedColor}" data-color="${i}"></button>`).join('');
  const colors=[COLORS[selectedColor],...COLORS.filter((_,i)=>i!==selectedColor)];
@@ -376,7 +409,7 @@ async function runCpuCinematic(token=cpuPlaybackToken){
  await moveCamera(home,POV_ANGLES[0],850,window.innerWidth<600?420:540);
  hideCpuHud();render();
 }
-function endTurn(){if(!active())return;cpuBusy=true;skipCpuPlayback=false;cpuPlaybackToken++;G.turnIndex=1;save();render();el('mapWrap').scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>runCpuCinematic(cpuPlaybackToken).catch(e=>{console.error('CPU playback failed',e);hideCpuHud();if(G&&!G.finished){cpuBusy=false;G.turnIndex=0;save();render();showToast('CPU playback interrupted; resume your turn.');}}),200);}
+function endTurn(){if(!active())return;closeCardPreview();closeSheet();cpuBusy=true;skipCpuPlayback=false;cpuPlaybackToken++;G.turnIndex=1;save();render();el('mapWrap').scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>runCpuCinematic(cpuPlaybackToken).catch(e=>{console.error('CPU playback failed',e);hideCpuHud();if(G&&!G.finished){cpuBusy=false;G.turnIndex=0;save();render();showToast('CPU playback interrupted; resume your turn.');}}),200);}
 function cpuStep(){if(!G||G.finished)return;const id=G.turnIndex;if(id<1||id>3){cpuBusy=false;return;}const p=G.players[id];beginTurn(id);runCpu(id);save();render();if(id===3){setTimeout(()=>{if(G)finishRound();},400);}else{G.turnIndex=id+1;save();setTimeout(cpuStep,470);}}
 function runCpu(id){
  const p=G.players[id];let playable=p.hand.findIndex(c=>['grant','harvest','supplies','insight'].includes(c));
@@ -419,12 +452,13 @@ function render(){if(!G)return;
  el('turnCounter').textContent=`Round ${G.round} of ${G.maxRounds} · ${G.tiles.length} hexes · ${G.tiles.filter(t=>t.owner===0).length} owned`;
  el('turnLabel').textContent=G.finished?'TEST COMPLETE':active()?'YOUR TURN':'CPU TURN';el('turnLabel').classList.toggle('cpu-turn',!active());
  el('resources').innerHTML=[['gold','🪙','Gold'],['food','🌾','Food'],['materials','🪨','Materials'],['knowledge','✦','Knowledge']].map(([field,icon,name])=>`<div class="resource ${p[field]<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
+ el('quickStats').innerHTML=[['gold','🪙'],['food','🌾'],['materials','🪨'],['knowledge','✦']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${p[field]<0?'negative':''}">${fmt(p[field])}</b></span>`).join('');
  el('economySummary').innerHTML=`<span>Gold income <strong>+${e.gold}</strong></span> · <span>Upkeep <strong>−${e.upkeep}</strong></span> · <span>Net <strong class="${e.netGold>=0?'positive':'negative'}">${e.netGold>=0?'+':''}${e.netGold}</strong>/round</span><span> · Food <strong class="${e.netFood>=0?'positive':'negative'}">${e.netFood>=0?'+':''}${e.netFood}</strong>/round</span>${p.gold<0?'<div class="economy-alert">⚠ In debt: building and recruitment are locked until the treasury recovers.</div>':''}`;
  el('populationSummary').innerHTML=`<div class="population-stat"><strong>${people.count}</strong><span>Citizens</span></div><div class="population-stat"><strong>${people.housed} / ${people.housing}</strong><span>Housed / Beds</span></div><div class="population-stat ${people.homeless?'population-warning':''}"><strong>${people.homeless}</strong><span>Homeless</span></div><div class="population-stat"><strong>${people.soldiers}</strong><span>Troops</span></div>`;
  el('populationAdvice').textContent=people.homeless>0?`${people.homeless} citizens need homes. Build on an owned tile with open space, or expand to make room.`:people.housing<=people.count+2?'Housing is nearly full. Consider additional homes before the next population increase.':'Each round can bring new citizens when Food is available. Homes need building space, and terrain limits residents.';
  renderMap();renderTile(tile);renderHand();renderResearch();renderStandings();renderLog();renderRoster();
  el('buildPanel').classList.toggle('hidden',!showBuild);el('researchPanel').classList.toggle('hidden',!showResearch);
- el('endTurnBtn').disabled=!active();el('levyBtn').disabled=!canAct();el('researchBtn').disabled=!active();
+ el('endTurnBtn').disabled=!active();el('levyBtn').disabled=!canAct();el('researchBtn').disabled=!active();el('levySheetBtn')?.toggleAttribute('disabled',!canAct());
  el('endTurnBtn').innerHTML=G.finished?'TEST COMPLETE':active()?`END TURN <span>→</span>`:'CPU THINKING…';
  el('actionNotice').innerHTML=G.finished?'Prototype match complete. Review the results or start another world.':cpuBusy?'Three CPU nations are taking their turns…':p.acted?'Major action used. You can still use your military logistics order and play a card.':`<b>1 major action available.</b> Select territory, build homes, recruit, or use research.`;
  el('turnFoot').textContent=p.discountBuild||p.discountExpand?`Active discounts: Build −${p.discountBuild} Gold · Expand −${p.discountExpand} Gold`:'One major action + one troop transfer per turn · One optional card';
@@ -434,7 +468,7 @@ function renderTile(t){
  if(!t){el('territoryTag').textContent='SELECT A HEX';container.innerHTML='<p class="empty-note">Tap a territory on the map to inspect it.</p>';return;}
  const p=getCountry(),terrain=TERRAIN[t.terrain],owner=t.owner===null?null:G.players[t.owner],isOwn=t.owner===0,frontier=eligibleExpansion(p,t);
  const residents=owner?owner.citizens.filter(c=>c.homeId===t.id).length:0;
- el('territoryTag').textContent=t.capital?'CAPITAL':t.terrain.toUpperCase();
+ el('territoryTag').textContent=t.capital?'CAPITAL':t.terrain.toUpperCase();if(sheetMode==='territory')el('sheetTitle').textContent=t.name;
  let html=`<div class="tile-head"><div><h3 class="tile-title">${esc(t.name)}</h3><div class="tile-sub">${terrain.name} · ${t.q}, ${t.r}</div></div><span class="owner-pill" style="background:${owner?owner.color:'#c6d8c1'}">${owner?esc(owner.name):'Unclaimed'}</span></div><p class="tile-description">${terrain.desc}</p>`;
  html+=`<div class="capacity-grid"><div><b>${buildFree(t)} / ${terrain.slots}</b><small>Building space free</small></div><div><b>${residents} / ${tileResidentCap(t)}</b><small>Residents / available housing</small></div><div><b>${terrain.population}</b><small>Terrain population ceiling</small></div></div><div class="terrain-data">`;
  if(t.capital)html+='<span>🏰 Capital: 2 spaces + 12 housing</span>';
@@ -483,7 +517,13 @@ function renderRoster(){
  }
 }
 function renderResearch(){const p=getCountry();el('researchOptions').innerHTML=Object.entries(TECHS).map(([k,t])=>`<button class="build-option" data-tech="${k}" ${!canAct()||p.tech.includes(k)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge?'disabled':''}><span class="build-symbol">${t.icon}</span><span class="build-main"><span class="build-name">${t.name} ${p.tech.includes(k)?'✓':''}</span><span class="build-desc" style="display:block">${t.desc}</span></span><span class="build-cost">${t.gold} 🪙<br>${t.knowledge} ✦</span></button>`).join('');}
-function renderHand(){const p=getCountry();el('cardCount').textContent=`${p.hand.length} / 4`;el('hand').innerHTML=p.hand.map((c,i)=>`<button class="card-item" data-card="${i}" ${!active()||p.cardPlayed?'disabled':''} aria-label="Play ${CARDS[c].name}"><span class="card-icon">${CARDS[c].icon}</span><span class="card-name">${CARDS[c].name}</span><span class="card-desc">${CARDS[c].desc}</span></button>`).join('')||'<p class="empty-note">No cards in hand. Draw again next turn.</p>';}
+function renderHand(){
+ const p=getCountry(),n=p.hand.length;el('cardCount').textContent=`${n} / 4`;
+ el('hand').innerHTML=p.hand.map((c,i)=>{
+  const fan=i-(n-1)/2,angle=fan*9;
+  return `<button type="button" class="card-item" data-card="${i}" style="--fan:${fan};--angle:${angle}deg" aria-label="Inspect ${esc(CARDS[c].name)}"><span class="card-icon">${CARDS[c].icon}</span><span class="card-name">${esc(CARDS[c].name)}</span><span class="card-desc">TAP TO VIEW</span></button>`;
+ }).join('')||'<p class="hand-empty">No cards in hand. Draw again next turn.</p>';
+}
 function renderStandings(){const sorted=[...G.players].sort((a,b)=>prosperity(b)-prosperity(a));el('standings').innerHTML=sorted.map((p,i)=>`<div class="standing"><span class="standing-rank">${i+1}</span><span class="standing-color" style="background:${p.color}"></span><span class="standing-name"><strong>${esc(p.name)}${p.id===0?' (You)':''}</strong><small>${G.tiles.filter(t=>t.owner===p.id).length} territory · ${G.tiles.filter(t=>t.owner===p.id).reduce((n,t)=>n+(t.buildings||[]).length,0)} builds · ${fmt(p.gold)} Gold</small></span><span class="standing-score">${prosperity(p)}</span></div>`).join('');}
 function renderLog(){el('gameLog').innerHTML=G.log.slice(0,10).map(l=>`<div class="log-item"><span class="log-round">R${l.round}</span><span>${esc(l.text)}</span></div>`).join('');}
 // Global Standoff: lightweight 2.5D board. All illustrations are vector primitives,
@@ -629,16 +669,26 @@ function bindEvents(){
   }
  });
  el('resumeBtn').addEventListener('click',()=>{const saved=loadSaved();if(!saved)return;G=saved;enterGame();if(G.finished)showEndGame();else if(G.turnIndex!==0){cpuBusy=true;cpuPlaybackToken++;skipCpuPlayback=true;setTimeout(()=>{for(let i=G.turnIndex;i<=3;i++){beginTurn(i);runCpu(i);}finishRound();focusHome(true);render();},80);}});
+ el('sheetClose').addEventListener('click',closeSheet);
+ el('sheetScrim').addEventListener('click',closeSheet);
+ el('nationQuickBtn').addEventListener('click',()=>showSheet('nation'));
+ el('rosterQuickBtn').addEventListener('click',()=>showSheet('roster'));
+ el('researchQuickBtn').addEventListener('click',()=>showSheet('research'));
+ el('worldQuickBtn').addEventListener('click',()=>showSheet('world'));
+ el('cardPreviewScrim').addEventListener('click',closeCardPreview);
+ el('cardPreviewContent').addEventListener('click',e=>{const b=e.target.closest('[data-preview]');if(!b)return;if(b.dataset.preview==='close')closeCardPreview();if(b.dataset.preview==='play'&&previewCardIndex>=0){const ok=playCard(0,previewCardIndex);if(ok)closeCardPreview();}});
+ document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!el('cardPreview').classList.contains('hidden'))closeCardPreview();else if(!el('sheetLayer').classList.contains('hidden'))closeSheet();}});
+ el('levySheetBtn').addEventListener('click',()=>{if(canAct())doLevy(0);});
  el('topMenuBtn').addEventListener('click',openMenu);
  el('endTurnBtn').addEventListener('click',endTurn);
  el('levyBtn').addEventListener('click',()=>{if(canAct())doLevy(0);});
- el('researchBtn').addEventListener('click',()=>{if(!G||!active())return;showResearch=!showResearch;showBuild=false;render();});
- el('closeResearchBtn').addEventListener('click',()=>{showResearch=false;render();});
+ el('researchBtn').addEventListener('click',()=>{if(G)showSheet('research');});
+ el('closeResearchBtn').addEventListener('click',closeSheet);
  el('closeBuildBtn').addEventListener('click',()=>{showBuild=false;render();});
  el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!canAct())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
  el('buildOptions').addEventListener('click',e=>{const b=e.target.closest('[data-build]');if(b&&canAct())doBuild(getSelected(),b.dataset.build);});
  el('researchOptions').addEventListener('click',e=>{const b=e.target.closest('[data-tech]');if(b&&canAct())doResearch(b.dataset.tech);});
- el('hand').addEventListener('click',e=>{const b=e.target.closest('[data-card]');if(b&&active())playCard(0,Number(b.dataset.card));});
+ el('hand').addEventListener('click',e=>{const b=e.target.closest('[data-card]');if(b)openCardPreview(Number(b.dataset.card));});
  el('rosterCitizensBtn').addEventListener('click',()=>{rosterTab='citizens';renderRoster();});
  el('rosterTroopsBtn').addEventListener('click',()=>{rosterTab='troops';renderRoster();});
  el('rosterList').addEventListener('change',e=>{const select=e.target.closest('[data-move-soldier]');if(select?.value)moveSoldier(select.dataset.moveSoldier,select.value);});
@@ -668,13 +718,13 @@ function bindEvents(){
   pointers.delete(e.pointerId);drag=null;if(pointers.size<2)pinchLast=null;
  };
  svg.addEventListener('pointerup',clearPointer);svg.addEventListener('pointercancel',clearPointer);
- svg.addEventListener('click',e=>{if(suppressClick||!G)return;const t=e.target.closest('[data-hex]');if(t){G.selectedId=t.dataset.hex;showBuild=false;render();save();}});
- svg.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)&&e.target.matches('[data-hex]')){e.preventDefault();G.selectedId=e.target.dataset.hex;showBuild=false;render();save();}});
+ svg.addEventListener('click',e=>{if(suppressClick||!G)return;const t=e.target.closest('[data-hex]');if(t){G.selectedId=t.dataset.hex;showBuild=false;render();save();showSheet('territory');}});
+ svg.addEventListener('keydown',e=>{if(['Enter',' '].includes(e.key)&&e.target.matches('[data-hex]')){e.preventDefault();G.selectedId=e.target.dataset.hex;showBuild=false;render();save();showSheet('territory');}});
  svg.addEventListener('wheel',e=>{e.preventDefault();zoom(e.deltaY>0?1.12:.89);},{passive:false});
  el('modalLayer').addEventListener('click',e=>{const b=e.target.closest('[data-modal]');if(!b){if(e.target===el('modalBackdrop'))closeModal();return;}switch(b.dataset.modal){case'close':closeModal();break;case'new-confirm':confirmNew();break;case'new':try{localStorage.removeItem(SAVE_KEY);localStorage.removeItem(OLD_SAVE_KEY);}catch(e){}newMatch();break;case'continue':G.finished=false;G.continued=true;G.maxRounds=Math.max(G.round+16,G.maxRounds+16);G.round++;beginTurn(0);cpuBusy=false;save();closeModal();render();break;}});
 }
 try{
- renderLobby();bindEvents();
+ mountMapUi();renderLobby();bindEvents();
  el('runtimeNotice').classList.add('hidden');
 }catch(e){
  console.error('Global Standoff initialization error',e);
@@ -683,5 +733,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={getState:()=>G,select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords};
+window.GS_TEST={getState:()=>G,select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview};
 })();
