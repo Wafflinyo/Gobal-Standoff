@@ -402,3 +402,27 @@ body.gs-playing .sheet-panel small,body.gs-playing .sheet-panel .muted,body.gs-p
 /* Fit map control glyphs inside their square buttons and reveal card effects in the fan. */
 .map-actions button .gs-glyph{width:19px;height:19px;vertical-align:middle}
 @media(max-width:520px){.hand-dock .card-item{left:calc(50% + var(--fan)*min(76px,19vw))}}
+
+/* v0.4.10: explicit safe separation of buttons from the tallest rotated cards. */
+@media(max-width:520px){
+  .map-quickbar{bottom:180px}
+  .hand-dock .card-item{width:88px;height:133px;bottom:-5px;padding:7px 7px 7px}
+  .hand-dock .card-item .card-icon{margin:5px auto 4px;line-height:1;flex:0 0 auto}
+  .hand-dock .card-item .card-icon .gs-glyph{display:block;width:27px;height:27px}
+  .hand-dock .card-item .card-name{font-size:10.5px;line-height:1.13;max-width:100%;text-align:center;flex:0 0 auto}
+  .hand-dock .card-item .card-desc{font-size:9px;line-height:1.15;margin:6px auto 0;max-width:100%;padding:0 1px;white-space:normal;overflow-wrap:normal;word-break:normal;display:block;-webkit-line-clamp:unset;line-clamp:unset;text-align:center;flex:0 1 auto}
+  .gs-hand-hint{bottom:3px}
+}
+@media(max-width:360px){
+  .map-quickbar{bottom:175px}
+  .hand-dock .card-item{width:81px}
+  .hand-dock .card-item .card-name{font-size:10px}
+  .hand-dock .card-item .card-desc{font-size:8.4px}
+}
+@media(max-height:620px) and (max-width:520px){
+  .map-quickbar{bottom:163px}
+  .hand-dock .card-item{height:118px}
+  .hand-dock .card-item .card-icon{margin:2px auto 3px}
+  .hand-dock .card-item .card-icon .gs-glyph{width:23px;height:23px}
+  .hand-dock .card-item .card-desc{font-size:8px;line-height:1.12;margin-top:3px}
+}
