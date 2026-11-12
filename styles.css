@@ -351,3 +351,17 @@ body.gs-playing:not(.cpu-watching) .hand-dock .cards-panel{background:linear-gra
 
 .gs-war-panel{display:none}
 .sheet-panel[data-mode=world] .gs-war-panel{display:block}
+
+/* v0.4.7: roads along owned shared hex boundaries */
+.gs-local-road-list{margin:12px 0;padding:11px;background:#122e3c;border:1px solid #af986a99;border-radius:12px;display:flex;flex-direction:column;gap:8px}
+.gs-local-road-list>strong{font-size:12px;color:#f3dfae}
+.gs-local-road-list>small{font-size:10px;line-height:1.5;color:#c6d1cf}
+.gs-local-road-row{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:7px 0;border-top:1px solid #c9b58d33}
+.gs-local-road-row>span{font-weight:750;min-width:0;overflow-wrap:anywhere;font-size:12px}
+.gs-local-road-row>span small{display:block;font-size:10px;color:#b4c7c2;margin-top:3px}
+.gs-local-road-row button{flex-shrink:0;background:#294e53;color:#ffe6b3;border:1px solid #bca273;border-radius:9px;min-height:39px;padding:7px 10px;font-weight:800}
+.gs-local-road-row button:disabled{opacity:.45}
+.gs-domestic-road.paved path:last-child{filter:drop-shadow(0 1px 2px #172b3199)}
+.gs-domestic-road.building path:last-child{animation:gs-paving 1.2s linear infinite}
+@keyframes gs-paving{to{stroke-dashoffset:-20}}
+@media(prefers-reduced-motion:reduce){.gs-domestic-road.building path:last-child{animation:none}}
