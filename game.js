@@ -3,7 +3,7 @@
 'use strict';
 const SAVE_KEY='global_standoff_v02_save';
 const OLD_SAVE_KEY='global_standoff_v01_save';
-const RADIUS=7, HEX=40, MAX_ROUNDS=24; // 169 hexes instead of 61
+const RADIUS=7, HEX=40, MAX_ROUNDS=24, MAJOR_ACTIONS=3; // 169 hexes; three major actions per turn
 const COLORS=['#7ed0b7','#e6af79','#b7a1e9','#f08b87'];
 const NPCS=[{name:'Alder Union',capital:'Oakspire',sigil:'♣'},{name:'Coral Dominion',capital:'Sunport',sigil:'◆'},{name:'Vesper Republic',capital:'Duskfall',sigil:'✧'}];
 const TERRAIN={
@@ -47,7 +47,10 @@ let sheetMode=null,previewCardIndex=-1;
 function getCountry(){return G.players[0];}
 function getSelected(){return G.tiles.find(t=>t.id===G.selectedId)||null;}
 function active(){return G&&!G.finished&&!cpuBusy&&G.turnIndex===0;}
-function canAct(){return active()&&!getCountry().acted;}
+function actionsUsed(p){return Number.isInteger(p.actionsUsed)?Math.min(MAJOR_ACTIONS,Math.max(0,p.actionsUsed)):(p.acted?1:0);}
+function actionsRemaining(p){return Math.max(0,MAJOR_ACTIONS-actionsUsed(p));}
+function canCountryAct(p,id){return !!G&&!G.finished&&G.turnIndex===id&&actionsRemaining(p)>0&&(id!==0||!cpuBusy);}
+function canAct(){return active()&&actionsRemaining(getCountry())>0;}
 function hasMoney(p,n){return p.gold>=n&&p.gold>=0;}
 function makeCitizen(p,rng,starting=false){
  const n=p.nextCitizenId++;
@@ -194,7 +197,7 @@ function generateWaterways(tiles,rng,options){
 function createWorld(seed,name,capital,color){
  const rng=mulberry32(hash(seed));
  const colors=[COLORS[color],...COLORS.filter((_,i)=>i!==color)];
- const players=[{name,capital,sigil:'✦'},...NPCS].map((p,i)=>({id:i,name:p.name,capital:p.capital,sigil:p.sigil,color:colors[i],gold:24,food:14,materials:12,knowledge:0,tech:[],hand:[],discountExpand:0,discountBuild:0,acted:false,cardPlayed:false,logisticsUsed:false,citizens:[],nextCitizenId:0}));
+ const players=[{name,capital,sigil:'✦'},...NPCS].map((p,i)=>({id:i,name:p.name,capital:p.capital,sigil:p.sigil,color:colors[i],gold:24,food:14,materials:12,knowledge:0,tech:[],hand:[],discountExpand:0,discountBuild:0,acted:false,actionsUsed:0,expansionsThisTurn:0,levyUsed:false,cardPlayed:false,logisticsUsed:false,citizens:[],nextCitizenId:0}));
  const usedNames=new Set(),tiles=[];
  for(let q=-RADIUS;q<=RADIUS;q++)for(let r=-RADIUS;r<=RADIUS;r++){
   if(Math.abs(q+r)>RADIUS)continue;
@@ -217,7 +220,7 @@ function createWorld(seed,name,capital,color){
 }
 function drawCard(p){if(p.hand.length>=4)return; if(G.drawIndex>=G.deck.length){const rng=mulberry32(hash(G.seed+'-'+G.round+'-'+G.drawIndex));G.deck=Array.from({length:6},()=>CARD_POOL).flat().sort(()=>rng()-.5);G.drawIndex=0;}
  p.hand.push(G.deck[G.drawIndex++]);}
-function beginTurn(id){G.turnIndex=id;const p=G.players[id];p.acted=false;p.cardPlayed=false;p.logisticsUsed=false;drawCard(p);save();}
+function beginTurn(id){G.turnIndex=id;const p=G.players[id];p.acted=false;p.actionsUsed=0;p.expansionsThisTurn=0;p.levyUsed=false;p.cardPlayed=false;p.logisticsUsed=false;drawCard(p);save();}
 function addLog(text){G.log.unshift({round:G.round,text});G.log=G.log.slice(0,28);}
 function save(){try{localStorage.setItem(SAVE_KEY,JSON.stringify(G));}catch(e){/* local storage may be disabled */}}
 function upgradeSavedWaterways(s){
@@ -293,7 +296,7 @@ function renderLobby(){
 }
 function allowed(p,t){return t&&t.owner===p.id;}
 function eligibleExpansion(p,t){return !!t&&t.owner===null&&t.terrain!=='water'&&neighbors(t).some(n=>n.owner===p.id);}
-function expansionCost(p){return Math.max(0,5-p.discountExpand-(p.tech.includes('cartography')?2:0));}
+function expansionCost(p){return Math.max(0,5+2*(p.expansionsThisTurn||0)-p.discountExpand-(p.tech.includes('cartography')?2:0));}
 function buildingCost(p,b){return Math.max(0,b.gold-p.discountBuild);}
 function canBuild(p,t,b){return allowed(p,t)&&buildFree(t)>=b.space&&b.allow.includes(t.terrain)&&hasMoney(p,buildingCost(p,b))&&p.materials>=b.materials;}
 function getEconomy(id){
@@ -317,11 +320,11 @@ function getEconomy(id){
  vals.netGold=vals.gold-vals.upkeep;
  return vals;
 }
-function useAction(p,text){p.acted=true;addLog(text);showBuild=false;showResearch=false;save();render();}
-function doExpand(t,id=0){const p=G.players[id];if(!eligibleExpansion(p,t))return false;const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;p.gold-=cost;p.food-=2;p.discountExpand=0;t.owner=id;reallocateHousing(p);useAction(p,`${p.name} expanded into ${t.name} (${TERRAIN[t.terrain].name.toLowerCase()}).`);if(id===0){showToast(`Territory claimed: ${t.name}`);flashAction(t,'expand');}return true;}
-function doBuild(t,type,id=0){const p=G.players[id],b=BUILDINGS[type];if(!b||!canBuild(p,t,b))return false;p.gold-=buildingCost(p,b);p.materials-=b.materials;p.discountBuild=0;t.buildings.push(type);reallocateHousing(p);useAction(p,`${p.name} constructed ${b.name} at ${t.name}.`);if(id===0){showToast(`${b.name} completed at ${t.name}`);flashAction(t,'build');}return true;}
+function useAction(p,text){p.actionsUsed=actionsUsed(p)+1;p.acted=actionsRemaining(p)===0;addLog(text);showBuild=false;showResearch=false;save();render();}
+function doExpand(t,id=0){const p=G.players[id];if(!canCountryAct(p,id)||!eligibleExpansion(p,t))return false;const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;p.gold-=cost;p.food-=2;p.discountExpand=0;p.expansionsThisTurn=(p.expansionsThisTurn||0)+1;t.owner=id;reallocateHousing(p);useAction(p,`${p.name} expanded into ${t.name} (${TERRAIN[t.terrain].name.toLowerCase()}).`);if(id===0){showToast(`Territory claimed: ${t.name}`);flashAction(t,'expand');}return true;}
+function doBuild(t,type,id=0){const p=G.players[id],b=BUILDINGS[type];if(!canCountryAct(p,id)||!b||!canBuild(p,t,b))return false;p.gold-=buildingCost(p,b);p.materials-=b.materials;p.discountBuild=0;t.buildings.push(type);reallocateHousing(p);useAction(p,`${p.name} constructed ${b.name} at ${t.name}.`);if(id===0){showToast(`${b.name} completed at ${t.name}`);flashAction(t,'build');}return true;}
 function doSell(t,idx=0,id=0){
- const p=G.players[id];if(!allowed(p,t)||!t.buildings?.[idx])return false;
+ const p=G.players[id];if(!canCountryAct(p,id)||!allowed(p,t)||!t.buildings?.[idx])return false;
  const type=t.buildings[idx],b=BUILDINGS[type];
  if(type==='post'&&getMilitaryPosts(id).length&&postGarrison(p,t.id).length>0){if(id===0)showToast('Move troops before selling this post.');return false;}
  const refund=Math.max(2,Math.floor(b.gold*.6));p.gold+=refund;t.buildings.splice(idx,1);reallocateHousing(p);
@@ -329,7 +332,7 @@ function doSell(t,idx=0,id=0){
  if(id===0)showToast(`${b.name} sold for ${refund} Gold`);return true;
 }
 function doRecruit(t,id=0){
- const p=G.players[id];if(!allowed(p,t)||!buildingCount(t,'post'))return false;
+ const p=G.players[id];if(!canCountryAct(p,id)||!allowed(p,t)||!buildingCount(t,'post'))return false;
  const count=Math.min(2,12-postGarrison(p,t.id).length,p.citizens.filter(c=>c.age>=18&&!c.military).length);
  if(count<1||!hasMoney(p,count*2)||p.food<count)return false;
  const recruits=p.citizens.filter(c=>c.age>=18&&!c.military).slice(0,count);
@@ -339,7 +342,7 @@ function doRecruit(t,id=0){
  if(id===0)showToast(`${count} citizens enlisted at ${t.name}`);return true;
 }
 function doTrain(t,id=0){
- const p=G.players[id];if(!allowed(p,t)||!buildingCount(t,'post'))return false;
+ const p=G.players[id];if(!canCountryAct(p,id)||!allowed(p,t)||!buildingCount(t,'post'))return false;
  const soldiers=postGarrison(p,t.id).filter(c=>c.military.training<5).slice(0,3);
  if(!soldiers.length||!hasMoney(p,3)||p.food<1)return false;
  p.gold-=3;p.food-=1;
@@ -356,8 +359,8 @@ function moveSoldier(citizenId,destinationId){
  citizen.military.postId=destinationId;p.logisticsUsed=true;
  addLog(`${citizen.name} reassigned to ${destination.name}.`);save();render();showToast(`${citizen.name} transferred to ${destination.name}`);return true;
 }
-function doLevy(id=0){const p=G.players[id];if(p.acted)return false;const foodCost=Math.min(2,p.food);p.gold+=6;p.food-=foodCost;useAction(p,`${p.name} raised emergency taxes: +6 Gold, −${foodCost} Food.`);if(id===0)showToast('Emergency taxes collected: +6 Gold');return true;}
-function doResearch(type,id=0){const p=G.players[id],t=TECHS[type];if(!t||p.tech.includes(type)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge)return false;p.gold-=t.gold;p.knowledge-=t.knowledge;p.tech.push(type);useAction(p,`${p.name} completed research: ${t.name}.`);if(id===0)showToast(`${t.name} researched`);return true;}
+function doLevy(id=0){const p=G.players[id];if(!canCountryAct(p,id)||p.levyUsed)return false;const foodCost=Math.min(2,p.food);p.gold+=6;p.food-=foodCost;p.levyUsed=true;useAction(p,`${p.name} raised emergency taxes: +6 Gold, −${foodCost} Food.`);if(id===0)showToast('Emergency taxes collected: +6 Gold');return true;}
+function doResearch(type,id=0){const p=G.players[id],t=TECHS[type];if(!canCountryAct(p,id)||!t||p.tech.includes(type)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge)return false;p.gold-=t.gold;p.knowledge-=t.knowledge;p.tech.push(type);useAction(p,`${p.name} completed research: ${t.name}.`);if(id===0)showToast(`${t.name} researched`);return true;}
 function playCard(id,idx){const p=G.players[id];if(!p||p.cardPlayed||idx<0||idx>=p.hand.length||G.turnIndex!==id||G.finished)return false;const type=p.hand[idx];p.cardPlayed=true;p.hand.splice(idx,1);
  switch(type){case'grant':p.gold+=6;break;case'harvest':p.food+=5;break;case'supplies':p.materials+=4;break;case'insight':p.knowledge+=3;break;case'charter':p.discountExpand+=3;break;case'permit':p.discountBuild+=3;break;}
  addLog(`${p.name} played ${CARDS[type].name}.`);save();render();if(id===0)showToast(CARDS[type].name+' played');return true;}
@@ -391,30 +394,37 @@ async function runCpuCinematic(token=cpuPlaybackToken){
   if(token!==cpuPlaybackToken||!G)return;
   const p=G.players[id],capital=G.tiles.find(t=>t.owner===id&&t.capital)||G.tiles[0];
   beginTurn(id);render();showCpuHud(id,'Taking command of the nation…');
-  await moveCamera(capital,POV_ANGLES[id],840,window.innerWidth<600?400:515);
+  await moveCamera(capital,POV_ANGLES[id],640,window.innerWidth<600?400:515);
   if(token!==cpuPlaybackToken||!G)return;
-  const before=G.tiles.map(t=>({owner:t.owner,buildings:t.buildings?.length||0}));
-  const prevLog=G.log[0]?.text;runCpu(id);
-  const change=cpuActionLocation(before,G.tiles),last=G.log[0]?.text;
-  save();render();showCpuHud(id,last&&last!==prevLog?last:`${p.name} reviewed its plans.`);
-  if(change){await moveCamera(change,POV_ANGLES[id],480,window.innerWidth<600?330:415);flashAction(change,'cpu');}
-  if(token!==cpuPlaybackToken||!G)return;
-  await cpuPause(change?620:450,token);
+  for(let step=0;step<MAJOR_ACTIONS;step++){
+   if(token!==cpuPlaybackToken||!G)return;
+   const spent=actionsUsed(p);
+   const before=G.tiles.map(t=>({owner:t.owner,buildings:t.buildings?.length||0}));
+   const prevLog=G.log[0]?.text;
+   runCpu(id);
+   const change=cpuActionLocation(before,G.tiles),last=G.log[0]?.text;
+   save();render();
+   if(actionsUsed(p)===spent){showCpuHud(id,`${p.name} has no further affordable actions.`);break;}
+   showCpuHud(id,`Action ${actionsUsed(p)}/${MAJOR_ACTIONS}: ${last&&last!==prevLog?last:`${p.name} reviewed its plans.`}`);
+   if(change){await moveCamera(change,POV_ANGLES[id],320,window.innerWidth<600?330:415);flashAction(change,'cpu');}
+   if(token!==cpuPlaybackToken||!G)return;
+   await cpuPause(change?340:190,token);
+  }
  }
  if(token!==cpuPlaybackToken||!G)return;
  finishRound();
  if(G.finished){hideCpuHud();return;}
  showCpuHud(0,'The next round begins — your move.');
  const home=G.tiles.find(t=>t.owner===0&&t.capital)||G.tiles[0];
- await moveCamera(home,POV_ANGLES[0],850,window.innerWidth<600?420:540);
+ await moveCamera(home,POV_ANGLES[0],700,window.innerWidth<600?420:540);
  hideCpuHud();render();
 }
 function endTurn(){if(!active())return;closeCardPreview();closeSheet();cpuBusy=true;skipCpuPlayback=false;cpuPlaybackToken++;G.turnIndex=1;save();render();el('mapWrap').scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>runCpuCinematic(cpuPlaybackToken).catch(e=>{console.error('CPU playback failed',e);hideCpuHud();if(G&&!G.finished){cpuBusy=false;G.turnIndex=0;save();render();showToast('CPU playback interrupted; resume your turn.');}}),200);}
-function cpuStep(){if(!G||G.finished)return;const id=G.turnIndex;if(id<1||id>3){cpuBusy=false;return;}const p=G.players[id];beginTurn(id);runCpu(id);save();render();if(id===3){setTimeout(()=>{if(G)finishRound();},400);}else{G.turnIndex=id+1;save();setTimeout(cpuStep,470);}}
+function cpuStep(){if(!G||G.finished)return;const id=G.turnIndex;if(id<1||id>3){cpuBusy=false;return;}const p=G.players[id];beginTurn(id);for(let step=0;step<MAJOR_ACTIONS;step++){const spent=actionsUsed(p);runCpu(id);if(actionsUsed(p)===spent)break;}save();render();if(id===3){setTimeout(()=>{if(G)finishRound();},400);}else{G.turnIndex=id+1;save();setTimeout(cpuStep,470);}}
 function runCpu(id){
  const p=G.players[id];let playable=p.hand.findIndex(c=>['grant','harvest','supplies','insight'].includes(c));
  if(playable<0)playable=p.hand.findIndex(c=>c==='charter');if(playable<0)playable=p.hand.findIndex(c=>c==='permit');
- if(playable>=0)playCard(id,playable);
+ if(playable>=0&&!p.cardPlayed)playCard(id,playable);
  const owned=G.tiles.filter(t=>t.owner===id),eco=getEconomy(id),people=peopleSummary(p);
  const buildable=owned.filter(t=>buildFree(t)>0).sort((a,b)=>buildFree(b)-buildFree(a));
  const frontiers=G.tiles.filter(t=>eligibleExpansion(p,t)).sort((a,b)=>{
@@ -458,10 +468,12 @@ function render(){if(!G)return;
  el('populationAdvice').textContent=people.homeless>0?`${people.homeless} citizens need homes. Build on an owned tile with open space, or expand to make room.`:people.housing<=people.count+2?'Housing is nearly full. Consider additional homes before the next population increase.':'Each round can bring new citizens when Food is available. Homes need building space, and terrain limits residents.';
  renderMap();renderTile(tile);renderHand();renderResearch();renderStandings();renderLog();renderRoster();
  el('buildPanel').classList.toggle('hidden',!showBuild);el('researchPanel').classList.toggle('hidden',!showResearch);
- el('endTurnBtn').disabled=!active();el('levyBtn').disabled=!canAct();el('researchBtn').disabled=!active();el('levySheetBtn')?.toggleAttribute('disabled',!canAct());
+ el('endTurnBtn').disabled=!active();el('levyBtn').disabled=!canAct()||!!p.levyUsed;el('researchBtn').disabled=!active();el('levySheetBtn')?.toggleAttribute('disabled',!canAct()||!!p.levyUsed);
  el('endTurnBtn').innerHTML=G.finished?'TEST COMPLETE':active()?`END TURN <span>→</span>`:'CPU THINKING…';
- el('actionNotice').innerHTML=G.finished?'Prototype match complete. Review the results or start another world.':cpuBusy?'Three CPU nations are taking their turns…':p.acted?'Major action used. You can still use your military logistics order and play a card.':`<b>1 major action available.</b> Select territory, build homes, recruit, or use research.`;
- el('turnFoot').textContent=p.discountBuild||p.discountExpand?`Active discounts: Build −${p.discountBuild} Gold · Expand −${p.discountExpand} Gold`:'One major action + one troop transfer per turn · One optional card';
+ const remaining=actionsRemaining(p);
+ el('mapActionCounter').innerHTML=G.finished?'TEST COMPLETE':cpuBusy?'◈ CPU ACTIONS':`<span class="action-dots">${Array.from({length:MAJOR_ACTIONS},(_,i)=>`<i class="${i<remaining?'ready':'spent'}"></i>`).join('')}</span><b>${remaining}/${MAJOR_ACTIONS}</b> ACTIONS LEFT`;
+ el('actionNotice').innerHTML=G.finished?'Prototype match complete. Review the results or start another world.':cpuBusy?'Three CPU nations are taking their turns…':remaining===0?'All 3 major actions used. You can still play a card or transfer troops.':`<b>${remaining} major action${remaining===1?'':'s'} remaining.</b> Expand, build, recruit, govern or research.`;
+ el('turnFoot').textContent=p.discountBuild||p.discountExpand?`Active discounts: Build −${p.discountBuild} Gold · Expand −${p.discountExpand} Gold`:'3 major actions + 1 troop transfer per turn · 1 optional card';
 }
 function renderTile(t){
  const container=el('territoryDetails');
@@ -668,7 +680,7 @@ function bindEvents(){
    error.classList.remove('hidden');button.disabled=false;button.innerHTML='TRY GENERATING AGAIN <span>→</span>';
   }
  });
- el('resumeBtn').addEventListener('click',()=>{const saved=loadSaved();if(!saved)return;G=saved;enterGame();if(G.finished)showEndGame();else if(G.turnIndex!==0){cpuBusy=true;cpuPlaybackToken++;skipCpuPlayback=true;setTimeout(()=>{for(let i=G.turnIndex;i<=3;i++){beginTurn(i);runCpu(i);}finishRound();focusHome(true);render();},80);}});
+ el('resumeBtn').addEventListener('click',()=>{const saved=loadSaved();if(!saved)return;G=saved;enterGame();if(G.finished)showEndGame();else if(G.turnIndex!==0){cpuBusy=true;cpuPlaybackToken++;skipCpuPlayback=true;setTimeout(()=>{for(let i=G.turnIndex;i<=3;i++){beginTurn(i);const p=G.players[i];for(let step=0;step<MAJOR_ACTIONS;step++){const spent=actionsUsed(p);runCpu(i);if(actionsUsed(p)===spent)break;}}finishRound();focusHome(true);render();},80);}});
  el('sheetClose').addEventListener('click',closeSheet);
  el('sheetScrim').addEventListener('click',closeSheet);
  el('nationQuickBtn').addEventListener('click',()=>showSheet('nation'));
@@ -678,10 +690,10 @@ function bindEvents(){
  el('cardPreviewScrim').addEventListener('click',closeCardPreview);
  el('cardPreviewContent').addEventListener('click',e=>{const b=e.target.closest('[data-preview]');if(!b)return;if(b.dataset.preview==='close')closeCardPreview();if(b.dataset.preview==='play'&&previewCardIndex>=0){const ok=playCard(0,previewCardIndex);if(ok)closeCardPreview();}});
  document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(!el('cardPreview').classList.contains('hidden'))closeCardPreview();else if(!el('sheetLayer').classList.contains('hidden'))closeSheet();}});
- el('levySheetBtn').addEventListener('click',()=>{if(canAct())doLevy(0);});
+ el('levySheetBtn').addEventListener('click',()=>{if(canAct()&&!getCountry().levyUsed)doLevy(0);});
  el('topMenuBtn').addEventListener('click',openMenu);
  el('endTurnBtn').addEventListener('click',endTurn);
- el('levyBtn').addEventListener('click',()=>{if(canAct())doLevy(0);});
+ el('levyBtn').addEventListener('click',()=>{if(canAct()&&!getCountry().levyUsed)doLevy(0);});
  el('researchBtn').addEventListener('click',()=>{if(G)showSheet('research');});
  el('closeResearchBtn').addEventListener('click',closeSheet);
  el('closeBuildBtn').addEventListener('click',()=>{showBuild=false;render();});
@@ -733,5 +745,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={getState:()=>G,select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview};
+window.GS_TEST={getState:()=>G,select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn};
 })();
