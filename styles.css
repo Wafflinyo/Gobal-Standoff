@@ -86,7 +86,7 @@ body.gs-playing .map-hint{display:none}
 .quick-stats{position:absolute;left:12px;top:52px;z-index:8;display:flex;flex-wrap:wrap;gap:5px;max-width:calc(100% - 80px);pointer-events:none}
 .quick-stat{display:inline-flex;align-items:center;gap:4px;background:#122c36e8;border:1px solid #54717b;border-radius:18px;padding:5px 7px;color:#f0e7c9;font-size:12px;box-shadow:0 3px 10px #061a2390;backdrop-filter:blur(5px)}
 .quick-stat b{font-weight:850;font-size:12px;font-variant-numeric:tabular-nums}.quick-stat b.negative{color:#e99679}
-.map-quickbar{position:absolute;z-index:12;bottom:148px;left:50%;transform:translateX(-50%);width:min(96%,700px);display:flex;align-items:center;justify-content:center;gap:7px;pointer-events:none}
+.map-quickbar{position:absolute;z-index:12;bottom:208px;left:50%;transform:translateX(-50%);width:min(96%,700px);display:flex;align-items:center;justify-content:center;gap:7px;pointer-events:none}
 .map-quickbar>button,.map-quickbar #endTurnBtn{pointer-events:auto;flex:0 0 auto;background:#153441eb;border:1px solid #a5bfba88;color:#f3e6c5;border-radius:11px;min-height:43px;padding:7px 12px;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:2px;font-size:11px;font-weight:750;letter-spacing:0;box-shadow:0 6px 24px #081c26ac;backdrop-filter:blur(8px)}
 .map-quickbar>button>span{font-size:17px;line-height:1}
 .map-quickbar #turnMount{pointer-events:auto;min-width:0}
@@ -159,7 +159,7 @@ body.gs-playing .map-hint{display:none}
  body.gs-playing .world-heading-right .muted-small{font-size:9px}
  .quick-stats{top:48px;left:8px;gap:3px;max-width:calc(100% - 48px)}
  .quick-stat{padding:4px 6px;font-size:10px;gap:3px}.quick-stat b{font-size:11px}
- .map-quickbar{bottom:143px;gap:5px;width:calc(100% - 12px)}
+ .map-quickbar{bottom:205px;gap:5px;width:calc(100% - 12px)}
  .map-quickbar>button{min-height:44px;font-size:10px;padding:6px 7px;min-width:0;flex:1}
  .map-quickbar>button>span{font-size:16px}
  .map-quickbar #endTurnBtn{font-size:10px;padding:7px 9px;max-width:120px}
@@ -170,7 +170,7 @@ body.gs-playing .map-hint{display:none}
  .sheet-panel{height:min(77dvh,700px)}
  .expanded-card{width:min(265px,70vw)}
 }
-@media(max-height:620px){.map-quickbar{bottom:117px}.hand-dock{height:111px}.hand-dock .hand{height:85px}.hand-dock .card-item{height:115px;bottom:-50px}.expanded-card{width:min(210px,55vw)}}
+@media(max-height:620px){.map-quickbar{bottom:177px}.hand-dock{height:111px}.hand-dock .hand{height:85px}.hand-dock .card-item{height:115px;bottom:-50px}.expanded-card{width:min(210px,55vw)}}
 @media(prefers-reduced-motion:reduce){.expanded-card-halo{animation:none}}
 /* Final mobile tuning: keep the full card faces reachable above Safari's bottom edge. */
 @media(max-width:520px){
