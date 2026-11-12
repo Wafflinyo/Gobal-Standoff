@@ -89,6 +89,7 @@ const BUILDINGS={
  market:{name:'Marketplace',icon:'⚖',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'Gold income scales with worker staffing and morale'},
  academy:{name:'Academy',icon:'📚',gold:8,wood:2,iron:2,space:2,rounds:3,upkeep:2,jobs:[2,3,4],production:{knowledge:3},allow:['plains','forest','hills','desert','mountain'],text:'Research output requires staffed teachers'},
  caravanWarehouse:{name:'Caravan Warehouse',icon:'▣',gold:8,wood:5,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert'],text:'Houses 1 / 2 / 3 caravans by level; shipments require an available wagon'},
+ storageWarehouse:{name:'Storage Warehouse',icon:'▤',gold:7,wood:4,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'40 / 80 / 140 units of local goods storage at levels 1 / 2 / 3'},
  builderBunk:{name:'Builders’ Bunk',icon:'🛖',gold:8,wood:3,iron:0,space:1,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Houses 1 / 2 / 3 active builders by level. Builders travel before working'},
  post:{name:'Military Post',icon:'🛡',gold:8,wood:2,iron:2,space:2,rounds:2,upkeep:2,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Administrative staff support recruitment and the 12-troop garrison'},
  foundry:{name:'Steelworks Factory',icon:'🏭',gold:10,wood:3,iron:3,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Receives Iron + Coal shipments and smelts Steel'},
@@ -301,6 +302,37 @@ function siteLookup(owner,siteId){
 }
 function localCount(site,item){return Math.max(0,Math.floor(site?.stock?.[item]||0));}
 function addLocal(site,item,n){site.stock??={};site.stock[item]=Math.max(0,localCount(site,item)+n);}
+
+function siteStorageCapacity(kind,level=1){
+ const lvl=Math.max(1,Math.min(3,level||1));
+ if(kind==='storageWarehouse')return [40,80,140][lvl-1];
+ if(FACTORY_RECIPES[kind])return [12,24,42][lvl-1];
+ if(['farm','lumber','mine'].includes(kind))return [16,32,54][lvl-1];
+ if(kind==='post')return [32,56,88][lvl-1];
+ return 0;
+}
+function stockUsed(site){return Object.values(site?.stock||{}).reduce((n,v)=>n+Math.max(0,Number(v)||0),0);}
+function endpointStorageFree(p,endpoint){
+ if(endpoint==='depot')return Infinity;
+ const found=siteLookup(p.id,endpoint);
+ return found?Math.max(0,siteStorageCapacity(found.kind,found.site?.level)-stockUsed(found.site)):0;
+}
+function incomingReserved(owner,endpoint){
+ return G.shipments.filter(j=>j.owner===owner&&String(j.to)===String(endpoint)&&j.stage!=='return').reduce((n,j)=>n+(j.qty||0),0);
+}
+function endpointDeliverySpace(p,endpoint){return endpoint==='depot'?Infinity:Math.max(0,endpointStorageFree(p,endpoint)-incomingReserved(p.id,endpoint));}
+function storedAt(p,item){
+ const stores=[{id:'depot',tile:siteLookup(p.id,'depot')?.tile,count:depotCount(p,item)}];
+ for(const tile of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<tile.buildings.length;i++)if(tile.buildings[i]==='storageWarehouse')
+  stores.push({id:tile.buildingMeta?.[i]?.id,tile,count:localCount(tile.buildingMeta?.[i],item)});
+ return stores.filter(x=>x.tile&&x.count>0);
+}
+function nearbyStorage(p,tile){
+ const stores=[{id:'depot',tile:siteLookup(p.id,'depot')?.tile},
+ ...G.tiles.filter(t=>t.owner===p.id).flatMap(t=>t.buildings.map((kind,i)=>kind==='storageWarehouse'?{id:t.buildingMeta?.[i]?.id,tile:t}:null).filter(Boolean))];
+ return stores.map(o=>({...o,path:o.tile&&ownedPath(p.id,tile,o.tile)})).filter(o=>o.path&&endpointDeliverySpace(p,o.id)>0).sort((a,b)=>a.path.length-b.path.length)[0]||null;
+}
+
 function depotCount(p,item){
  if(item==='food'||item==='wood')return Math.max(0,Math.floor(p[item]||0));
  if(item in MINERALS||item==='steel')return mineralCount(p,item);
@@ -315,8 +347,12 @@ function endpointCount(p,endpoint,item){
  return endpoint==='depot'?depotCount(p,item):localCount(siteLookup(p.id,endpoint)?.site,item);
 }
 function endpointAdd(p,endpoint,item,change){
- if(endpoint==='depot')addDepot(p,item,change);
- else{const found=siteLookup(p.id,endpoint);if(found?.site)addLocal(found.site,item,change);}
+ if(endpoint==='depot'){addDepot(p,item,change);return change;}
+ const found=siteLookup(p.id,endpoint);if(!found?.site)return 0;
+ if(change<0){const used=-Math.min(-change,localCount(found.site,item));addLocal(found.site,item,used);return used;}
+ const fit=Math.min(change,endpointStorageFree(p,endpoint));
+ if(fit>0)addLocal(found.site,item,fit);
+ return fit;
 }
 function ownedPath(owner,a,b){
  if(!a||!b||a.owner!==owner||b.owner!==owner)return null;
@@ -357,11 +393,14 @@ function availableCaravan(owner,pickup){
 }
 function dispatchShipment(owner,from,to,item,qty,auto=false){
  const p=G.players[owner],src=siteLookup(owner,from),dst=siteLookup(owner,to),amount=Math.floor(qty);
- if(!p||!src?.tile||!dst?.tile||from===to||amount<1||endpointCount(p,from,item)<amount)return false;
+ if(!p||!src?.tile||!dst?.tile||String(from)===String(to)||amount<1)return false;
+ const reservedFrom=G.shipments.filter(j=>j.owner===owner&&String(j.from)===String(from)&&j.item===item&&j.stage==='pickup').reduce((n,j)=>n+j.qty,0);
+ const qtyFit=Math.min(10,amount,Math.max(0,endpointCount(p,from,item)-reservedFrom),endpointDeliverySpace(p,to));
+ if(qtyFit<1)return false;
  const delivery=ownedPath(owner,src.tile,dst.tile);if(!delivery)return false;
  const available=availableCaravan(owner,src.tile);if(!available)return false;
  const id=G.nextShipmentId++;
- const job={id,owner,from,to,item,qty:Math.min(10,amount),stage:'pickup',path:available.path,step:0,
+ const job={id,owner,from,to,item,qty:qtyFit,stage:'pickup',path:available.path,step:0,
   fromTileId:src.tile.id,toTileId:dst.tile.id,homeSiteId:available.cart.homeSiteId,caravanId:available.cart.id,
   startedClock:G.turnClock||0,remaining:available.path.length-1+delivery.length};
  G.shipments.push(job);available.cart.shipmentId=id;
@@ -385,19 +424,27 @@ function moveCaravanToStage(job,cart,p){
   job.path=job.stage==='delivery'?ownedPath(job.owner,source,dest):ownedPath(job.owner,source,siteLookup(job.owner,job.homeSiteId)?.tile||source);
   job.step=0;job.remaining=Math.max(1,(job.path?.length||1)-1);return;
  }
- if(stage==='delivery'){
-  if(siteLookup(job.owner,job.to)?.tile)endpointAdd(p,job.to,job.item,job.qty);else addDepot(p,job.item,job.qty);
+ if(stage==='delivery'||stage==='unloading'){
+  if(!siteLookup(job.owner,job.to)){
+   const home=siteLookup(job.owner,'depot'),here=G.tiles.find(t=>t.id===cart.currentTileId);
+   job.to='depot';job.toTileId=home?.tile?.id;
+   job.path=ownedPath(job.owner,here,home?.tile)||[here?.id].filter(Boolean);
+   job.step=0;job.stage='delivery';return;
+  }
+  const unloaded=endpointAdd(p,job.to,job.item,job.qty);
+  job.qty-=unloaded;
+  if(job.qty>0){job.stage='unloading';job.remaining=0;return;}
   if(job.owner===0)addLog(`${job.qty} ${GOOD_NAMES[job.item]||job.item} arrived at ${G.tiles.find(t=>t.id===job.toTileId)?.name}.`);
   const dest=G.tiles.find(t=>t.id===job.toTileId),bases=caravanWarehouses(p);
   const destinationBase=bases.find(w=>w.tile.id===dest?.id);
-  const canStay=destinationBase&&(p.caravanPolicy==='stay')&&p.caravans.filter(c=>c.homeSiteId===destinationBase.site.id&&c.id!==cart.id).length<destinationBase.capacity;
-  if(canStay){cart.homeSiteId=destinationBase.site.id;cart.currentTileId=dest.id;finishCaravanJob(job,cart,p);return;}
-  let alternatives=bases.map(w=>({...w,path:ownedPath(p.id,dest,w.tile)})).filter(w=>w.path);
+  const canStay=destinationBase&&(p.caravanPolicy==='stay')&&p.caravans.filter(c=>c.id!==cart.id&&!c.shipmentId&&c.currentTileId===dest.id).length<destinationBase.capacity;
+  if(canStay){cart.currentTileId=dest.id;finishCaravanJob(job,cart,p);return;}
+  let alternatives=bases.map(w=>({...w,path:ownedPath(p.id,dest,w.tile)})).filter(w=>w.path&&p.caravans.filter(c=>c.id!==cart.id&&!c.shipmentId&&c.currentTileId===w.tile.id).length<w.capacity);
   if(p.caravanPolicy==='home'){alternatives.sort((a,b)=>Number(b.site.id===job.homeSiteId)-Number(a.site.id===job.homeSiteId)||a.path.length-b.path.length);}
   else alternatives.sort((a,b)=>a.path.length-b.path.length);
   const base=alternatives[0];
   if(!base){finishCaravanJob(job,cart,p);return;}
-  cart.homeSiteId=base.site.id;job.stage='return';job.path=base.path;job.step=0;job.remaining=Math.max(1,base.path.length-1);
+  job.returnSiteId=base.site.id;job.stage='return';job.path=base.path;job.step=0;job.remaining=Math.max(1,base.path.length-1);
   return;
  }
  finishCaravanJob(job,cart,p);
@@ -405,7 +452,7 @@ function moveCaravanToStage(job,cart,p){
 function progressShipments(){
  for(const job of [...G.shipments]){
   const p=G.players[job.owner],cart=p?.caravans?.find(c=>c.id===job.caravanId);
-  if(!p||!cart){if(job.stage==='delivery'&&job.qty)addDepot(p,job.item,job.qty);G.shipments.splice(G.shipments.indexOf(job),1);continue;}
+  if(!p||!cart){if(p&&job.qty&&['delivery','unloading'].includes(job.stage))addDepot(p,job.item,job.qty);G.shipments.splice(G.shipments.indexOf(job),1);continue;}
   if((G.turnClock||0)<=(job.startedClock??-2)+1)continue;
   moveCaravanToStage(job,cart,p);
  }
