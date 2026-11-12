@@ -2285,9 +2285,13 @@ function expeditionTrailVisuals(){
   // so the steps point ahead instead of appearing to walk backwards.
   const px=-uy,py=ux;
   const degrees=Math.atan2(uy,ux)*180/Math.PI-90;
+  // Lead the moving flag with alternating prints, stepping toward its goal.
+  // On short approaches, clip the trail before the destination.
+  const forwardSpan=Math.min(28,Math.max(0,length-3));
   const boots=Array.from({length:4},(_,i)=>{
-   const back=25-i*6,side=(i%2===0?-1:1)*3.4;
-   const x=position.x-ux*back+px*side,y=position.y-uy*back+py*side+7;
+   if(forwardSpan<6)return '';
+   const ahead=forwardSpan*(.28+i*.24),side=(i%2===0?-1:1)*Math.min(3.4,forwardSpan*.18);
+   const x=position.x+ux*ahead+px*side,y=position.y+uy*ahead+py*side+7;
    return `<g class="gs-expedition-boot" style="--step:${i}" transform="translate(${x.toFixed(2)} ${y.toFixed(2)}) rotate(${degrees.toFixed(2)})">
     <path d="M-2 4Q-4 2-3-2L-1-6Q1-8 3-5L3 1Q3 5-2 4Z" fill="#eed9ae" stroke="#304d52" stroke-width="1.1"/>
     <path d="M-2 -4H2" stroke="#b08b5a" stroke-width="1.1"/>
