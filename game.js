@@ -1,4 +1,4 @@
-/* Global Standoff 0.3.8 — local supply chains, delivered equipment and stone industries. */
+/* Global Standoff 0.4.0 — builders, expedition crews, per-turn progress and restored hex controls. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -85,9 +85,10 @@ const BUILDINGS={
  farm:{name:'Farm',icon:'🌾',gold:4,wood:2,iron:0,space:2,rounds:1,upkeep:1,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Workers produce Food and raw Leather · both must be delivered'},
  lumber:{name:'Lumber Camp',icon:'🌲',gold:4,wood:1,iron:0,space:2,rounds:2,upkeep:1,jobs:[2,4,6],production:{},allow:['forest'],text:'Workers harvest Timber Logs · ship logs to Woodworks'},
  mine:{name:'Mine',icon:'⛏',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['mountain'],text:'Produces Stone on EVERY mountain plus any mineral veins'},
- homes:{name:'Homes',icon:'🏘',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces · caretakers employed for upkeep'},
+ homes:{name:'Homes',icon:'🏘',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces · caretakers employed for upkeep'},
  market:{name:'Marketplace',icon:'⚖',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'Gold income scales with worker staffing and morale'},
  academy:{name:'Academy',icon:'📚',gold:8,wood:2,iron:2,space:2,rounds:3,upkeep:2,jobs:[2,3,4],production:{knowledge:3},allow:['plains','forest','hills','desert','mountain'],text:'Research output requires staffed teachers'},
+ builderBunk:{name:'Builders’ Bunk',icon:'🛖',gold:8,wood:3,iron:0,space:1,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Houses 1 / 2 / 3 active builders by level. Builders travel before working'},
  post:{name:'Military Post',icon:'🛡',gold:8,wood:2,iron:2,space:2,rounds:2,upkeep:2,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Administrative staff support recruitment and the 12-troop garrison'},
  foundry:{name:'Steelworks Factory',icon:'🏭',gold:10,wood:3,iron:3,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Receives Iron + Coal shipments and smelts Steel'},
  leatherFactory:{name:'Leather Factory',icon:'🧵',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Raw Leather → Leather Armor; send gear to a military post'},
@@ -115,6 +116,7 @@ function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a
 const randInt=(rng,n)=>Math.floor(rng()*n);
 let G=null,selectedColor=0,showBuild=false,showResearch=false,cpuBusy=false,toastTimer=0,suppressClick=false,drag=null,rosterTab="citizens";
 let view={x:-600,y:-490,w:1200,h:980};
+let cpuLastAction=null; // Exact event emitted by a CPU action. No guesses from tile array order.
 let sheetMode=null,previewCardIndex=-1;
 let scenePlayback=null,scenePlaybackSerial=0;
 let cardEffectBusy=false,cardEffectPromise=Promise.resolve(); // Temporarily conceal completed changes until their on-board animation.
@@ -142,10 +144,79 @@ function ensureBuildingMeta(world){
   t.buildingMeta.length=(t.buildings||[]).length;
  }
 }
+
+// Builder citizens are not normal employees. A bunk's level governs crew capacity.
+function builderCapacity(p,world=G){
+ return world.tiles.filter(t=>t.owner===p.id).reduce((total,t)=>total+(t.buildings||[]).reduce((sum,type,i)=>sum+(type==='builderBunk'?(t.buildingMeta?.[i]?.level||1):0),0),0);
+}
+function syncBuilders(p,world=G){
+ if(!p.citizens)return;
+ const capital=world.tiles.find(t=>t.owner===p.id&&t.capital);
+ if(!capital)return;
+ const max=builderCapacity(p,world);
+ let builders=p.citizens.filter(c=>!!c.builder);
+ // Preserve existing builders on active jobs; only dismiss idle surplus.
+ while(builders.length>max){const idle=builders.find(c=>!c.builder.projectId);if(!idle)break;idle.builder=null;builders=p.citizens.filter(c=>!!c.builder);}
+ const candidates=p.citizens.filter(c=>c.age>=18&&!c.military&&!c.builder&&c.health>=25).sort((a,b)=>(!!a.job)-(!!b.job)||b.health-a.health||b.morale-a.morale);
+ while(builders.length<max&&candidates.length){const citizen=candidates.shift();citizen.job=null;citizen.builder={locationId:capital.id,projectId:null,travelRemaining:0};builders.push(citizen);}
+}
+function idleBuilders(p){return p.citizens.filter(c=>c.builder&&!c.builder.projectId);}
+function assignedBuilders(p,jobId){return p.citizens.filter(c=>c.builder?.projectId===jobId);}
+function buildersSummary(p){const builders=p.citizens.filter(c=>!!c.builder);return {total:builders.length,free:builders.filter(c=>!c.builder.projectId).length,busy:builders.filter(c=>!!c.builder.projectId).length,capacity:builderCapacity(p)};}
+function appointBuilder(p,job,tile){
+ const builder=idleBuilders(p)[0];if(!builder)return null;
+ const origin=G.tiles.find(t=>t.id===builder.builder.locationId)||G.tiles.find(t=>t.owner===p.id&&t.capital);
+ builder.builder.projectId=job.id;
+ builder.builder.travelRemaining=Math.max(0,Math.ceil(distance(origin||tile,tile)));
+ builder.builder.destinationId=tile.id;
+ job.builderIds??=[];job.builderIds.push(builder.id);
+ return builder;
+}
+function sendAdditionalBuilder(t,jobId,id=0){
+ const p=G.players[id],job=G.projects.find(j=>j.id===jobId&&j.owner===id&&j.tileId===t.id);
+ if(!active()||!job||!idleBuilders(p).length)return false;
+ const b=appointBuilder(p,job,t);if(!b)return false;
+ addLog(`${b.name} joined construction of ${BUILDINGS[job.type].name} at ${t.name}.`);
+ save();render();showToast(`${b.name} dispatched to help build`);return true;
+}
+function ensureStartingCrews(world){
+ for(const p of world.players){
+  const capital=world.tiles.find(t=>t.owner===p.id&&t.capital);if(!capital)continue;
+  // Capital civic package is part of the nation's original starting infrastructure.
+  if(!capital.buildings.includes('homes')){capital.buildings.push('homes');capital.buildingMeta??=[];capital.buildingMeta.push({id:world.nextBuildingId++,level:1,autoHire:false,stock:{},routes:{}});}
+  if(!capital.buildings.includes('builderBunk')){capital.buildings.push('builderBunk');capital.buildingMeta??=[];capital.buildingMeta.push({id:world.nextBuildingId++,level:1,autoHire:false,stock:{},routes:{}});}
+  p.expeditions??=[{id:`exp-${p.id}-1`,name:'Frontier Expedition',level:1,locationId:capital.id,targetId:null,remaining:0}];
+  for(const c of p.citizens){c.builder??=null;if(c.builder)c.job=null;}
+  syncBuilders(p,world);
+ }
+}
+function idleExpedition(p){return (p.expeditions||[]).find(crew=>!crew.targetId);}
+function expeditionForTile(tileId){return G.players.flatMap(p=>(p.expeditions||[]).map(crew=>({...crew,owner:p.id}))).find(c=>c.targetId===tileId);}
+function pendingClaim(tileId){return G.players.some(p=>(p.expeditions||[]).some(c=>c.targetId===tileId));}
+function progressExpeditions(){
+ for(const p of G.players)for(const crew of p.expeditions||[]){
+  if(!crew.targetId)continue;
+  crew.remaining=Math.max(0,crew.remaining-1);
+  if(crew.remaining>0)continue;
+  const tile=G.tiles.find(t=>t.id===crew.targetId);
+  if(tile&&tile.owner===null&&tile.terrain!=='water'&&neighbors(tile).some(n=>n.owner===p.id)){
+   tile.owner=p.id;reallocateHousing(p);discoverContacts();
+   G.completedScenes.push({projectId:`claim-${p.id}-${tile.id}-${G.turnClock}`,owner:p.id,tileId:tile.id,kind:'expand'});
+   addLog(`${p.name}'s expedition established control of ${tile.name}.`);
+  }
+  crew.locationId=tile?.owner===p.id?tile.id:crew.locationId;crew.targetId=null;
+ }
+}
+function advanceWorldTurn(){
+ G.turnClock=(G.turnClock||0)+1;
+ progressExpeditions();progressProjects();
+ save();
+}
+
 function worksite(t,index){return t.buildingMeta?.[index]||null;}
 function workCapacity(type,level){const spaces=BUILDINGS[type]?.jobs||[0,0,0];return spaces[Math.max(0,Math.min(2,level-1))]||0;}
 function worksiteWorkers(p,site){return site?p.citizens.filter(c=>c.job?.siteId===site.id&&!c.military&&c.age>=18):[];}
-function eligibleWorker(c){return c.age>=18&&!c.military&&c.health>=25;}
+function eligibleWorker(c){return c.age>=18&&!c.military&&!c.builder&&c.health>=25;}
 function assignWorkers(p,world=G){
  if(!world)return;
  const owned=world.tiles.filter(t=>t.owner===p.id);
@@ -160,7 +231,7 @@ function assignWorkers(p,world=G){
   if(!site||!eligibleWorker(c)||(staff.get(site.meta.id)||0)>=site.capacity){c.job=null;continue;}
   staff.set(site.meta.id,(staff.get(site.meta.id)||0)+1);
  }
- const priority={farm:0,lumber:1,mine:2,leatherFactory:3,woodworks:4,stoneworks:5,foundry:6,armory:7,market:8,academy:9,post:10,homes:11};
+ const priority={builderBunk:20,farm:0,lumber:1,mine:2,leatherFactory:3,woodworks:4,stoneworks:5,foundry:6,armory:7,market:8,academy:9,post:10,homes:11};
  sites.sort((a,b)=>(priority[a.kind]??9)-(priority[b.kind]??9));
  const unemployed=p.citizens.filter(c=>eligibleWorker(c)&&!c.job).sort((a,b)=>b.morale-a.morale||b.health-a.health||a.id.localeCompare(b.id));
  for(const site of sites){
@@ -210,10 +281,12 @@ function upgradePrice(t,index){
 function upgradeBuilding(t,index,id=0){
  const p=G.players[id],meta=worksite(t,index),cost=upgradePrice(t,index);
  if(!canCountryAct(p,id)||!allowed(p,t)||!meta||!cost)return false;
- if(G.projects.some(j=>j.upgradeSiteId===meta.id)||!hasMoney(p,cost.gold)||p.wood<cost.wood||mineralCount(p,'iron')<cost.iron)return false;
+ if(!idleBuilders(p).length||G.projects.some(j=>j.upgradeSiteId===meta.id)||!hasMoney(p,cost.gold)||p.wood<cost.wood||mineralCount(p,'iron')<cost.iron)return false;
  p.gold-=cost.gold;p.wood-=cost.wood;p.minerals.iron-=cost.iron;
- G.projects.push({id:G.nextProjectId++,owner:id,tileId:t.id,type:t.buildings[index],upgradeSiteId:meta.id,remaining:meta.level,total:meta.level,startedRound:G.round});
- useAction(p,`${p.name} began upgrading ${BUILDINGS[t.buildings[index]].name} to Level ${meta.level+1} at ${t.name}.`);
+ const duration=Math.max(2,meta.level*2);
+ const job={id:G.nextProjectId++,owner:id,tileId:t.id,type:t.buildings[index],upgradeSiteId:meta.id,remaining:duration,total:duration,startedRound:G.round,builderIds:[]};
+ G.projects.push(job);appointBuilder(p,job,t);
+ useAction(p,`${p.name} began upgrading ${BUILDINGS[t.buildings[index]].name} to Level ${meta.level+1} at ${t.name}.`,{tileId:t.id,kind:'upgrade'});
  if(id===0)showToast('Upgrade underway');return true;
 }
 // Every physical resource lives at its producer, in a shipment, at another worksite,
@@ -363,7 +436,7 @@ function makeCitizen(p,rng,starting=false){
 function buildUsed(t){return (t.capital?2:0)+(t.buildings||[]).reduce((sum,type)=>sum+(BUILDINGS[type]?.space||0),0)+(G?.projects||[]).filter(j=>j.tileId===t.id&&!j.upgradeSiteId).reduce((sum,j)=>sum+(BUILDINGS[j.type]?.space||0),0);}
 function buildFree(t){return Math.max(0,TERRAIN[t.terrain].slots-buildUsed(t));}
 function buildingCount(t,type){return (t.buildings||[]).filter(b=>b===type).length;}
-function tileHousing(t){return (t.capital?12:0)+8*buildingCount(t,'homes');}
+function tileHousing(t){return (t.capital?12:0)+(t.buildings||[]).reduce((beds,kind,i)=>beds+(kind==='homes'?8+4*((t.buildingMeta?.[i]?.level||1)-1):0),0);}
 function tileResidentCap(t){return Math.min(TERRAIN[t.terrain].population,tileHousing(t));}
 function reallocateHousing(p){
  const territories=G.tiles.filter(t=>t.owner===p.id).sort((a,b)=>Number(b.capital)-Number(a.capital));
@@ -516,8 +589,9 @@ function createWorld(seed,name,capital,color){
  prepareMineralVeins(tiles,seed);
  const deck=Array.from({length:6},()=>CARD_POOL).flat().sort(()=>rng()-.5);
  const worldName=['The Wild Marches','The Broken Coast','The Emerald Frontier','The Hinterlands','The New Continent'][randInt(rng,5)];
- G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],nextProjectId:1,nextTradeId:1,nextBuildingId:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
+ G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
  for(const p of players){const citizenRng=mulberry32(hash(seed+'-people-'+p.id));for(let k=0;k<10;k++)p.citizens.push(makeCitizen(p,citizenRng,true));reallocateHousing(p);drawCard(p);drawCard(p);}
+ ensureBuildingMeta(G);ensureStartingCrews(G);for(const p of G.players){reallocateHousing(p);assignWorkers(p);}
  beginTurn(0);
  addLog(`${name} established its capital at ${capital}. Four nations have entered a ${tiles.length}-hex world.`);
  save();
@@ -557,7 +631,19 @@ function migrateGameplay(s){
   if(p.ore!==undefined){p.minerals.iron+=Math.max(0,Math.floor(p.ore));delete p.ore;}
   for(const c of p.citizens||[]){if(c.health==null||c.morale==null){const rng=mulberry32(hash(s.seed+':traits:'+c.id));c.health=45+randInt(rng,56);c.morale=40+randInt(rng,61);}if(c.military){if(s.logisticsVersion!==1&&(!c.military.gear||['basic','leather'].includes(c.military.gear)))c.military.gear=null; c.military.shield??=null;c.military.weapon??=null;}c.job??=null;}
  }
+ if(!s.crewVersion){
+  s.turnClock??=0;
+  for(const job of s.projects){job.remaining=Math.max(1,(job.remaining||1)*2);job.total=Math.max(job.remaining,(job.total||1)*2);job.builderIds??=[];}
+  s.crewVersion=1;
+ }
+ ensureStartingCrews(s);
  for(const p of s.players)assignWorkers(p,s);
+ // Migrate unfinished old worksites onto the initial builder where possible.
+ const old=G;G=s;
+ for(const p of s.players)for(const job of s.projects.filter(j=>j.owner===p.id&&!j.builderIds?.length)){
+  const tile=s.tiles.find(t=>t.id===job.tileId);if(tile)appointBuilder(p,job,tile);
+ }
+ G=old;
  s.logisticsVersion=1;return s;
 }
 function loadSaved(){
@@ -711,10 +797,11 @@ async function playMapScenePlayback(playback){
  try{
   if(!tile||!sceneAlive(playback))return;
   const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  await moveCamera(tile,cameraYaw,reduced?0:450,window.innerWidth<600?335:430);
+  await moveCamera(tile,cameraYaw,reduced?0:cpuBusy?920:450,window.innerWidth<600?350:435);
   if(!sceneAlive(playback))return;
   playback.phase='play';renderMap();
-  await new Promise(resolve=>setTimeout(resolve,reduced?120:playback.kind==='work'?750:1120));
+  if(cpuBusy)await cpuPause(reduced?120:playback.kind==='work'?1050:1250,cpuPlaybackToken);
+   else await new Promise(resolve=>setTimeout(resolve,reduced?120:playback.kind==='work'?750:1120));
  }finally{
   if(!sceneAlive(playback))return;
   scenePlayback=null;
@@ -734,42 +821,50 @@ async function playMapScenePlayback(playback){
 }
 
 async function showCompletedProjects(){
- // Show completed construction at the start of the human turn, sequentially.
- while(G&&!G.finished&&G.turnIndex===0&&G.completedScenes?.length){
-  const completion=G.completedScenes[0],tile=G.tiles.find(t=>t.id===completion.tileId);
+ // Project completion belongs to the nation's TURN, not a whole global round.
+ // Show each completed project and each claimed territory at its actual location.
+ while(G&&!G.finished&&G.completedScenes?.length){
+  const item=G.completedScenes[0],tile=G.tiles.find(t=>t.id===item.tileId);
   if(!tile){G.completedScenes.shift();continue;}
-  const playback=startMapScenePlayback(tile,'build',completion.buildingIndex,completion.type);
+  if(scenePlayback){await scenePlayback.done;continue;}
+  const playback=startMapScenePlayback(tile,item.kind||'build',item.buildingIndex??-1,item.type||null);
   if(!playback)break;
-  playback.fromQueue=completion.projectId;
+  playback.fromQueue=item.projectId;
   await playback.done;
  }
  save();
 }
 function progressProjects(){
  for(const job of [...G.projects]){
-  job.remaining=Math.max(0,job.remaining-1);
-  if(job.remaining>0)continue;
-  const tile=G.tiles.find(t=>t.id===job.tileId);
-  if(tile&&tile.owner===job.owner){
-   if(job.upgradeSiteId){
-    const index=tile.buildingMeta?.findIndex(m=>m.id===job.upgradeSiteId);
-    if(index>=0)tile.buildingMeta[index].level=Math.min(3,tile.buildingMeta[index].level+1);
-    else {G.projects=G.projects.filter(j=>j.id!==job.id);continue;}
-   }else{
-    tile.buildings.push(job.type);
-    tile.buildingMeta??=[];
-    tile.buildingMeta.push({id:G.nextBuildingId++,level:1,autoHire:true,stock:{},routes:{},recipe:FACTORY_RECIPES[job.type]?.[0]||null});
-   }
-   reallocateHousing(G.players[job.owner]);
-   assignWorkers(G.players[job.owner]);
-   if(job.owner===0)G.completedScenes.push({projectId:job.id,tileId:job.tileId,type:job.type,buildingIndex:job.upgradeSiteId?tile.buildingMeta.findIndex(m=>m.id===job.upgradeSiteId):tile.buildings.length-1});
-   addLog(`${G.players[job.owner].name} completed ${job.upgradeSiteId?'a Level '+tile.buildingMeta.find(m=>m.id===job.upgradeSiteId).level+' upgrade for':'construction of'} ${BUILDINGS[job.type].name} at ${tile.name}.`);
+  const tile=G.tiles.find(t=>t.id===job.tileId),p=G.players[job.owner];
+  if(!tile||tile.owner!==job.owner){G.projects=G.projects.filter(j=>j.id!==job.id);for(const c of p.citizens)if(c.builder?.projectId===job.id)c.builder.projectId=null;continue;}
+  const crew=assignedBuilders(p,job.id);
+  const arriving=new Set();
+  for(const c of crew){
+   if(c.builder.travelRemaining>0){c.builder.travelRemaining--;arriving.add(c.id);if(c.builder.travelRemaining===0)c.builder.locationId=tile.id;}
   }
+  // Arriving builders must finish traveling before they can work on the next turn.
+  const labor=crew.filter(c=>c.builder.travelRemaining===0&&!arriving.has(c.id)).length;
+  if(labor===0)continue;
+  job.remaining=Math.max(0,job.remaining-labor);
+  if(job.remaining>0)continue;
+  if(job.upgradeSiteId){
+   const index=tile.buildingMeta?.findIndex(m=>m.id===job.upgradeSiteId);
+   if(index<0){G.projects=G.projects.filter(j=>j.id!==job.id);for(const c of crew)c.builder.projectId=null;continue;}
+   tile.buildingMeta[index].level=Math.min(3,tile.buildingMeta[index].level+1);
+  }else{
+   tile.buildings.push(job.type);tile.buildingMeta??=[];
+   tile.buildingMeta.push({id:G.nextBuildingId++,level:1,autoHire:true,stock:{},routes:{},recipe:FACTORY_RECIPES[job.type]?.[0]||null});
+  }
+  for(const c of crew){c.builder.projectId=null;c.builder.destinationId=null;c.builder.locationId=tile.id;c.builder.travelRemaining=0;}
   G.projects=G.projects.filter(j=>j.id!==job.id);
+  reallocateHousing(p);syncBuilders(p);assignWorkers(p);
+  G.completedScenes.push({projectId:job.id,owner:p.id,tileId:tile.id,kind:'build',type:job.type,buildingIndex:job.upgradeSiteId?tile.buildingMeta.findIndex(m=>m.id===job.upgradeSiteId):tile.buildings.length-1});
+  addLog(`${p.name} finished ${job.upgradeSiteId?'upgrading':'construction of'} ${BUILDINGS[job.type].name} at ${tile.name}.`);
  }
 }
 function volunteeringChance(c,p){
- if(c.military||c.age<18||c.health<35)return 0;
+ if(c.military||c.builder||c.age<18||c.health<35)return 0;
  const age=c.age<30?1:c.age<45?.8:c.age<60?.42:c.age<70?.1:.008;
  const health=Math.max(0,(c.health-35)/65),morale=Math.max(0,(c.morale-30)/70);
  return Math.min(.65,(.012+.11*health+.12*morale)*age+(p.marketingUntil>=G.round?.22*age:0));
@@ -792,7 +887,7 @@ function volunteerEachRound(p){
 function doMarketing(t,id=0){
  const p=G.players[id];if(!canCountryAct(p,id)||!allowed(p,t)||!buildingCount(t,'post')||!hasMoney(p,4))return false;
  p.gold-=4;p.marketingUntil=G.round+2;
- useAction(p,`${p.name} launched a recruiting campaign. Voluntary enlistment boosted for two rounds.`);
+ useAction(p,`${p.name} launched a recruiting campaign. Voluntary enlistment boosted for two rounds.`,{tileId:t.id,kind:'recruit'});
  if(id===0)showToast('Recruiting campaign launched');return true;
 }
 function animatePlayedCard(type,who){
@@ -831,10 +926,10 @@ function renderLobby(){
  el('resumeBtn').classList.toggle('hidden',!loadSaved());
 }
 function allowed(p,t){return t&&t.owner===p.id;}
-function eligibleExpansion(p,t){return !!t&&t.owner===null&&t.terrain!=='water'&&neighbors(t).some(n=>n.owner===p.id);}
+function eligibleExpansion(p,t){return !!t&&t.owner===null&&t.terrain!=='water'&&!pendingClaim(t.id)&&!!idleExpedition(p)&&neighbors(t).some(n=>n.owner===p.id);}
 function expansionCost(p){return Math.max(0,5+2*(p.expansionsThisTurn||0)-p.discountExpand-(p.tech.includes('cartography')?2:0));}
 function buildingCost(p,b){return Math.max(0,b.gold-p.discountBuild);}
-function canBuild(p,t,b){return allowed(p,t)&&buildFree(t)>=b.space&&b.allow.includes(t.terrain)&&hasMoney(p,buildingCost(p,b))&&p.wood>=b.wood&&mineralCount(p,'iron')>=b.iron;}
+function canBuild(p,t,b){return allowed(p,t)&&idleBuilders(p).length>0&&buildFree(t)>=b.space&&b.allow.includes(t.terrain)&&hasMoney(p,buildingCost(p,b))&&p.wood>=b.wood&&mineralCount(p,'iron')>=b.iron;}
 function getEconomy(id){
  const p=G.players[id],summary=peopleSummary(p);
  let vals={gold:0,food:0,wood:0,knowledge:0,upkeep:0,wages:0,buildingUpkeep:0};
@@ -857,6 +952,8 @@ function getEconomy(id){
  const adultTaxpayers=p.citizens.filter(c=>c.homeId&&c.age>=18).length;
  vals.gold+=Math.floor(adultTaxpayers/2)+Math.floor(workforceSummary(p).employed/2); // wage earners fund part of the tax base, salaries still cost a full Gold
  vals.upkeep+=Math.ceil(summary.soldiers/3);
+  const builderWages=(p.citizens||[]).filter(c=>!!c.builder).length;
+ vals.upkeep+=builderWages;vals.wages+=builderWages;
  vals.foodUse=Math.ceil(summary.count/6);
  vals.netFood=vals.food-vals.foodUse;
  vals.netGold=vals.gold-vals.upkeep;
@@ -895,7 +992,7 @@ function equipSoldier(citizenId,tier,id=0){
  if(!canCountryAct(p,id)||!canEquip(p,c,tier))return false;
  const stock=postStock(p,c.military.postId);addLocal(stock,GEAR[tier].item,-1);
  c.military.gear=tier;
- useAction(p,`${p.name} equipped ${c.name} with delivered ${GEAR[tier].name}.`);
+ useAction(p,`${p.name} equipped ${c.name} with delivered ${GEAR[tier].name}.`,{tileId:c.military.postId,kind:'equip'});
  if(id===0)showToast(`${c.name}: ${GEAR[tier].name} issued from post stores`);
  return true;
 }
@@ -906,7 +1003,7 @@ function equipAuxiliary(citizenId,item,id=0){
  if(!stock||localCount(stock,item)<1||c.military[field]===item)return false;
  addLocal(stock,item,-1);if(c.military[field])addLocal(stock,c.military[field],1);
  c.military[field]=item;
- useAction(p,`${p.name} issued delivered ${GOOD_NAMES[item]} to ${c.name}.`);return true;
+ useAction(p,`${p.name} issued delivered ${GOOD_NAMES[item]} to ${c.name}.`,{tileId:c.military.postId,kind:'equip'});return true;
 }
 
 function smeltSteel(){showToast('Steel requires a staffed Steelworks Factory and delivered Iron + Coal.');return false;}
@@ -929,22 +1026,30 @@ function renderMineralMarket(){
   return `<div class="gs-mineral-item"><span class="gs-mineral-symbol">${m.icon}</span><div class="gs-mineral-copy"><strong>${m.name} × ${q}</strong><small>Sell: ${m.price} 🪙${['coal','iron','copper','silver'].includes(key)?` · Buy: ${buy} 🪙`: ' · Mine or trade to acquire'}</small></div><div class="gs-mineral-actions"><button data-mineral="${key}" data-direction="sell" ${!canAct()||q<=0?'disabled':''}>Sell</button>${['coal','iron','copper','silver'].includes(key)?`<button data-mineral="${key}" data-direction="buy" ${!canAct()||!hasMoney(p,buy)?'disabled':''}>Buy</button>`:''}</div></div>`;
  }).join('')+`<div class="gs-mineral-item"><span class="gs-mineral-symbol">⚙️</span><div class="gs-mineral-copy"><strong>Steel × ${mineralCount(p,'steel')}</strong><small>Delivered Steel in capital warehouse · manufacture in staffed Steelworks from 2 Iron + 1 Coal</small></div><div class="gs-mineral-actions"><small>Factory only</small></div></div>`;
 }
-function useAction(p,text){p.actionsUsed=actionsUsed(p)+1;p.acted=actionsRemaining(p)===0;addLog(text);showBuild=false;showResearch=false;save();render();}
+function useAction(p,text,visual=null){
+ p.actionsUsed=actionsUsed(p)+1;p.acted=actionsRemaining(p)===0;
+ if(p.id>0)cpuLastAction={nation:p.id,description:text,tileId:visual?.tileId||null,kind:visual?.kind||'action'};
+ addLog(text);showBuild=false;showResearch=false;save();render();
+}
 function doExpand(t,id=0){
- const p=G.players[id];if(!canCountryAct(p,id)||!eligibleExpansion(p,t))return false;
+ const p=G.players[id],crew=idleExpedition(p);
+ if(!crew||!canCountryAct(p,id)||!eligibleExpansion(p,t))return false;
  const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;
- const playback=id===0?startMapScenePlayback(t,'expand'):null;
- p.gold-=cost;p.food-=2;p.discountExpand=0;p.expansionsThisTurn=(p.expansionsThisTurn||0)+1;t.owner=id;reallocateHousing(p);discoverContacts();
- useAction(p,`${p.name} expanded into ${t.name} (${TERRAIN[t.terrain].name.toLowerCase()}).`);
- if(id===0&&!playback){showToast(`Territory claimed: ${t.name}`);flashAction(t,'expand');}
+ p.gold-=cost;p.food-=2;p.discountExpand=0;p.expansionsThisTurn=(p.expansionsThisTurn||0)+1;
+ const origin=G.tiles.find(v=>v.id===crew.locationId)||G.tiles.find(v=>v.owner===id&&v.capital);
+ crew.targetId=t.id;crew.remaining=Math.max(1,Math.ceil(distance(origin||t,t)));
+ useAction(p,`${p.name} dispatched an expedition to ${t.name} (${crew.remaining} turn${crew.remaining===1?'':'s'} away).`,{tileId:t.id,kind:'expedition'});
+ if(id===0)showToast(`Expedition en route to ${t.name}`);
  return true;
 }
 function doBuild(t,type,id=0){
  const p=G.players[id],b=BUILDINGS[type];if(!canCountryAct(p,id)||!b||!canBuild(p,t,b))return false;
- const playback=id===0?startMapScenePlayback(t,'work',-1,type):null;
+ const playback=(id===0||cpuBusy)?startMapScenePlayback(t,'work',-1,type):null;
  p.gold-=buildingCost(p,b);p.wood-=b.wood;p.minerals.iron-=b.iron;p.discountBuild=0;
- G.projects.push({id:G.nextProjectId++,owner:id,tileId:t.id,type,remaining:b.rounds,total:b.rounds,startedRound:G.round});
- useAction(p,`${p.name} started ${b.name} at ${t.name} (${b.rounds} round${b.rounds===1?'':'s'}).`);
+ const duration=Math.max(2,b.rounds*2);
+ const job={id:G.nextProjectId++,owner:id,tileId:t.id,type,remaining:duration,total:duration,startedRound:G.round,builderIds:[]};
+ G.projects.push(job);appointBuilder(p,job,t);
+ useAction(p,`${p.name} started ${b.name} at ${t.name} (${b.rounds} round${b.rounds===1?'':'s'}).`,{tileId:t.id,kind:'work'});
  if(id===0&&!playback)showToast(`${b.name} construction started`);
  return true;
 }
@@ -953,8 +1058,8 @@ function doSell(t,idx=0,id=0){
  const type=t.buildings[idx],b=BUILDINGS[type],siteId=t.buildingMeta?.[idx]?.id;
  if(type==='post'&&getMilitaryPosts(id).length&&postGarrison(p,t.id).length>0){if(id===0)showToast('Move troops before selling this post.');return false;}
  const stock=worksite(t,idx)?.stock||{};for(const [item,amount] of Object.entries(stock)){if(amount>0)dispatchShipment(id,siteId,'depot',item,amount,true);}
- const refund=Math.max(2,Math.floor(b.gold*.6));p.gold+=refund;t.buildings.splice(idx,1);t.buildingMeta?.splice(idx,1);for(const citizen of p.citizens){if(citizen.job?.siteId===siteId)citizen.job=null;}reallocateHousing(p);assignWorkers(p);
- useAction(p,`${p.name} sold a ${b.name} at ${t.name} to the Global Bank for ${refund} Gold.`);
+ const refund=Math.max(2,Math.floor(b.gold*.6));p.gold+=refund;t.buildings.splice(idx,1);t.buildingMeta?.splice(idx,1);for(const citizen of p.citizens){if(citizen.job?.siteId===siteId)citizen.job=null;}reallocateHousing(p);syncBuilders(p);assignWorkers(p);
+ useAction(p,`${p.name} sold a ${b.name} at ${t.name} to the Global Bank for ${refund} Gold.`,{tileId:t.id,kind:'sell'});
  if(id===0)showToast(`${b.name} sold for ${refund} Gold`);return true;
 }
 function doRecruit(t,id=0){return doMarketing(t,id);}
@@ -964,7 +1069,7 @@ function doTrain(t,id=0){
  if(!soldiers.length||!hasMoney(p,3)||p.food<1)return false;
  p.gold-=3;p.food-=1;
  for(const c of soldiers){c.military.training++;if(c.military.training>=3&&!c.military.perk)c.military.perk='Disciplined';}
- useAction(p,`${p.name} trained ${soldiers.length} troops at ${t.name}.`);
+ useAction(p,`${p.name} trained ${soldiers.length} troops at ${t.name}.`,{tileId:t.id,kind:'train'});
  if(id===0)showToast('Training completed');return true;
 }
 function moveSoldier(citizenId,destinationId){
@@ -992,7 +1097,7 @@ function finishRound(){
   volunteerEachRound(p);
   assignWorkers(p);
  }
- progressProjects();progressShipments();runAgricultureAndForestry();
+ progressShipments();runAgricultureAndForestry();
  for(const p of G.players)extractMinesForRound(p);
  processFactories();autoDispatchOutputs();autoRequestFactoryInputs();progressTradeOffers();progressTradeRoutes();
  addLog(`Round ${G.round} concluded. Population, production and maintenance updated.`);
@@ -1001,7 +1106,12 @@ function finishRound(){
 }
 
 function cpuActionLocation(before,after){
- for(let i=0;i<after.length;i++)if(before[i].owner!==after[i].owner||(before[i].buildings||0)!==(after[i].buildings||0)||(before[i].projects||0)!==(G.projects||[]).filter(j=>j.tileId===after[i].id).length)return G.tiles[i];
+ // Fallback only when the actual tile state changed; compare count with count.
+ for(let i=0;i<after.length;i++){
+  const t=after[i],old=before[i];if(!old)continue;
+  const buildings=t.buildings?.length||0,projects=(G.projects||[]).filter(j=>j.tileId===t.id).length;
+  if(old.owner!==t.owner||old.buildings!==buildings||old.projects!==projects)return t;
+ }
  return null;
 }
 function showCpuHud(id,description){
@@ -1015,39 +1125,81 @@ async function runCpuCinematic(token=cpuPlaybackToken){
  for(let id=1;id<=3;id++){
   if(token!==cpuPlaybackToken||!G)return;
   const p=G.players[id],capital=G.tiles.find(t=>t.owner===id&&t.capital)||G.tiles[0];
-  beginTurn(id);render();showCpuHud(id,'Taking command of the nation…');
-  await moveCamera(capital,POV_ANGLES[id],640,window.innerWidth<600?400:515);
+  actionTileId=null;beginTurn(id);render();showCpuHud(id,`Viewing ${p.name}'s turn`);
+  // A longer, ease-in/ease-out camera sweep introduces the next country.
+  await moveCamera(capital,POV_ANGLES[id],1250,window.innerWidth<600?435:560);
   if(token!==cpuPlaybackToken||!G)return;
+  await cpuPause(490,token);
+  // Play their card as a distinct, visible event before the major actions.
+  if(playCpuOpeningCard(id)){
+   showCpuHud(id,`${p.name} played a card`);
+   await cardEffectPromise;
+   if(token!==cpuPlaybackToken||!G)return;
+   await cpuPause(460,token);
+  }
   for(let step=0;step<MAJOR_ACTIONS;step++){
    if(token!==cpuPlaybackToken||!G)return;
    const spent=actionsUsed(p);
    const before=G.tiles.map(t=>({owner:t.owner,buildings:t.buildings?.length||0,projects:(G.projects||[]).filter(j=>j.tileId===t.id).length}));
-   const prevLog=G.log[0]?.text;
+   cpuLastAction=null;
    runCpu(id);
-   if(cardEffectPromise)await cardEffectPromise;
-   const change=cpuActionLocation(before,G.tiles),last=G.log[0]?.text;
+   const action=cpuLastAction;
+   const fallback=cpuActionLocation(before,G.tiles);
+   const changedTile=action?.tileId?G.tiles.find(t=>t.id===action.tileId):fallback;
    save();render();
-   if(actionsUsed(p)===spent){showCpuHud(id,`${p.name} has no further affordable actions.`);break;}
-   showCpuHud(id,`Action ${actionsUsed(p)}/${MAJOR_ACTIONS}: ${last&&last!==prevLog?last:`${p.name} reviewed its plans.`}`);
-   if(change){await moveCamera(change,POV_ANGLES[id],320,window.innerWidth<600?330:415);flashAction(change,'cpu');}
+   if(actionsUsed(p)===spent){showCpuHud(id,`${p.name} has no further affordable actions.`);await cpuPause(500,token);break;}
+   showCpuHud(id,`Action ${actionsUsed(p)}/${MAJOR_ACTIONS}: ${action?.description||G.log[0]?.text||`${p.name} reviewed its plans.`}`);
+   // Expansion and construction now play exactly the human on-hex animation.
+   // No second flash or misleading fallback to the first map hex.
+   const playback=scenePlayback;
+   if(playback){await playback.done;}
+   else if(changedTile){
+    await moveCamera(changedTile,POV_ANGLES[id],1050,window.innerWidth<600?350:445);
+    if(token!==cpuPlaybackToken||!G)return;
+    flashAction(changedTile,action?.kind||'cpu');
+    await cpuPause(900,token);
+   }
    if(token!==cpuPlaybackToken||!G)return;
-   await cpuPause(change?340:190,token);
+   await cpuPause(playback?690:changedTile?350:950,token);
   }
+  if(token!==cpuPlaybackToken||!G)return;
+  advanceWorldTurn();
+  await showCompletedProjects();
+  if(token!==cpuPlaybackToken||!G)return;
+  await cpuPause(620,token);
  }
  if(token!==cpuPlaybackToken||!G)return;
  finishRound();
  if(G.finished){hideCpuHud();return;}
+ cpuBusy=true;render(); // Keep input locked through the return camera move.
  showCpuHud(0,'The next round begins — your move.');
  const home=G.tiles.find(t=>t.owner===0&&t.capital)||G.tiles[0];
- await moveCamera(home,POV_ANGLES[0],700,window.innerWidth<600?420:540);
- hideCpuHud();render();await showCompletedProjects();
+ await moveCamera(home,POV_ANGLES[0],1350,window.innerWidth<600?435:565);
+ hideCpuHud();await showCompletedProjects();cpuBusy=false;render();
 }
-function endTurn(){if(!active())return;closeCardPreview();closeSheet();cpuBusy=true;skipCpuPlayback=false;cpuPlaybackToken++;G.turnIndex=1;save();render();el('mapWrap').scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>runCpuCinematic(cpuPlaybackToken).catch(e=>{console.error('CPU playback failed',e);hideCpuHud();if(G&&!G.finished){cpuBusy=false;G.turnIndex=0;save();render();showToast('CPU playback interrupted; resume your turn.');}}),200);}
-function cpuStep(){if(!G||G.finished)return;const id=G.turnIndex;if(id<1||id>3){cpuBusy=false;return;}const p=G.players[id];beginTurn(id);for(let step=0;step<MAJOR_ACTIONS;step++){const spent=actionsUsed(p);runCpu(id);if(actionsUsed(p)===spent)break;}save();render();if(id===3){setTimeout(()=>{if(G)finishRound();},400);}else{G.turnIndex=id+1;save();setTimeout(cpuStep,470);}}
-function runCpu(id){
- const p=G.players[id];let playable=p.hand.findIndex(c=>['grant','harvest','supplies','insight'].includes(c));
+function endTurn(){
+ if(!active())return;
+ closeCardPreview();closeSheet();cpuBusy=true;skipCpuPlayback=false;cpuPlaybackToken++;
+ const token=cpuPlaybackToken;save();render();
+ el('mapWrap').scrollIntoView({behavior:'smooth',block:'center'});
+ setTimeout(async()=>{
+  try{
+   advanceWorldTurn();
+   await showCompletedProjects();
+   if(token===cpuPlaybackToken)await runCpuCinematic(token);
+  }catch(e){console.error('CPU playback failed',e);hideCpuHud();if(G&&!G.finished){scenePlayback=null;cpuBusy=false;G.turnIndex=0;save();render();showToast('CPU playback interrupted; resume your turn.');}}
+ },140);
+}
+function cpuStep(){if(!G||G.finished)return;const id=G.turnIndex;if(id<1||id>3){cpuBusy=false;return;}const p=G.players[id];beginTurn(id);for(let step=0;step<MAJOR_ACTIONS;step++){const spent=actionsUsed(p);runCpu(id);if(actionsUsed(p)===spent)break;}advanceWorldTurn();save();render();if(id===3){setTimeout(()=>{if(G)finishRound();},400);}else{G.turnIndex=id+1;save();setTimeout(cpuStep,470);}}
+function playCpuOpeningCard(id){
+ const p=G.players[id];if(p.cardPlayed)return false;
+ let playable=p.hand.findIndex(c=>['grant','harvest','supplies','insight'].includes(c));
  if(playable<0)playable=p.hand.findIndex(c=>c==='charter');if(playable<0)playable=p.hand.findIndex(c=>c==='permit');
- if(playable>=0&&!p.cardPlayed)playCard(id,playable);
+ return playable>=0?playCard(id,playable):false;
+}
+function runCpu(id){
+ const p=G.players[id];
+ if(!p.cardPlayed)playCpuOpeningCard(id);
  if(G.round>=4&&G.round%4===id%4&&actionsRemaining(p)>0){
   const available=G.players.filter(v=>v.id!==id&&hasContact(id,v.id)&&!alreadyLinked(id,v.id));
   if(available.length&&p.gold>12&&proposeTradeRoute(available[0].id,50,id))return;
@@ -1151,7 +1303,7 @@ function renderTile(t){
  t.buildings.forEach((type,i)=>{
   const b=BUILDINGS[type],meta=worksite(t,i),q=owner?workQuality(owner,meta,type):null,occupied=type==='post'&&owner?postGarrison(owner,t.id).length:0;
   const upgrade=upgradePrice(t,i),inProgress=G.projects.some(job=>job.upgradeSiteId===meta?.id);
-  html+=`<div class="gs-job-card"><div class="gs-job-head"><strong>${b.icon} ${b.name} · Lvl ${meta?.level||1}</strong><small>${q?.count||0}/${q?.slots||0} workers · Morale ${q?.count?Math.round(q.morale):'—'}/100 · ${(b.upkeep+(meta.level-1)*Math.ceil(b.upkeep*.8))} base upkeep + ${q?.count||0} wages${type==='post'?` · ${occupied}/12 troops`:''}</small></div>`;
+  html+=`<div class="gs-job-card"><div class="gs-job-head"><strong>${b.icon} ${b.name} · Lvl ${meta?.level||1}</strong><small>${type==='homes'?`${8+4*((meta?.level||1)-1)} housing capacity · no employees required`:type==='builderBunk'?`${meta?.level||1} builder position${(meta?.level||1)===1?'':'s'} · provides specialized builders`: `${q?.count||0}/${q?.slots||0} workers · Morale ${q?.count?Math.round(q.morale):'—'}/100`} · ${(b.upkeep+(meta.level-1)*Math.ceil(b.upkeep*.8))} base upkeep${q.slots?' + '+q.count+' wages':''}${type==='post'?` · ${occupied}/12 troops`:''}</small></div>`;
   const stockList=Object.entries(meta?.stock||{}).filter(([k,v])=>v>0);
   const outgoing=G.shipments.filter(job=>job.owner===p.id&&job.from===meta.id);
   html+=`<div class="gs-site-inventory"><small>📦 On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>🚚 Shipped: ${outgoing.slice(0,4).map(job=>`${job.qty} ${GOOD_NAMES[job.item]||job.item} (${job.remaining}r)`).join(' · ')}`:''}</small></div>`;
@@ -1161,17 +1313,24 @@ function renderTile(t){
    for(const item of current){const route=meta.routes?.[item]||'depot';
     html+=`<label class="gs-routing-label">🚚 ${GOOD_NAMES[item]||item} destination <select data-route-site="${i}" data-route-good="${item}">${targets.map(target=>`<option value="${target.id}" ${String(route)===String(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>`;}
   }
-  if(isOwn){html+=`<div class="gs-job-controls"><button data-action="hire-worker" data-index="${i}" ${!active()||q.count>=q.slots||!p.citizens.some(c=>eligibleWorker(c)&&!c.job)?'disabled':''}>Hire</button><button data-action="release-worker" data-index="${i}" ${!active()||!q.count?'disabled':''}>Release</button><button data-action="auto-workers" data-index="${i}" ${!active()?'disabled':''}>Auto ${meta.autoHire?'ON':'OFF'}</button>`;
-   if(upgrade)html+=`<button data-action="upgrade" data-index="${i}" ${!canAct()||inProgress||!hasMoney(p,upgrade.gold)||p.wood<upgrade.wood||mineralCount(p,'iron')<upgrade.iron?'disabled':''}>${inProgress?'Upgrading…':`Upgrade L${meta.level+1}: ${upgrade.gold} 🪙 ${upgrade.wood} 🪵 ${upgrade.iron} 🔩`}</button>`;
+  if(isOwn){html+=`<div class="gs-job-controls">${q.slots?`<button data-action="hire-worker" data-index="${i}" ${!active()||q.count>=q.slots||!p.citizens.some(c=>eligibleWorker(c)&&!c.job)?'disabled':''}>Hire</button><button data-action="release-worker" data-index="${i}" ${!active()||!q.count?'disabled':''}>Release</button><button data-action="auto-workers" data-index="${i}" ${!active()?'disabled':''}>Auto ${meta.autoHire?'ON':'OFF'}</button>`:''}`;
+   if(upgrade)html+=`<button data-action="upgrade" data-index="${i}" ${!canAct()||!idleBuilders(p).length||inProgress||!hasMoney(p,upgrade.gold)||p.wood<upgrade.wood||mineralCount(p,'iron')<upgrade.iron?'disabled':''}>${inProgress?'Upgrading…':`Upgrade L${meta.level+1}: ${upgrade.gold} 🪙 ${upgrade.wood} 🪵 ${upgrade.iron} 🔩`}</button>`;
    html+=`<button data-action="sell" data-index="${i}" ${!canAct()||occupied>0||inProgress?'disabled':''}>Sell +${Math.max(2,Math.floor(b.gold*.6))} 🪙</button></div>`;
   }
   html+='</div>';
  });html+='</div>';}
 
  const jobs=(G.projects||[]).filter(j=>j.tileId===t.id);
- if(jobs.length){html+='<div class="building-roster"><strong>🚧 Under construction</strong>'+jobs.map(j=>`<div class="building-row"><span>${BUILDINGS[j.type].icon} ${BUILDINGS[j.type].name}<small>${j.remaining} round${j.remaining===1?'':'s'} until ready · ${j.upgradeSiteId?'upgrading existing building':BUILDINGS[j.type].space+' space reserved'}</small></span></div>`).join('')+'</div>';}
+ if(jobs.length){html+='<div class="building-roster"><strong>🚧 Under construction</strong>'+jobs.map(j=>{
+  const assigned=assignedBuilders(G.players[j.owner],j.id),enRoute=assigned.filter(c=>c.builder.travelRemaining>0).length;
+  const extra=isOwn&&idleBuilders(p).length?`<button data-action="add-builder" data-job="${j.id}">➕ Assign another builder</button>`:'';
+  return `<div class="building-row"><span>${BUILDINGS[j.type].icon} ${BUILDINGS[j.type].name}<small>${j.remaining} work turns left · ${assigned.length} builder${assigned.length===1?'':'s'} (${enRoute} en route) · ${j.upgradeSiteId?'upgrading existing building':BUILDINGS[j.type].space+' space reserved'}</small></span>${extra}</div>`;
+ }).join('')+'</div>';}
+ if(isOwn){const b=buildersSummary(p),exp=(p.expeditions||[])[0];html+=`<div class="gs-crew-status">🛠 Builders: ${b.free}/${b.total} available (capacity ${b.capacity}) · 🧭 Expedition: ${exp?.targetId?'traveling ('+exp.remaining+' turns)':'ready'}</div>`;}
+
  html+='<div class="tile-actions">';
- if(frontier){const cost=expansionCost(p),afford=hasMoney(p,cost)&&p.food>=2;html+=`<button class="action-btn primary-action" data-action="expand" ${!canAct()||!afford?'disabled':''}>Claim territory <span>${cost} 🪙 + 2 🌾</span></button>`;if(!afford)html+='<div class="disabled-help">Not enough Gold or Food to expand.</div>';}
+ if(frontier){const cost=expansionCost(p),afford=hasMoney(p,cost)&&p.food>=2;html+=`<button class="action-btn primary-action" data-action="expand" ${!canAct()||!afford?'disabled':''}>Send expedition <span>${cost} 🪙 + 2 🌾 · travel required</span></button>`;if(!afford)html+='<div class="disabled-help">Not enough Gold or Food to expand.</div>';}
+ else if(t.owner===null&&pendingClaim(t.id)){const exp=expeditionForTile(t.id);html+=`<div class="feature-locked">🧭 ${esc(G.players[exp.owner].name)} expedition approaching · ${exp.remaining} turn${exp.remaining===1?'':'s'} remaining</div>`;}
  else if(t.owner===null&&t.terrain==='water'){html+='<div class="feature-locked">🌊 Lakes cannot currently be claimed or built upon.</div>';}
  else if(t.owner===null){html+='<p class="empty-note">Expand from your own border to reach this territory.</p>';}
  else if(isOwn){
@@ -1181,13 +1340,14 @@ function renderTile(t){
    const count=postGarrison(p,t.id).length,available=p.citizens.filter(c=>c.age>=18&&!c.military).length;
    html+=`<div class="post-actions"><strong>🛡 Military post · ${count}/12 stationed</strong><button class="action-btn" data-action="recruit" ${!canAct()||count>=12||!available||!hasMoney(p,4)?'disabled':''}>Recruitment marketing <span>4 🪙 · 2 rounds boost</span></button><button class="action-btn" data-action="train" ${!canAct()||!count||!hasMoney(p,3)||p.food<1?'disabled':''}>Train up to 3 troops <span>3 🪙 + 1 🌾</span></button></div>`;
   }
-  if(peopleSummary(p).homeless>0)html+='<div class="disabled-help">💡 Build Homes here if space allows. Each adds 8 housing spaces, up to the terrain population ceiling.</div>';
+  if(!idleBuilders(p).length)html+='<div class="disabled-help">🛠 All builders are assigned. Finish a project or upgrade/build another Builders’ Bunk.</div>';
+   if(peopleSummary(p).homeless>0)html+='<div class="disabled-help">💡 Build Homes here if space allows. Each adds 8 housing spaces, up to the terrain population ceiling.</div>';
  }else{html+='<div class="feature-locked">⚔ Warfare and reconnaissance arrive in a later version.</div>';}
  html+='</div>';container.innerHTML=html;
  if(showBuild){if(!isOwn||buildFree(t)<=0){showBuild=false;el('buildPanel').classList.add('hidden');}else renderBuildOptions(t);}
 }
 function renderBuildOptions(t){
- const p=getCountry();el('buildOptions').innerHTML=Object.entries(BUILDINGS).filter(([k,b])=>b.allow.includes(t.terrain)).map(([k,b])=>`<button class="build-option" data-build="${k}" ${!canAct()||!canBuild(p,t,b)?'disabled':''}><span class="build-symbol">${b.icon}</span><span class="build-main"><span class="build-name">${b.name}</span><span class="build-desc" style="display:block">${b.text} · ${b.space} space · ${b.rounds} round(s) build · −${b.upkeep} Gold upkeep</span></span><span class="build-cost">${buildingCost(p,b)} 🪙<br>${b.wood} 🪵 · ${b.iron} 🔩</span></button>`).join('');
+ const p=getCountry();el('buildOptions').innerHTML=Object.entries(BUILDINGS).filter(([k,b])=>b.allow.includes(t.terrain)).map(([k,b])=>`<button class="build-option" data-build="${k}" ${!canAct()||!canBuild(p,t,b)?'disabled':''}><span class="build-symbol">${b.icon}</span><span class="build-main"><span class="build-name">${b.name}</span><span class="build-desc" style="display:block">${b.text} · ${b.space} space · ${Math.max(2,b.rounds*2)} work turns + builder travel · −${b.upkeep} Gold upkeep</span></span><span class="build-cost">${buildingCost(p,b)} 🪙<br>${b.wood} 🪵 · ${b.iron} 🔩</span></button>`).join('');
 }
 function renderRoster(){
  const p=getCountry(),posts=getMilitaryPosts(0),troops=p.citizens.filter(c=>!!c.military);
@@ -1197,7 +1357,7 @@ function renderRoster(){
  if(rosterTab==='citizens'){
   el('rosterList').innerHTML=`<div class="roster-head">Citizen <span>Age · Residence · Role</span></div>`+p.citizens.map(c=>{
    const home=c.homeId?G.tiles.find(t=>t.id===c.homeId)?.name||'Unknown':'Homeless';
-   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>${c.age} years · Health ${c.health}/100 · Morale ${c.morale}/100 · ${esc(home)}${c.military?' · Soldier':c.job?' · Employed: '+esc((()=>{const t=G.tiles.find(t=>t.id===c.job.tileId),idx=t?.buildingMeta?.findIndex(m=>m.id===c.job.siteId);return idx>=0?BUILDINGS[t.buildings[idx]].name:'Workplace';})()):' · Unemployed'}</small></div>`;
+   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>${c.age} years · Health ${c.health}/100 · Morale ${c.morale}/100 · ${esc(home)}${c.military?' · Soldier':c.builder?' · Builder'+(c.builder.projectId?' (on assignment)':' (available)'):c.job?' · Employed: '+esc((()=>{const t=G.tiles.find(t=>t.id===c.job.tileId),idx=t?.buildingMeta?.findIndex(m=>m.id===c.job.siteId);return idx>=0?BUILDINGS[t.buildings[idx]].name:'Workplace';})()):' · Unemployed'}</small></div>`;
   }).join('');
  }else{
   el('rosterList').innerHTML=troops.length?`<p class="roster-instructions">Transfer one soldier between your posts each turn, even after using your main action.</p>`+troops.map(c=>{
@@ -1267,6 +1427,7 @@ function buildingSprite(type,x,y,color){
  if(type==='farm')return `<g pointer-events="none" class="map-sprite"><path d="M${x-22} ${y+9}l20 -9 23 8 -20 10z" fill="#c3a265" stroke="#9f8151" stroke-width="1.2"/><path d="M${x-15} ${y+8}l15 -7m-7 12l16 -8m-17 4l15 -7" stroke="#f2d277" stroke-width="2"/></g>`+hutSprite(x+8,y-7,'#c66647',16,15);
  if(type==='lumber')return treeSprite(x-8,y,27,1)+hutSprite(x+8,y+5,'#8c6951',15,12)+`<path d="M${x-20} ${y+11}h18m-17 4h16" stroke="#9e6d41" stroke-width="4" pointer-events="none"/>`;
  if(type==='mine')return mountainSprite(x,y+5,24,28)+`<g pointer-events="none"><path d="M${x-12} ${y+8}v-11q12 -12 24 0v11z" fill="#383e43" stroke="#d5b077" stroke-width="2.2"/></g>`;
+ if(type==='builderBunk')return `<g class="map-sprite" pointer-events="none"><rect x="${x-20}" y="${y-12}" width="40" height="22" rx="3" fill="#c8a778"/><path d="M${x-25} ${y-12}l25 -19 25 19Z" fill="#8f684c"/><text x="${x}" y="${y+6}" text-anchor="middle" fill="#553c2d" font-size="13">⚒</text></g>`;
  if(type==='post')return `<g pointer-events="none" class="map-sprite"><ellipse cx="${x}" cy="${y+7}" rx="22" ry="7" fill="#26372f" opacity=".2"/><path d="M${x-22} ${y+8}v-15l8 -4v17m28 -1v-16l8 4v15" fill="none" stroke="#82643f" stroke-width="4" stroke-dasharray="3 2"/><path d="M${x-16} ${y+6}l16 -21 16 21z" fill="#f3dbc0" stroke="#94695c"/><path d="M${x} ${y-15}l16 21H${x}Z" fill="#d78365"/><path d="M${x} ${y-15}v-19m1 0h18l-4 8H${x+1}Z" fill="${color}" stroke="#775343" stroke-width="1"/></g>`;
  if(type==='academy')return `<g pointer-events="none" class="map-sprite"><ellipse cx="${x}" cy="${y+5}" rx="22" ry="6" fill="#22352d" opacity=".25"/><path d="M${x-20} ${y+4}v-19h40v19Z" fill="#ead6b2"/><path d="M${x-24} ${y-15}l24 -17 24 17Z" fill="#6f90a2"/><path d="M${x-13} ${y-14}v18m13 -18v18m13 -18v18" stroke="#7d8b8a" stroke-width="4"/></g>`;
  if(type==='foundry')return `<g class="map-sprite" pointer-events="none"><ellipse cx="${x}" cy="${y+6}" rx="23" ry="7" fill="#233431" opacity=".26"/><path d="M${x-22} ${y+5}v-20h44v20Z" fill="#b7a697" stroke="#7d6860" stroke-width="1.5"/><path d="M${x-24} ${y-15}l10 -13 14 10 12 -10 12 13Z" fill="#996e5e"/><rect x="${x+9}" y="${y-40}" width="8" height="29" fill="#82716c"/><path d="M${x+13} ${y-40}q-6 -6 0 -12q8 -4 7 -14" fill="none" stroke="#d0d3c8" stroke-width="5" opacity=".75"/><path d="M${x-12} ${y-9}h8v11h-8zm17 0h8v11h-8z" fill="#f4cb75"/></g>`;
@@ -1302,7 +1463,7 @@ function tileMiniatures(t,x,y){
  if(extra>3)s+=`<g pointer-events="none"><rect x="${x+10}" y="${y-36}" width="28" height="16" rx="8" fill="#182e36" stroke="#e5c994"/><text x="${x+24}" y="${y-25}" font-size="10" font-weight="bold" fill="#fff2d3" text-anchor="middle">+${extra-3}</text></g>`;
  if(scenePlayback?.kind==='build'&&scenePlayback.tileId===t.id&&scenePlayback.buildingIndex>2&&scenePlayback.phase==='play')s+=constructionDustSprite(x,y);
  const jobs=(G.projects||[]).filter(j=>j.tileId===t.id);
- if(jobs.length){s+=`<g class="gs-worksite" pointer-events="none"><ellipse cx="${x}" cy="${y+6}" rx="23" ry="8" fill="#bd9164"/><path d="M${x-15} ${y+6}v-20h30v20m-30 -20l30 20m-30 0l30 -20" stroke="#654934" stroke-width="2.6" fill="none"/><text x="${x}" y="${y-22}" text-anchor="middle" font-size="11" fill="#fff0c5">🔨</text><g class="gs-work-dust"><circle cx="${x-16}" cy="${y-9}" r="8"/><circle cx="${x+8}" cy="${y-16}" r="9"/><circle cx="${x+18}" cy="${y-6}" r="6"/></g><text x="${x}" y="${y+23}" text-anchor="middle" fill="#fff1c9" font-size="10" font-weight="bold">${Math.min(...jobs.map(j=>j.remaining))}r</text></g>`;}
+ if(jobs.length){const working=jobs.some(j=>assignedBuilders(G.players[j.owner],j.id).some(c=>c.builder.travelRemaining===0));s+=`<g class="gs-worksite" pointer-events="none"><ellipse cx="${x}" cy="${y+6}" rx="23" ry="8" fill="#bd9164"/><path d="M${x-15} ${y+6}v-20h30v20m-30 -20l30 20m-30 0l30 -20" stroke="#654934" stroke-width="2.6" fill="none"/><text x="${x}" y="${y-22}" text-anchor="middle" font-size="11" fill="#fff0c5">🔨</text>${working?`<g class="gs-work-dust"><circle cx="${x-16}" cy="${y-9}" r="8"/><circle cx="${x+8}" cy="${y-16}" r="9"/><circle cx="${x+18}" cy="${y-6}" r="6"/></g>`:`<text x="${x}" y="${y-37}" fill="#fff1c9" font-size="10" text-anchor="middle">🚶 Crew approaching</text>`}<text x="${x}" y="${y+23}" text-anchor="middle" fill="#fff1c9" font-size="10" font-weight="bold">${Math.min(...jobs.map(j=>j.remaining))}t</text></g>`;}
  return s;
 }
 function renderMap(){
@@ -1312,14 +1473,15 @@ function renderMap(){
  const bases=[],decorations=[];
  for(const {t,c:{x,y}} of sorted){
   const claiming=scenePlayback?.tileId===t.id&&scenePlayback.kind==='expand';
-  const owner=(t.owner===null||(claiming&&scenePlayback.phase==='prepare'))?null:G.players[t.owner],selected=t.id===G.selectedId;
+  const owner=(t.owner===null||(claiming&&scenePlayback.phase==='prepare'))?null:G.players[t.owner],selected=!cpuBusy&&t.id===G.selectedId;
   const top=hexPoints(t,HEX-1),lower=top.map(p=>({x:p.x,y:p.y+10}));
   const fill=t.terrain==='water'?'#478aa8':TERRAIN[t.terrain].color;
   const border=owner?owner.color:'#6b775d';
   const faces=top.map((p,i)=>{const n=(i+1)%6;return `<polygon points="${pts([p,top[n],lower[n],lower[i]])}" fill="${i<3?'#6d6549':'#514e3c'}" opacity=".9"/>`;}).join('');
   bases.push(`<g class="tile-base" pointer-events="none"><polygon points="${pts(lower)}" fill="#202f2b" opacity=".33" transform="translate(2 2)"/>${faces}<polygon points="${pts(top)}" fill="${fill}" stroke="${border}" stroke-width="${owner?'2.5':'1.4'}"/><polygon points="${pts([top[4],top[5],top[0]])}" fill="#fff3c9" opacity=".07"/><polygon points="${pts([top[1],top[2],top[3]])}" fill="#2d312f" opacity=".08"/>${owner?`<polygon points="${pts(top)}" fill="${owner.color}" opacity=".14"/>`:''}${selected?`<polygon points="${pts(top)}" fill="none" stroke="#fff6c7" stroke-width="3.6"/>`:''}</g>`);
   const action=t.id===actionTileId;
-  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/>${tileMiniatures(t,x,y)}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}</g>`);
+  const scout=expeditionForTile(t.id);
+  decorations.push(`<g class="hex ${selected?'hex-selected':''} ${action?'hex-action-flash':''}" data-hex="${t.id}" tabindex="0" role="button" aria-label="${esc(t.name)}: ${TERRAIN[t.terrain].name}${owner?' owned by '+esc(owner.name):' unclaimed'}"><polygon class="hex-hit" points="${pts(top)}" fill="transparent" stroke="none"/>${tileMiniatures(t,x,y)}${scout?`<g pointer-events="none"><text x="${x}" y="${y-33}" text-anchor="middle" font-size="13">🧭</text><text x="${x}" y="${y-44}" text-anchor="middle" fill="#fff0bf" font-size="9">${scout.remaining}t</text></g>`:''}${owner?`<circle cx="${x-24}" cy="${y-13}" r="5.5" fill="${owner.color}" stroke="#fff8df" stroke-width="1.3" pointer-events="none"/>`:''}${action?`<ellipse class="tile-spotlight" cx="${x}" cy="${y}" rx="41" ry="28" fill="none" stroke="#fff1ba" stroke-width="3" pointer-events="none"/>`:''}${claiming&&scenePlayback.phase==='play'?`<polygon class="gs-claim-ring" points="${pts(top)}" fill="none" stroke="${owner?.color||'#f4dbac'}" stroke-width="6" pointer-events="none"/>`:''}</g>`);
  }
   const waterways=(G.rivers||[]).map(river=>{
    // Vertices are shared by two land hexes; project AFTER camera yaw/tilt.
@@ -1357,10 +1519,16 @@ function moveCamera(tile,targetYaw=cameraYaw,duration=800,targetWidth=460){
   let lastDraw=-1000;function frame(now){
    if(!G||token!==cpuPlaybackToken){done();return;}
    const t=skipCpuPlayback||window.matchMedia('(prefers-reduced-motion: reduce)').matches||duration<=0?1:Math.min(1,(now-start)/duration),k=smooth(t);
-   cameraYaw=blend(from.yaw,targetYaw,k);
+   const desiredYaw=blend(from.yaw,targetYaw,k),yawTravel=Math.abs(targetYaw-from.yaw);
+   // Rebuilding 169 textured SVG tiles on every animation frame caused phone lag.
+   // Pan and zoom are cheap viewBox-only updates every frame; only redraw for meaningful yaw changes.
+   if(t>=1||(yawTravel>.001&&now-lastDraw>=64)){
+    cameraYaw=desiredYaw;
+    if(yawTravel>.001)renderMap();
+    lastDraw=now;
+   }
    const dest=project(target.x,target.y,cameraYaw);
    setCenter(blend(from.cx,dest.x,k),blend(from.cy,dest.y,k),blend(from.width,targetWidth,k));
-   if(now-lastDraw>34||t>=1){renderMap();lastDraw=now;}
    if(t<1)cameraMoveFrame=requestAnimationFrame(frame);else done();
   }
   cameraMoveFrame=requestAnimationFrame(frame);
@@ -1392,7 +1560,7 @@ function bindEvents(){
    error.classList.remove('hidden');button.disabled=false;button.innerHTML='TRY GENERATING AGAIN <span>→</span>';
   }
  });
- el('resumeBtn').addEventListener('click',()=>{const saved=loadSaved();if(!saved)return;G=saved;enterGame();if(G.turnIndex===0&&G.completedScenes?.length)setTimeout(()=>showCompletedProjects(),200);if(G.finished)showEndGame();else if(G.turnIndex!==0){cpuBusy=true;cpuPlaybackToken++;skipCpuPlayback=true;setTimeout(()=>{for(let i=G.turnIndex;i<=3;i++){beginTurn(i);const p=G.players[i];for(let step=0;step<MAJOR_ACTIONS;step++){const spent=actionsUsed(p);runCpu(i);if(actionsUsed(p)===spent)break;}}finishRound();focusHome(true);render();},80);}});
+ el('resumeBtn').addEventListener('click',()=>{const saved=loadSaved();if(!saved)return;G=saved;enterGame();if(G.turnIndex===0&&G.completedScenes?.length)setTimeout(()=>showCompletedProjects(),200);if(G.finished)showEndGame();else if(G.turnIndex!==0){cpuBusy=true;cpuPlaybackToken++;skipCpuPlayback=true;setTimeout(()=>{for(let i=G.turnIndex;i<=3;i++){beginTurn(i);const p=G.players[i];for(let step=0;step<MAJOR_ACTIONS;step++){const spent=actionsUsed(p);runCpu(i);if(actionsUsed(p)===spent)break;}advanceWorldTurn();}finishRound();G.completedScenes=[];focusHome(true);cpuBusy=false;render();},80);}});
  el('sheetClose').addEventListener('click',closeSheet);
  el('sheetScrim').addEventListener('click',closeSheet);
  el('nationQuickBtn').addEventListener('click',()=>showSheet('nation'));
@@ -1410,7 +1578,7 @@ function bindEvents(){
  el('closeResearchBtn').addEventListener('click',closeSheet);
  el('closeBuildBtn').addEventListener('click',()=>{showBuild=false;render();});
  el('tradeBody').addEventListener('click',e=>{const propose=e.target.closest('[data-trade-propose]');if(propose){const to=Number(propose.dataset.tradePropose);const select=el('tradeBody').querySelector(`[data-trade-share="${to}"]`);proposeTradeRoute(to,Number(select?.value||50));return;}const ans=e.target.closest('[data-trade-answer]');if(ans)respondTradeOffer(Number(ans.dataset.tradeAnswer),ans.dataset.accept==='yes');});
- el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
+ el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
  el('territoryDetails').addEventListener('change',e=>{const t=getSelected();if(!t)return;const r=e.target.closest('[data-route-site]');if(r){setDeliveryRoute(t,Number(r.dataset.routeSite),r.dataset.routeGood,r.value);return;}const recipe=e.target.closest('[data-recipe-site]');if(recipe)setFactoryRecipe(t,Number(recipe.dataset.recipeSite),recipe.value);});
  el('buildOptions').addEventListener('click',e=>{const b=e.target.closest('[data-build]');if(b&&canAct())doBuild(getSelected(),b.dataset.build);});
  el('researchOptions').addEventListener('click',e=>{const b=e.target.closest('[data-tech]');if(b&&canAct())doResearch(b.dataset.tech);});
@@ -1441,11 +1609,24 @@ function bindEvents(){
   drag.x=e.clientX;drag.y=e.clientY;
  });
  const clearPointer=e=>{
+  const tapped=!!drag&&!drag.moved&&pointers.size===1;
   if(drag?.moved||pointers.size>1){suppressClick=true;setTimeout(()=>suppressClick=false,120);}
+  if(tapped)handleMapTap(e);
   pointers.delete(e.pointerId);drag=null;if(pointers.size<2)pinchLast=null;
  };
  svg.addEventListener('pointerup',clearPointer);svg.addEventListener('pointercancel',clearPointer);
- svg.addEventListener('click',e=>{if(suppressClick||!G||scenePlayback)return;const t=e.target.closest('[data-hex]');if(t){G.selectedId=t.dataset.hex;showBuild=false;render();save();showSheet('territory');}});
+ let lastMapTap=0;
+ function handleMapTap(e){
+  if(!G||cpuBusy||scenePlayback||cardEffectBusy||suppressClick)return;
+  if(performance.now()-lastMapTap<190)return;
+  // A tile can be replaced during camera animation between pointerdown and click.
+  const element=(document.elementFromPoint?.(e.clientX,e.clientY)||e.target);
+  const hit=element?.closest?.('[data-hex]')||e.target?.closest?.('[data-hex]');
+  if(!hit)return;
+  lastMapTap=performance.now();G.selectedId=hit.dataset.hex;showBuild=false;
+  render();save();showSheet('territory');
+ }
+ svg.addEventListener('click',e=>handleMapTap(e));
  svg.addEventListener('keydown',e=>{if(scenePlayback)return;if(['Enter',' '].includes(e.key)&&e.target.matches('[data-hex]')){e.preventDefault();G.selectedId=e.target.dataset.hex;showBuild=false;render();save();showSheet('territory');}});
  svg.addEventListener('wheel',e=>{e.preventDefault();zoom(e.deltaY>0?1.12:.89);},{passive:false});
  el('modalLayer').addEventListener('click',e=>{const b=e.target.closest('[data-modal]');if(!b){if(e.target===el('modalBackdrop'))closeModal();return;}switch(b.dataset.modal){case'close':closeModal();break;case'new-confirm':confirmNew();break;case'new':try{localStorage.removeItem(SAVE_KEY);localStorage.removeItem(OLD_SAVE_KEY);}catch(e){}newMatch();break;case'continue':G.finished=false;G.continued=true;G.maxRounds=Math.max(G.round+16,G.maxRounds+16);G.round++;beginTurn(0);cpuBusy=false;save();closeModal();render();break;}});
@@ -1460,5 +1641,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={getState:()=>G,select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount};
+window.GS_TEST={getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
 })();
