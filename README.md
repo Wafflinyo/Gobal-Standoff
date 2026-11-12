@@ -1,4 +1,12 @@
-# Global Standoff — Prototype 0.4.14
+# Global Standoff — Prototype 0.4.15
+
+## Version 0.4.15 — limited national debt and per-side road ownership
+
+- National treasury can borrow down to a **−10 Silver Pents** provisional credit ceiling. Buildings, expeditions, upgrades, trade purchases, and other paid actions may use this credit while above the floor, but all discretionary spending is blocked at the ceiling.
+- Round-end upkeep cannot push treasury beyond −10 SP. Unfunded maintenance is logged and reduces civilian morale; taxes, selling assets and earned income allow recovery.
+- Nation & Economy shows current debt, the credit limit, and alerts for a credit crisis.
+- Domestic or international roads are highlighted with the owning country's color **on each adjoining hex side**. An unowned side has **no** ownership-colored stripe; two countries adjoining the same road show both colors.
+- Existing saved games migrate safely and retain all territory and infrastructure.
 
 ## Version 0.4.14 — visible borders and color-lined roads
 
