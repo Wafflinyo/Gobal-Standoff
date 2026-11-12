@@ -1,4 +1,4 @@
-/* Global Standoff 0.3.5 — four-nation strategic sandbox and economy. */
+/* Global Standoff 0.3.6 — finite mineral veins, trade market and troop gear. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -11,22 +11,62 @@ const TERRAIN={
  forest:{name:'Forest',color:'#66a17c',yield:{wood:1},slots:6,population:20,desc:'Wooded land with good room for towns and lumber.'},
  hills:{name:'Hills',color:'#baa079',yield:{},slots:5,population:16,desc:'Rolling terrain with mineral deposits.'},
  desert:{name:'Desert',color:'#d2b879',yield:{},slots:3,population:10,desc:'Arid land with little space for growing communities.'},
- mountain:{name:'Mountains',color:'#97a0a0',yield:{ore:1},slots:2,population:6,desc:'Harsh peaks, smallest building and population capacity.'},
+ mountain:{name:'Mountains',color:'#97a0a0',yield:{},slots:2,population:6,desc:'Mountain mineral veins; prospect, mine and trade their output.'},
  water:{name:'Lake',color:'#4d97b7',yield:{},slots:0,population:0,desc:'A freshwater lake. Construction and claiming are unavailable.'}
 };
-// Wood comes from forest hexes and forest-only lumber camps. Ore comes from
-// mountain hexes and mountain-only mines. Construction uses both resources.
+// Mountain mineral veins are fixed at world generation. Diamonds are rare both
+// as deposits and as individual mining successes; no generic Ore is produced.
+const MINERALS={
+ coal:{name:'Coal',icon:'⚫',weight:26,price:2,chance:1,rate:2,reserve:36},
+ iron:{name:'Iron',icon:'🔩',weight:20,price:3,chance:.95,rate:2,reserve:30},
+ copper:{name:'Copper',icon:'🟠',weight:9,price:5,chance:.85,rate:2,reserve:18},
+ silver:{name:'Silver',icon:'🥈',weight:5,price:9,chance:.6,rate:1,reserve:12},
+ goldOre:{name:'Gold Ore',icon:'🥇',weight:3,price:16,chance:.35,rate:1,reserve:8},
+ diamond:{name:'Diamonds',icon:'💎',weight:1,price:40,chance:.12,rate:1,reserve:4}
+};
+const MINERAL_KEYS=Object.keys(MINERALS);
+const START_MINERALS={coal:2,iron:5,copper:0,silver:0,goldOre:0,diamond:0,steel:0};
+// Gold Ore is a mineral, separate from spendable Gold coins.
+// Gilded equipment uses gold ornamentation; Diamond represents reinforced edges.
+const GEAR={
+ basic:{name:'Basic',icon:'🧥',bonus:0,requires:{},gold:0},
+ iron:{name:'Iron Gear',icon:'🛡',bonus:4,requires:{iron:2},gold:2},
+ gold:{name:'Gold Gear',icon:'🥇',bonus:7,requires:{steel:1,goldOre:1},gold:4},
+ diamond:{name:'Diamond Gear',icon:'💎',bonus:11,requires:{steel:2,diamond:1},gold:7}
+};
+const GEAR_ORDER=['basic','iron','gold','diamond'];
+function emptyMinerals(){return {...START_MINERALS,coal:0,iron:0};}
+function veinFor(seed,tileId){
+ const rng=mulberry32(hash(seed+':mineral-deposit:'+tileId));
+ const roll=rng()*100;let remaining=roll,kind=null;
+ for(const key of MINERAL_KEYS){remaining-=MINERALS[key].weight;if(remaining<0){kind=key;break;}}
+ if(!kind)return null; // Barren mountains have no mineral deposit.
+ const cap=MINERALS[kind].reserve+randInt(rng,7);
+ return {kind,remaining:cap,capacity:cap};
+}
+function prepareMineralVeins(tiles,seed,legacy=false){
+ for(const t of tiles){
+  if(t.terrain!=='mountain'){delete t.vein;continue;}
+  if(t.vein!==undefined)continue;
+  t.vein=veinFor(seed,t.id);
+  // Existing players' mines remain productive after save migration.
+  if(!t.vein&&legacy&&(t.buildings||[]).includes('mine')){const cap=26;t.vein={kind:'iron',remaining:cap,capacity:cap};}
+ }
+}
+function mineralCount(p,key){return Math.max(0,Math.floor(p.minerals?.[key]||0));}
+function gearReadiness(c){return 10+2*(c.military?.training||1)+Math.floor((c.military?.experience||0)/3)+(GEAR[c.military?.gear||'basic']?.bonus||0);}
+
 const BUILDINGS={
- farm:{name:'Farm',icon:'🌾',gold:4,wood:2,ore:0,space:2,rounds:1,upkeep:1,production:{food:4},allow:['plains','forest','hills'],text:'+4 Food/round (rivers add +1)'},
- lumber:{name:'Lumber Camp',icon:'🌲',gold:4,wood:1,ore:0,space:2,rounds:2,upkeep:1,production:{wood:3},allow:['forest'],text:'+3 Wood/round · forests only'},
- mine:{name:'Mine',icon:'⛏',gold:6,wood:2,ore:0,space:2,rounds:2,upkeep:2,production:{ore:3},allow:['mountain'],text:'+3 Ore/round · mountains only'},
- homes:{name:'Homes',icon:'🏘',gold:5,wood:2,ore:0,space:1,rounds:1,upkeep:1,production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces, limited by terrain'},
- market:{name:'Marketplace',icon:'⚖',gold:7,wood:2,ore:1,space:2,rounds:2,upkeep:2,production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'+5 Gold/round'},
- academy:{name:'Academy',icon:'📚',gold:8,wood:2,ore:2,space:2,rounds:3,upkeep:2,production:{knowledge:3},allow:['plains','forest','hills','desert','mountain'],text:'+3 Knowledge/round'},
- post:{name:'Military Post',icon:'🛡',gold:8,wood:2,ore:2,space:2,rounds:2,upkeep:2,production:{},allow:['plains','forest','hills','desert','mountain'],text:'12-troop garrison · voluntary enlistment each round'}
+ farm:{name:'Farm',icon:'🌾',gold:4,wood:2,iron:0,space:2,rounds:1,upkeep:1,production:{food:4},allow:['plains','forest','hills'],text:'+4 Food/round (rivers add +1)'},
+ lumber:{name:'Lumber Camp',icon:'🌲',gold:4,wood:1,iron:0,space:2,rounds:2,upkeep:1,production:{wood:3},allow:['forest'],text:'+3 Wood/round · forests only'},
+ mine:{name:'Mine',icon:'⛏',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,production:{},allow:['mountain'],text:'Extracts the mountain’s fixed mineral vein; rarer minerals yield less often'},
+ homes:{name:'Homes',icon:'🏘',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces, limited by terrain'},
+ market:{name:'Marketplace',icon:'⚖',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'+5 Gold/round'},
+ academy:{name:'Academy',icon:'📚',gold:8,wood:2,iron:2,space:2,rounds:3,upkeep:2,production:{knowledge:3},allow:['plains','forest','hills','desert','mountain'],text:'+3 Knowledge/round'},
+ post:{name:'Military Post',icon:'🛡',gold:8,wood:2,iron:2,space:2,rounds:2,upkeep:2,production:{},allow:['plains','forest','hills','desert','mountain'],text:'12-troop garrison · voluntary enlistment each round'}
 };
 const TECHS={irrigation:{name:'Irrigation',icon:'💧',gold:3,knowledge:4,desc:'+1 Food per Farm, every round.'},commerce:{name:'Commerce',icon:'⚜',gold:4,knowledge:5,desc:'+1 Gold per Marketplace, every round.'},cartography:{name:'Cartography',icon:'🧭',gold:4,knowledge:5,desc:'Expansion costs 2 less Gold.'}};
-const CARDS={grant:{name:'Royal Grant',icon:'🪙',desc:'Gain 6 Gold.'},harvest:{name:'Great Harvest',icon:'🌽',desc:'Gain 5 Food.'},supplies:{name:'Supply Caravan',icon:'📦',desc:'Gain 3 Wood and 2 Ore.'},insight:{name:'Discovery',icon:'📜',desc:'Gain 3 Knowledge.'},charter:{name:'Frontier Charter',icon:'🗺',desc:'Next expansion costs 3 less Gold.'},permit:{name:'Building Permit',icon:'🏛',desc:'Next building costs 3 less Gold.'}};
+const CARDS={grant:{name:'Royal Grant',icon:'🪙',desc:'Gain 6 Gold.'},harvest:{name:'Great Harvest',icon:'🌽',desc:'Gain 5 Food.'},supplies:{name:'Supply Caravan',icon:'📦',desc:'Gain 3 Wood and 2 Iron.'},insight:{name:'Discovery',icon:'📜',desc:'Gain 3 Knowledge.'},charter:{name:'Frontier Charter',icon:'🗺',desc:'Next expansion costs 3 less Gold.'},permit:{name:'Building Permit',icon:'🏛',desc:'Next building costs 3 less Gold.'}};
 const CARD_POOL=['grant','harvest','supplies','grant','insight','charter','permit','supplies','harvest','grant','insight','permit'];
 const CAPITAL_SPOTS=[[-5,-1],[5,1],[-1,5],[1,-5]];
 const PREFIX=['Silver','Oak','Raven','Stone','High','Dawn','West','Green','Amber','Cinder','Iron','Sun','River','Frost','Moss','Ash','Bright','Elder','Wolf','Pine','Star','Cloud'];
@@ -201,7 +241,7 @@ function generateWaterways(tiles,rng,options){
 function createWorld(seed,name,capital,color){
  const rng=mulberry32(hash(seed));
  const colors=[COLORS[color],...COLORS.filter((_,i)=>i!==color)];
- const players=[{name,capital,sigil:'✦'},...NPCS].map((p,i)=>({id:i,name:p.name,capital:p.capital,sigil:p.sigil,color:colors[i],gold:24,food:14,wood:10,ore:5,knowledge:0,marketingUntil:0,tech:[],hand:[],discountExpand:0,discountBuild:0,acted:false,actionsUsed:0,expansionsThisTurn:0,levyUsed:false,cardPlayed:false,logisticsUsed:false,citizens:[],nextCitizenId:0}));
+ const players=[{name,capital,sigil:'✦'},...NPCS].map((p,i)=>({id:i,name:p.name,capital:p.capital,sigil:p.sigil,color:colors[i],gold:24,food:14,wood:10,minerals:{...START_MINERALS},knowledge:0,marketingUntil:0,tech:[],hand:[],discountExpand:0,discountBuild:0,acted:false,actionsUsed:0,expansionsThisTurn:0,levyUsed:false,cardPlayed:false,logisticsUsed:false,citizens:[],nextCitizenId:0}));
  const usedNames=new Set(),tiles=[];
  for(let q=-RADIUS;q<=RADIUS;q++)for(let r=-RADIUS;r<=RADIUS;r++){
   if(Math.abs(q+r)>RADIUS)continue;
@@ -214,6 +254,7 @@ function createWorld(seed,name,capital,color){
  // A random map can contain either feature, both, or occasionally neither.
  const options={rivers:rng()<.84,lakes:rng()<.84};
  const rivers=generateWaterways(tiles,rng,options);
+ prepareMineralVeins(tiles,seed);
  const deck=Array.from({length:6},()=>CARD_POOL).flat().sort(()=>rng()-.5);
  const worldName=['The Wild Marches','The Broken Coast','The Emerald Frontier','The Hinterlands','The New Continent'][randInt(rng,5)];
  G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],contacts:[],tradeOffers:[],tradeRoutes:[],nextProjectId:1,nextTradeId:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
@@ -244,10 +285,17 @@ function migrateGameplay(s){
  s.projects=s.projects||[];s.completedScenes=s.completedScenes||[];s.contacts=s.contacts||[];
  s.tradeOffers=s.tradeOffers||[];s.tradeRoutes=s.tradeRoutes||[];
  s.nextProjectId=s.nextProjectId||1;s.nextTradeId=s.nextTradeId||1;
+ prepareMineralVeins(s.tiles,s.seed,true);
+ // Old under-construction mines keep a functioning Iron vein even if their
+ // migrated mountain would otherwise be barren.
+ for(const job of s.projects.filter(j=>j.type==='mine')){const t=s.tiles.find(t=>t.id===job.tileId);if(t&&t.terrain==='mountain'&&!t.vein){t.vein={kind:'iron',remaining:26,capacity:26};}}
  for(const p of s.players){
   if(p.materials!==undefined){const old=Math.max(0,p.materials);p.wood=(p.wood||0)+Math.ceil(old*.6);p.ore=(p.ore||0)+Math.floor(old*.4);delete p.materials;}
-  p.wood??=10;p.ore??=5;p.marketingUntil??=0;
-  for(const c of p.citizens||[]){if(c.health==null||c.morale==null){const rng=mulberry32(hash(s.seed+':traits:'+c.id));c.health=45+randInt(rng,56);c.morale=40+randInt(rng,61);}}
+  p.wood??=10;p.marketingUntil??=0;
+  p.minerals??=emptyMinerals();
+  for(const key of [...MINERAL_KEYS,'steel'])p.minerals[key]=Math.max(0,Math.floor(p.minerals[key]||0));
+  if(p.ore!==undefined){p.minerals.iron+=Math.max(0,Math.floor(p.ore));delete p.ore;}
+  for(const c of p.citizens||[]){if(c.health==null||c.morale==null){const rng=mulberry32(hash(s.seed+':traits:'+c.id));c.health=45+randInt(rng,56);c.morale=40+randInt(rng,61);}if(c.military)c.military.gear??='basic';}
  }
  return s;
 }
@@ -358,6 +406,7 @@ function closeModal(){el('modalLayer').classList.add('hidden');}
 function mountMapUi(){
  // Reparent the existing, fully functional panels. No duplicated actions or game state.
  const sheet=el('sheetBody');
+ const mineralPanel=document.createElement('div');mineralPanel.id='mineralPanel';mineralPanel.className='gs-mineral-panel';mineralPanel.innerHTML='<h3>⛏ Mineral Exchange</h3><p class="gs-mineral-caption">Sell minerals for Gold coins. Essential Coal and Iron can also be imported at a premium. Trading uses one major action.</p><div id="mineralBody"></div>';el('economySummary').after(mineralPanel);
  const trade=document.createElement('section');trade.id='tradePanel';trade.className='panel gs-trade-panel';trade.innerHTML='<div class="panel-heading"><h2>Diplomacy & Trade Routes</h2></div><div id="tradeBody"></div>';sheet.appendChild(trade);
  for(const selector of ['.territory-panel','.build-panel','.research-panel','.treasury-panel','.population-panel','.roster-panel','.feed-panel','.standings-panel']){
   const panel=document.querySelector('#game '+selector);if(panel)sheet.appendChild(panel);
@@ -515,10 +564,10 @@ function allowed(p,t){return t&&t.owner===p.id;}
 function eligibleExpansion(p,t){return !!t&&t.owner===null&&t.terrain!=='water'&&neighbors(t).some(n=>n.owner===p.id);}
 function expansionCost(p){return Math.max(0,5+2*(p.expansionsThisTurn||0)-p.discountExpand-(p.tech.includes('cartography')?2:0));}
 function buildingCost(p,b){return Math.max(0,b.gold-p.discountBuild);}
-function canBuild(p,t,b){return allowed(p,t)&&buildFree(t)>=b.space&&b.allow.includes(t.terrain)&&hasMoney(p,buildingCost(p,b))&&p.wood>=b.wood&&p.ore>=b.ore;}
+function canBuild(p,t,b){return allowed(p,t)&&buildFree(t)>=b.space&&b.allow.includes(t.terrain)&&hasMoney(p,buildingCost(p,b))&&p.wood>=b.wood&&mineralCount(p,'iron')>=b.iron&&(b!==BUILDINGS.mine||!!t.vein&&t.vein.remaining>0);}
 function getEconomy(id){
  const p=G.players[id],summary=peopleSummary(p);
- let vals={gold:0,food:0,wood:0,ore:0,knowledge:0,upkeep:0};
+ let vals={gold:0,food:0,wood:0,knowledge:0,upkeep:0};
  for(const t of G.tiles.filter(t=>t.owner===id)){
   const y=TERRAIN[t.terrain].yield;for(const k in y)vals[k]+=(y[k]||0);
   if(t.capital){vals.gold+=3;vals.food+=1;vals.upkeep+=1;}
@@ -537,6 +586,60 @@ function getEconomy(id){
  vals.netGold=vals.gold-vals.upkeep;
  return vals;
 }
+function extractMinesForRound(p){
+ for(const t of G.tiles){
+  if(t.owner!==p.id||t.terrain!=='mountain'||!buildingCount(t,'mine'))continue;
+  const vein=t.vein;
+  if(!vein||vein.remaining<=0)continue;
+  const cfg=MINERALS[vein.kind];
+  const rng=mulberry32(hash(G.seed+':mining:'+t.id+':'+G.round));
+  if(rng()>=cfg.chance)continue;
+  const amount=Math.min(cfg.rate,vein.remaining);
+  p.minerals[vein.kind]+=amount;vein.remaining-=amount;
+  if(vein.kind==='diamond'||vein.kind==='goldOre')addLog(`${p.name} extracted ${amount} ${cfg.name} at ${t.name}!${vein.remaining===0?' Deposit exhausted.':''}`);
+  else if(vein.remaining===0)addLog(`${p.name} exhausted its ${cfg.name} vein at ${t.name}.`);
+ }
+}
+function canEquip(p,c,tier){
+ const cfg=GEAR[tier],old=GEAR_ORDER.indexOf(c?.military?.gear||'basic');
+ return !!cfg&&tier!=='basic'&&!!c?.military&&GEAR_ORDER.indexOf(tier)>old&&
+   !!G.tiles.find(t=>t.id===c.military.postId&&t.owner===p.id&&buildingCount(t,'post'))&&
+   hasMoney(p,cfg.gold)&&Object.entries(cfg.requires).every(([k,v])=>mineralCount(p,k)>=v);
+}
+function equipSoldier(citizenId,tier,id=0){
+ const p=G.players[id],c=p.citizens.find(c=>c.id===citizenId);
+ if(!canCountryAct(p,id)||!canEquip(p,c,tier))return false;
+ const cfg=GEAR[tier];p.gold-=cfg.gold;
+ for(const [k,v] of Object.entries(cfg.requires))p.minerals[k]-=v;
+ c.military.gear=tier;
+ useAction(p,`${p.name} equipped ${c.name} with ${cfg.name} (+${cfg.bonus} readiness).`);
+ if(id===0)showToast(`${c.name}: ${cfg.name} equipped`);
+ return true;
+}
+function smeltSteel(id=0){
+ const p=G.players[id];if(!canCountryAct(p,id)||!hasMoney(p,1)||mineralCount(p,'iron')<2||mineralCount(p,'coal')<1)return false;
+ p.minerals.iron-=2;p.minerals.coal--;p.gold--;p.minerals.steel++;
+ useAction(p,`${p.name} smelted 2 Iron and 1 Coal into 1 Steel.`);
+ if(id===0)showToast('Steel produced: +1');return true;
+}
+function mineralTrade(key,direction,id=0){
+ const p=G.players[id],mineral=MINERALS[key];if(!mineral||!canCountryAct(p,id))return false;
+ const importing=direction==='buy',cost=Math.ceil(mineral.price*2.1);
+ if(importing&&!['coal','iron','copper','silver'].includes(key))return false;
+ if(importing&&!hasMoney(p,cost))return false;
+ if(!importing&&mineralCount(p,key)<1)return false;
+ if(importing){p.gold-=cost;p.minerals[key]++;}else{p.gold+=mineral.price;p.minerals[key]--;}
+ useAction(p,`${p.name} ${importing?'imported':'sold'} 1 ${mineral.name} for ${importing?cost:mineral.price} Gold at the Global Exchange.`);
+ if(id===0)showToast(`${importing?'Imported':'Sold'} ${mineral.name} · ${importing?'-':'+'}${importing?cost:mineral.price} Gold`);
+ return true;
+}
+function renderMineralMarket(){
+ const node=el('mineralBody');if(!node||!G)return;
+ const p=getCountry();
+ node.innerHTML=MINERAL_KEYS.map(key=>{const m=MINERALS[key],q=mineralCount(p,key),buy=Math.ceil(m.price*2.1);
+  return `<div class="gs-mineral-item"><span class="gs-mineral-symbol">${m.icon}</span><div class="gs-mineral-copy"><strong>${m.name} × ${q}</strong><small>Sell: ${m.price} 🪙${['coal','iron','copper','silver'].includes(key)?` · Buy: ${buy} 🪙`: ' · Mine or trade to acquire'}</small></div><div class="gs-mineral-actions"><button data-mineral="${key}" data-direction="sell" ${!canAct()||q<=0?'disabled':''}>Sell</button>${['coal','iron','copper','silver'].includes(key)?`<button data-mineral="${key}" data-direction="buy" ${!canAct()||!hasMoney(p,buy)?'disabled':''}>Buy</button>`:''}</div></div>`;
+ }).join('')+`<div class="gs-mineral-item"><span class="gs-mineral-symbol">⚙️</span><div class="gs-mineral-copy"><strong>Steel × ${mineralCount(p,'steel')}</strong><small>Manufactured, never mined · 2 Iron + 1 Coal + 1 🪙</small></div><div class="gs-mineral-actions"><button data-smelt-steel="1" ${!canAct()||!hasMoney(p,1)||mineralCount(p,'iron')<2||mineralCount(p,'coal')<1?'disabled':''}>Smelt</button></div></div>`;
+}
 function useAction(p,text){p.actionsUsed=actionsUsed(p)+1;p.acted=actionsRemaining(p)===0;addLog(text);showBuild=false;showResearch=false;save();render();}
 function doExpand(t,id=0){
  const p=G.players[id];if(!canCountryAct(p,id)||!eligibleExpansion(p,t))return false;
@@ -550,7 +653,7 @@ function doExpand(t,id=0){
 function doBuild(t,type,id=0){
  const p=G.players[id],b=BUILDINGS[type];if(!canCountryAct(p,id)||!b||!canBuild(p,t,b))return false;
  const playback=id===0?startMapScenePlayback(t,'work',-1,type):null;
- p.gold-=buildingCost(p,b);p.wood-=b.wood;p.ore-=b.ore;p.discountBuild=0;
+ p.gold-=buildingCost(p,b);p.wood-=b.wood;p.minerals.iron-=b.iron;p.discountBuild=0;
  G.projects.push({id:G.nextProjectId++,owner:id,tileId:t.id,type,remaining:b.rounds,total:b.rounds,startedRound:G.round});
  useAction(p,`${p.name} started ${b.name} at ${t.name} (${b.rounds} round${b.rounds===1?'':'s'}).`);
  if(id===0&&!playback)showToast(`${b.name} construction started`);
@@ -586,12 +689,13 @@ function moveSoldier(citizenId,destinationId){
 function doLevy(id=0){const p=G.players[id];if(!canCountryAct(p,id)||p.levyUsed)return false;const foodCost=Math.min(2,p.food);p.gold+=6;p.food-=foodCost;p.levyUsed=true;useAction(p,`${p.name} raised emergency taxes: +6 Gold, −${foodCost} Food.`);if(id===0)showToast('Emergency taxes collected: +6 Gold');return true;}
 function doResearch(type,id=0){const p=G.players[id],t=TECHS[type];if(!canCountryAct(p,id)||!t||p.tech.includes(type)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge)return false;p.gold-=t.gold;p.knowledge-=t.knowledge;p.tech.push(type);useAction(p,`${p.name} completed research: ${t.name}.`);if(id===0)showToast(`${t.name} researched`);return true;}
 function playCard(id,idx){const p=G.players[id];if(!p||p.cardPlayed||idx<0||idx>=p.hand.length||G.turnIndex!==id||G.finished)return false;const type=p.hand[idx];p.cardPlayed=true;p.hand.splice(idx,1);
- switch(type){case'grant':p.gold+=6;break;case'harvest':p.food+=5;break;case'supplies':p.wood+=3;p.ore+=2;break;case'insight':p.knowledge+=3;break;case'charter':p.discountExpand+=3;break;case'permit':p.discountBuild+=3;break;}
+ switch(type){case'grant':p.gold+=6;break;case'harvest':p.food+=5;break;case'supplies':p.wood+=3;p.minerals.iron+=2;break;case'insight':p.knowledge+=3;break;case'charter':p.discountExpand+=3;break;case'permit':p.discountBuild+=3;break;}
  addLog(`${p.name} played ${CARDS[type].name}.`);save();render();if(id===0)closeCardPreview();animatePlayedCard(type,id);return true;}
 function finishRound(){
  for(const p of G.players){
   const e=getEconomy(p.id),oldGold=p.gold;
-  p.gold+=e.netGold;p.food=Math.max(0,p.food+e.netFood);p.wood+=e.wood;p.ore+=e.ore;p.knowledge+=e.knowledge;
+  p.gold+=e.netGold;p.food=Math.max(0,p.food+e.netFood);p.wood+=e.wood;p.knowledge+=e.knowledge;
+  extractMinesForRound(p);
   if(p.gold<0&&oldGold>=0)addLog(`${p.name} has entered debt. It must repair its treasury to construct or recruit.`);
   if(p.food===0&&e.netFood<0)addLog(`${p.name} is experiencing a food shortage. Population growth paused.`);
   if(G.round%4===0)for(const c of p.citizens)c.age++;
@@ -659,7 +763,7 @@ function runCpu(id){
  const owned=G.tiles.filter(t=>t.owner===id),eco=getEconomy(id),people=peopleSummary(p);
  const buildable=owned.filter(t=>buildFree(t)>0).sort((a,b)=>buildFree(b)-buildFree(a));
  const frontiers=G.tiles.filter(t=>eligibleExpansion(p,t)).sort((a,b)=>{
-  const value=t=>({plains:8,forest:6,hills:5,desert:3,mountain:2})[t.terrain]+neighbors(t).filter(n=>n.owner===null&&n.terrain!=='water').length*.4;
+  const value=t=>({plains:8,forest:6,hills:5,desert:3,mountain:t.vein?(t.vein.kind==='diamond'?17:t.vein.kind==='goldOre'?14:10):1})[t.terrain]+neighbors(t).filter(n=>n.owner===null&&n.terrain!=='water').length*.4;
   return value(b)-value(a);
  });
  const tryBuild=type=>{const t=buildable.find(t=>canBuild(p,t,BUILDINGS[type]));return t?doBuild(t,type,id):false;};
@@ -670,7 +774,8 @@ function runCpu(id){
  if(owned.length<3&&tryExpand())return;
  if(p.food<9&&tryBuild('farm'))return;
  if(p.wood<6&&tryBuild('lumber'))return;
- if(p.ore<4&&tryBuild('mine'))return;
+ if(mineralCount(p,'iron')<4&&p.gold>11&&mineralTrade('iron','buy',id))return;
+ if(owned.some(t=>t.vein&&t.vein.remaining>0)&&tryBuild('mine'))return;
  if(eco.netGold<4&&tryBuild('market'))return;
  if(owned.length<9&&tryExpand())return;
  if(p.knowledge<9&&tryBuild('academy'))return;
@@ -684,7 +789,7 @@ function runCpu(id){
  doLevy(id);
 }
 function prosperity(p){const owned=G.tiles.filter(t=>t.owner===p.id),people=peopleSummary(p);
- return owned.length*4+owned.reduce((n,t)=>n+(t.buildings||[]).length,0)*5+people.housed*2-people.homeless*2+people.soldiers*2+Math.max(0,Math.floor(p.gold/4))+Math.max(0,Math.floor(p.food/5))+Math.max(0,Math.floor(p.wood/5))+Math.max(0,Math.floor(p.ore/5))+Math.floor(p.knowledge/3)+p.tech.length*3;}
+ return owned.length*4+owned.reduce((n,t)=>n+(t.buildings||[]).length,0)*5+people.housed*2-people.homeless*2+people.soldiers*2+Math.max(0,Math.floor(p.gold/4))+Math.max(0,Math.floor(p.food/5))+Math.max(0,Math.floor(p.wood/5))+Math.max(0,Math.floor(mineralCount(p,'iron')/5))+Math.floor(MINERAL_KEYS.reduce((v,k)=>v+mineralCount(p,k)*MINERALS[k].price,0)/20)+Math.floor(p.knowledge/3)+p.tech.length*3;}
 function render(){if(!G)return;
  document.body.classList.toggle('cpu-watching',!!cpuBusy);
  const p=getCountry(),e=getEconomy(0),tile=getSelected(),people=peopleSummary(p);
@@ -694,12 +799,12 @@ function render(){if(!G)return;
  el('capitalFlag').textContent=p.sigil;
  el('turnCounter').textContent=`Round ${G.round} of ${G.maxRounds} · ${G.tiles.length} hexes · ${G.tiles.filter(t=>t.owner===0).length} owned`;
  el('turnLabel').textContent=G.finished?'TEST COMPLETE':G.turnIndex===0&&!cpuBusy?'YOUR TURN':'CPU TURN';el('turnLabel').classList.toggle('cpu-turn',G.turnIndex!==0||cpuBusy);
- el('resources').innerHTML=[['gold','🪙','Gold'],['food','🌾','Food'],['wood','🪵','Wood'],['ore','⛏️','Ore'],['knowledge','✦','Knowledge']].map(([field,icon,name])=>`<div class="resource ${p[field]<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
- el('quickStats').innerHTML=[['gold','🪙'],['food','🌾'],['wood','🪵'],['ore','⛏️'],['knowledge','✦']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${p[field]<0?'negative':''}">${fmt(p[field])}</b></span>`).join('');
+ el('resources').innerHTML=[['gold','🪙','Gold'],['food','🌾','Food'],['wood','🪵','Wood'],['iron','🔩','Iron'],['knowledge','✦','Knowledge']].map(([field,icon,name])=>`<div class="resource ${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
+ el('quickStats').innerHTML=[['gold','🪙'],['food','🌾'],['wood','🪵'],['iron','🔩'],['knowledge','✦']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</b></span>`).join('');
  el('economySummary').innerHTML=`<span>Gold income <strong>+${e.gold}</strong></span> · <span>Upkeep <strong>−${e.upkeep}</strong></span> · <span>Net <strong class="${e.netGold>=0?'positive':'negative'}">${e.netGold>=0?'+':''}${e.netGold}</strong>/round</span><span> · Food <strong class="${e.netFood>=0?'positive':'negative'}">${e.netFood>=0?'+':''}${e.netFood}</strong>/round</span>${p.gold<0?'<div class="economy-alert">⚠ In debt: building and recruitment are locked until the treasury recovers.</div>':''}`;
  el('populationSummary').innerHTML=`<div class="population-stat"><strong>${people.count}</strong><span>Citizens</span></div><div class="population-stat"><strong>${people.housed} / ${people.housing}</strong><span>Housed / Beds</span></div><div class="population-stat ${people.homeless?'population-warning':''}"><strong>${people.homeless}</strong><span>Homeless</span></div><div class="population-stat"><strong>${people.soldiers}</strong><span>Troops</span></div>`;
  el('populationAdvice').textContent=people.homeless>0?`${people.homeless} citizens need homes. Build on an owned tile with open space, or expand to make room.`:people.housing<=people.count+2?'Housing is nearly full. Consider additional homes before the next population increase.':'Each round can bring new citizens when Food is available. Homes need building space, and terrain limits residents.';
- renderMap();renderTile(tile);renderHand();renderResearch();renderStandings();renderLog();renderRoster();renderTradePanel();
+ renderMap();renderTile(tile);renderHand();renderResearch();renderStandings();renderLog();renderRoster();renderTradePanel();renderMineralMarket();
  el('buildPanel').classList.toggle('hidden',!showBuild);el('researchPanel').classList.toggle('hidden',!showResearch);
  el('endTurnBtn').disabled=!active();el('levyBtn').disabled=!canAct()||!!p.levyUsed;el('researchBtn').disabled=!active();el('levySheetBtn')?.toggleAttribute('disabled',!canAct()||!!p.levyUsed);
  el('endTurnBtn').innerHTML=G.finished?'TEST COMPLETE':scenePlayback?'ANIMATING…':active()?`END TURN <span>→</span>`:'CPU THINKING…';
@@ -718,6 +823,7 @@ function renderTile(t){
  html+=`<div class="capacity-grid"><div><b>${buildFree(t)} / ${terrain.slots}</b><small>Building space free</small></div><div><b>${residents} / ${tileResidentCap(t)}</b><small>Residents / available housing</small></div><div><b>${terrain.population}</b><small>Terrain population ceiling</small></div></div><div class="terrain-data">`;
  if(t.capital)html+='<span>🏰 Capital: 2 spaces + 12 housing</span>';
  if(t.river)html+='<span>〰️ River crossing</span>';
+  if(t.terrain==='mountain')html+=t.vein?`<span>⛏ ${MINERALS[t.vein.kind].name} deposit · ${t.vein.remaining}/${t.vein.capacity} remaining · ${Math.round(MINERALS[t.vein.kind].chance*100)}% round extraction chance</span>`:'<span>⛰ Barren mountain — no mineral deposit</span>';
  for(const k of Object.keys(terrain.yield))html+=`<span>+${terrain.yield[k]} ${k} / round</span>`;
  html+='</div>';
  if(t.buildings?.length){html+='<div class="building-roster"><strong>Buildings in this hex</strong>';
@@ -743,7 +849,7 @@ function renderTile(t){
  if(showBuild){if(!isOwn||buildFree(t)<=0){showBuild=false;el('buildPanel').classList.add('hidden');}else renderBuildOptions(t);}
 }
 function renderBuildOptions(t){
- const p=getCountry();el('buildOptions').innerHTML=Object.entries(BUILDINGS).filter(([k,b])=>b.allow.includes(t.terrain)).map(([k,b])=>`<button class="build-option" data-build="${k}" ${!canAct()||!canBuild(p,t,b)?'disabled':''}><span class="build-symbol">${b.icon}</span><span class="build-main"><span class="build-name">${b.name}</span><span class="build-desc" style="display:block">${b.text} · ${b.space} space · ${b.rounds} round(s) build · −${b.upkeep} Gold upkeep</span></span><span class="build-cost">${buildingCost(p,b)} 🪙<br>${b.wood} 🪵 · ${b.ore} ⛏️</span></button>`).join('');
+ const p=getCountry();el('buildOptions').innerHTML=Object.entries(BUILDINGS).filter(([k,b])=>b.allow.includes(t.terrain)&&(k!=='mine'||!!t.vein&&t.vein.remaining>0)).map(([k,b])=>`<button class="build-option" data-build="${k}" ${!canAct()||!canBuild(p,t,b)?'disabled':''}><span class="build-symbol">${b.icon}</span><span class="build-main"><span class="build-name">${b.name}</span><span class="build-desc" style="display:block">${b.text} · ${b.space} space · ${b.rounds} round(s) build · −${b.upkeep} Gold upkeep</span></span><span class="build-cost">${buildingCost(p,b)} 🪙<br>${b.wood} 🪵 · ${b.iron} 🔩</span></button>`).join('');
 }
 function renderRoster(){
  const p=getCountry(),posts=getMilitaryPosts(0),troops=p.citizens.filter(c=>!!c.military);
@@ -759,7 +865,7 @@ function renderRoster(){
   el('rosterList').innerHTML=troops.length?`<p class="roster-instructions">Transfer one soldier between your posts each turn, even after using your main action.</p>`+troops.map(c=>{
    const post=G.tiles.find(t=>t.id===c.military.postId);
    const choices=posts.filter(t=>t.id!==c.military.postId&&postGarrison(p,t.id).length<12);
-   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>Age ${c.age} · Health ${c.health} · Training ${c.military.training}/5 · ${c.military.perk||'No perk'}<br>Stationed: ${esc(post?.name||'Unassigned')}</small>${choices.length?`<label class="roster-transfer">Transfer to <select data-move-soldier="${esc(c.id)}" ${!active()||p.logisticsUsed?'disabled':''}><option value="">Choose post…</option>${choices.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label>`:''}</div>`;
+   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>Age ${c.age} · Health ${c.health} · Training ${c.military.training}/5 · Gear: ${GEAR[c.military.gear||'basic'].name} (readiness ${gearReadiness(c)}) · ${c.military.perk||'No perk'}<br>Stationed: ${esc(post?.name||'Unassigned')}</small>${`<label class="roster-transfer">Equip <select data-equip-soldier="${esc(c.id)}" ${!canAct()?'disabled':''}><option value="">Select gear…</option>${GEAR_ORDER.slice(1).map(tier=>`<option value="${tier}" ${!canEquip(p,c,tier)?'disabled':''}>${GEAR[tier].name} · ${GEAR[tier].gold} 🪙 + ${Object.entries(GEAR[tier].requires).map(([m,n])=>n+' '+(MINERALS[m]?.name||m)).join(', ')}</option>`).join('')}</select></label>`}${choices.length?`<label class="roster-transfer">Transfer to <select data-move-soldier="${esc(c.id)}" ${!active()||p.logisticsUsed?'disabled':''}><option value="">Choose post…</option>${choices.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label>`:''}</div>`;
   }).join(''):`<p class="empty-note">No troops enlisted yet. Build a Military Post, then eligible adults can volunteer each round. Run a marketing campaign to increase interest.</p>`;
  }
 }
@@ -971,7 +1077,8 @@ function bindEvents(){
  el('hand').addEventListener('click',e=>{const b=e.target.closest('[data-card]');if(b)openCardPreview(Number(b.dataset.card));});
  el('rosterCitizensBtn').addEventListener('click',()=>{rosterTab='citizens';renderRoster();});
  el('rosterTroopsBtn').addEventListener('click',()=>{rosterTab='troops';renderRoster();});
- el('rosterList').addEventListener('change',e=>{const select=e.target.closest('[data-move-soldier]');if(select?.value)moveSoldier(select.dataset.moveSoldier,select.value);});
+ el('rosterList').addEventListener('change',e=>{const equipment=e.target.closest('[data-equip-soldier]');if(equipment?.value){equipSoldier(equipment.dataset.equipSoldier,equipment.value);return;}const select=e.target.closest('[data-move-soldier]');if(select?.value)moveSoldier(select.dataset.moveSoldier,select.value);});
+ el('mineralBody').addEventListener('click',e=>{const smelt=e.target.closest('[data-smelt-steel]');if(smelt){smeltSteel();return;}const b=e.target.closest('[data-mineral]');if(b)mineralTrade(b.dataset.mineral,b.dataset.direction);});
  el('zoomIn').addEventListener('click',()=>zoom(.78));el('zoomOut').addEventListener('click',()=>zoom(1.28));el('zoomReset').addEventListener('click',resetView);el('focusHomeBtn').addEventListener('click',()=>{if(!cpuBusy)focusHome(false);});el('skipCpuBtn').addEventListener('click',()=>{skipCpuPlayback=true;el('cpuAction').textContent='Finishing remaining turns…';});
  const svg=el('worldMap');
  const pointers=new Map();let pinchLast=null;
