@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
   <meta name="theme-color" content="#101e2a">
   <meta name="description" content="Global Standoff, an offline turn-based civilization prototype against three CPU nations.">
-  <title>Global Standoff — Prototype 0.3.0</title>
+  <title>Global Standoff — Prototype 0.3.1</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=0.3.0">
+  <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="app">
   <header class="topbar">
-    <div class="brand"><div class="brand-icon">GS<span>✦</span></div><div><div class="brand-name">GLOBAL <b>STANDOFF</b></div><div class="brand-sub">WORLD SANDBOX · PROTOTYPE 0.3.0</div></div></div>
+    <div class="brand"><div class="brand-icon">GS<span>✦</span></div><div><div class="brand-name">GLOBAL <b>STANDOFF</b></div><div class="brand-sub">WORLD SANDBOX · PROTOTYPE 0.3.1</div></div></div>
     <div class="header-right"><div id="roundBadge" class="round-badge">SOLO TEST</div><button id="topMenuBtn" class="icon-button top-menu hidden" title="Match options" aria-label="Match options">⚙</button></div>
   </header>
 
@@ -30,8 +30,7 @@
       <div class="seed-row"><label>World seed <span>(optional)</span><input id="seedInput" type="text" maxlength="25" autocomplete="off" placeholder="Random world each game"></label><button id="shuffleSeedBtn" class="small-outline" title="Random world seed">↻ Shuffle</button></div>
       <div class="lobby-separator"></div>
       <div class="player-list-title">WORLD GENERATION <span>169 HEXES</span></div>
-      <p class="settings-note">Choose optional freshwater features. Random allows maps with neither, one, or both.</p>
-      <div class="field-grid world-options"><label>Rivers<select id="riverMode"><option value="random" selected>Random (may appear)</option><option value="on">Always generate</option><option value="off">No rivers</option></select></label><label>Lakes<select id="lakeMode"><option value="random" selected>Random (may appear)</option><option value="on">Always generate</option><option value="off">No lakes</option></select></label></div>
+      <p class="settings-note">Rivers and lakes generate automatically. Every world has its own randomly shaped landscape, with freshwater features appearing naturally when the world creates them.</p>
       <div id="runtimeNotice" class="launch-notice" role="alert"><b>Interactive game not running in this preview.</b><span>On iPhone, an HTML file preview can show this screen without running the game. Publish this file as a website and open the site in Safari to play.</span></div>
       <div id="launchError" class="launch-notice hidden" role="alert"></div>
       <button id="startBtn" type="button" class="primary start-button">GENERATE WORLD <span>→</span></button>
@@ -73,6 +72,6 @@
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <div id="modalLayer" class="modal-layer hidden"><div class="modal-backdrop" id="modalBackdrop"></div><div class="modal"><div id="modalBody"></div></div></div>
-<script src="game.js?v=0.3.0"></script>
+<script src="game.js"></script>
 </body>
 </html>
