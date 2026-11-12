@@ -1,4 +1,4 @@
-# Global Standoff — Prototype 0.3.1
+# Global Standoff — Prototype 0.3.2
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
@@ -68,3 +68,13 @@ This is **2.5D illustrative artwork**, not actual 3D geometry, textured models, 
 - Lakes are larger, contiguous hex clusters (typically 4–9 water tiles per lake), and are more frequent than in 0.3.0.
 - River channels are constructed as **connected shared edges between adjacent land hexes**, never through hex centers. River bank hexes receive the river farmland benefit.
 - Existing saved matches keep their land ownership and water tiles, with old centerline rivers upgraded to border-following rivers. Generate a **new** world to see the new lake placement.
+
+
+## New in 0.3.2 — map-first overlay interface
+
+- The game now occupies a full-height map view rather than requiring page scrolling through sidebar controls.
+- Tap **any hex** for an over-map territory sheet with terrain, capacity, buildings, expansion, and military-post actions. Choose **Construct** inside that sheet to see building choices; all existing costs and turn restrictions remain.
+- Compact bottom buttons open panels over the map for **Nation** (treasury, population and emergency taxes), **Research**, **Citizens** (civilian and military rosters), and **World** (standings and dispatches).
+- Your cards are displayed in a **fanned hand** at the bottom of the map. Tap a card to pull up a large, readable preview and decide whether to **Play Card** or close it. Merely tapping the hand cannot consume a card.
+- **End Turn** remains available above the hand, with the same animated CPU POV transitions. All economic rules and old saves are preserved.
+- All overlays work on iPhone-sized screens without leaving the map; long rosters scroll inside their overlay rather than scrolling the entire game page.
