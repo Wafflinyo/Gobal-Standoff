@@ -1,4 +1,4 @@
-# Global Standoff — Prototype 0.2.0
+# Global Standoff — Prototype 0.3.0
 
 Mobile-first, single-player civilization sandbox: your country versus three CPU nations. This is an evolving gameplay test, not yet a finished multiplayer game.
 
@@ -51,3 +51,13 @@ This remains a **local solo test**. Battles, troop travel time, diplomacy, trade
 - `styles.css` — mobile layout and game styling
 - `game.js` — rules, world generation, rosters, CPU AI, and saved progress
 - `icon.svg` — game icon
+
+## 2.5D board & camera (v0.3)
+
+- The map now uses angled, layered, extruded vector hexes with illustrated plains, forests, mountains, hills, deserts, and water. There are no heavy 3D libraries or network image dependencies.
+- Landmarks and all buildings are drawn as tiny structures on the terrain. The board shows up to three buildings on a tile and counts additional buildings.
+- When you end your turn, the camera turns and pans toward each CPU country, then focuses on its changed territory or construction. Its action is displayed in a banner. You can skip CPU animations.
+- The **⌂** camera button returns to your capital. **⤢** shows the entire board. Zoom and drag still work.
+- Existing prototype 0.2 saves, named citizens, rosters, economic balances, terrain capacities, research, and CPU rules are retained.
+
+This is **2.5D illustrative artwork**, not actual 3D geometry, textured models, or the final painted visuals. Smoothness will vary across phones; use the skip-animation control on slower devices. Combat and sophisticated rival-country interactions are not implemented in this visual update.
