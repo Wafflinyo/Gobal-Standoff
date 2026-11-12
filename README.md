@@ -1,4 +1,10 @@
-# Global Standoff — Prototype 0.4.9
+# Global Standoff — Prototype 0.4.10
+
+## Version 0.4.10 — readable fanned cards and action clearance
+
+- Give the mobile action row a dedicated safe gap above angled card tops, including narrow-screen adjustments.
+- Make each card's face effect short and explicit, e.g. “Next build −3 SP”; do not truncate its effect at the card's lower edge.
+- Tighten internal card spacing and control type sizes across phone widths, while preserving click-to-enlarge and the player/CPU interfaces.
 
 ## Version 0.4.9 — icon sizing and card hand legibility
 
