@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
   <meta name="theme-color" content="#101e2a">
   <meta name="description" content="Global Standoff, an offline turn-based civilization prototype against three CPU nations.">
-  <title>Global Standoff — Prototype 0.3.1</title>
+  <title>Global Standoff — Prototype 0.3.2</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="app">
   <header class="topbar">
-    <div class="brand"><div class="brand-icon">GS<span>✦</span></div><div><div class="brand-name">GLOBAL <b>STANDOFF</b></div><div class="brand-sub">WORLD SANDBOX · PROTOTYPE 0.3.1</div></div></div>
+    <div class="brand"><div class="brand-icon">GS<span>✦</span></div><div><div class="brand-name">GLOBAL <b>STANDOFF</b></div><div class="brand-sub">WORLD SANDBOX · PROTOTYPE 0.3.2</div></div></div>
     <div class="header-right"><div id="roundBadge" class="round-badge">SOLO TEST</div><button id="topMenuBtn" class="icon-button top-menu hidden" title="Match options" aria-label="Match options">⚙</button></div>
   </header>
 
@@ -47,6 +47,15 @@
           <svg id="worldMap" xmlns="http://www.w3.org/2000/svg" viewBox="-560 -490 1120 980" role="img" aria-label="Interactive hexagonal strategy map"><defs id="mapDefs"></defs><g id="mapContent"></g></svg>
           <div id="cpuCinematic" class="cpu-cinematic hidden" aria-live="polite"><span class="cpu-now">NATION IN FOCUS</span><strong id="cpuNation">Rival nation</strong><span id="cpuAction">Planning its next move…</span><button id="skipCpuBtn" type="button">Skip CPU animations ↠</button></div>
           <div class="view-badge">◈ 2.5D WORLD VIEW</div>
+          <div id="quickStats" class="quick-stats" aria-label="Current resources"></div>
+          <div id="mapQuickbar" class="map-quickbar" aria-label="Game actions">
+            <button id="nationQuickBtn" type="button"><span>⚜</span> Nation</button>
+            <button id="researchQuickBtn" type="button"><span>⌬</span> Research</button>
+            <button id="rosterQuickBtn" type="button"><span>♙</span> Citizens</button>
+            <button id="worldQuickBtn" type="button"><span>◈</span> World</button>
+            <div id="turnMount"></div>
+          </div>
+          <div id="handDock" class="hand-dock"></div>
           <div class="map-actions"><button id="zoomIn" aria-label="Zoom in">+</button><button id="zoomOut" aria-label="Zoom out">−</button><button id="focusHomeBtn" aria-label="Focus on your capital" title="Focus on your capital">⌂</button><button id="zoomReset" aria-label="View entire world" title="View entire world">⤢</button></div>
           <div class="map-hint">TAP HEX · PAN · PINCH TO ZOOM · ⌂ HOME · ⤢ FULL MAP</div>
         </div>
@@ -70,6 +79,18 @@
   </main>
 </div>
 
+<div id="sheetLayer" class="sheet-layer hidden" aria-hidden="true">
+  <button type="button" class="sheet-scrim" id="sheetScrim" aria-label="Close panel"></button>
+  <div id="sheetPanel" class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" data-mode="territory">
+    <div class="sheet-header"><div><div class="section-kicker" id="sheetKicker">TERRITORY</div><h2 id="sheetTitle">Territory</h2></div><button id="sheetClose" class="sheet-close" type="button" aria-label="Close panel">✕</button></div>
+    <div id="sheetBody" class="sheet-body"></div>
+    <div id="sheetEconomyTools" class="sheet-economy-tools"><button id="levySheetBtn" class="secondary" type="button">◈ Emergency Taxes</button></div>
+  </div>
+</div>
+<div id="cardPreview" class="card-preview-layer hidden" aria-hidden="true">
+  <button class="card-preview-scrim" id="cardPreviewScrim" type="button" aria-label="Close card preview"></button>
+  <div class="card-preview-content" role="dialog" aria-modal="true" aria-label="Card preview" id="cardPreviewContent"></div>
+</div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <div id="modalLayer" class="modal-layer hidden"><div class="modal-backdrop" id="modalBackdrop"></div><div class="modal"><div id="modalBody"></div></div></div>
 <script src="game.js"></script>
