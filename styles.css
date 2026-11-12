@@ -352,7 +352,7 @@ body.gs-playing:not(.cpu-watching) .hand-dock .cards-panel{background:linear-gra
 .gs-war-panel{display:none}
 .sheet-panel[data-mode=world] .gs-war-panel{display:block}
 
-/* v0.4.7: roads along owned shared hex boundaries */
+/* Version 0.4.7 — domestic border roads and construction state. */
 .gs-local-road-list{margin:12px 0;padding:11px;background:#122e3c;border:1px solid #af986a99;border-radius:12px;display:flex;flex-direction:column;gap:8px}
 .gs-local-road-list>strong{font-size:12px;color:#f3dfae}
 .gs-local-road-list>small{font-size:10px;line-height:1.5;color:#c6d1cf}
@@ -365,3 +365,31 @@ body.gs-playing:not(.cpu-watching) .hand-dock .cards-panel{background:linear-gra
 .gs-domestic-road.building path:last-child{animation:gs-paving 1.2s linear infinite}
 @keyframes gs-paving{to{stroke-dashoffset:-20}}
 @media(prefers-reduced-motion:reduce){.gs-domestic-road.building path:last-child{animation:none}}
+
+/* v0.4.8 original in-game icon atlas: never use system emoji fonts. */
+.gs-icon-atlas{position:absolute!important;overflow:hidden;width:0!important;height:0!important;pointer-events:none!important}
+.gs-glyph{display:inline-block;width:1.25em;height:1.25em;vertical-align:-.23em;flex:0 0 auto;overflow:visible;filter:drop-shadow(0 1px 1px #10263175)}
+.gs-glyph use{pointer-events:none}
+.gs-silver-pent{vertical-align:-.21em}
+.build-symbol .gs-glyph{width:29px;height:29px}
+.card-icon .gs-glyph{width:35px;height:35px}
+.resource-icon .gs-glyph{width:25px;height:25px}
+.quick-stat .gs-glyph{width:17px;height:17px}
+.gs-mineral-symbol .gs-glyph{width:28px;height:28px}
+.map-quickbar>button>span .gs-glyph{width:19px;height:19px}
+.nation-flag{display:flex!important;align-items:center;justify-content:center;gap:3px}
+.nation-flag .gs-glyph{width:22px;height:22px}
+.gs-flag-initial{font-size:11px;font-weight:900}
+.brand-icon .gs-glyph{width:12px;height:12px}
+
+/* v0.4.8 constant-depth camera and legible, topmost scene labels */
+.gs-world-label text,.gs-route-label{font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;font-weight:900;letter-spacing:.15px;fill:#fff4d4;paint-order:stroke fill;stroke:#102b39;stroke-width:2.1px;stroke-linejoin:round;filter:drop-shadow(0 1px 2px #122934)}
+.gs-map-frontlabels{pointer-events:none}
+.gs-world-label{filter:drop-shadow(0 3px 2px #13252b80)}
+.gs-hex-side{filter:drop-shadow(0 1px 1px #182a30a0)}
+.gs-expedition-banner{filter:drop-shadow(0 2px 2px #152a3288)}
+.gs-expedition-boot{opacity:0;animation:gs-directional-boots 1.35s ease-in-out infinite;animation-delay:calc(var(--step)*.19s)}
+@keyframes gs-directional-boots{0%{opacity:0;filter:brightness(.9)}28%{opacity:1;filter:brightness(1.13)}64%{opacity:.85}100%{opacity:0;filter:brightness(.9)}}
+@media(prefers-reduced-motion:reduce){.gs-expedition-boot{animation:none;opacity:.8}}
+body.gs-playing .sheet-panel,body.gs-playing .map-quickbar,body.gs-playing .hand-dock{font-weight:700}
+body.gs-playing .sheet-panel small,body.gs-playing .sheet-panel .muted,body.gs-playing .sheet-panel .tile-description{font-weight:650}
