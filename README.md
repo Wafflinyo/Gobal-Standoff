@@ -184,3 +184,13 @@ The prototype currently includes a modest personal-income tax from housed adults
 - Caravans are *physical* units stored in Caravan Warehouses. L1/L2/L3 warehouse provides 1/2/3 berths. A wagon travels to pickup, then delivery, then a warehouse; it cannot instantly deliver. Default final policy is the nearest available warehouse, with options to return home or stay at a warehouse destination where space permits.
 - Routes, falcons, expedition footsteps and wagons are drawn using original SVG primitives, not emoji images. Other older UI emoji are not yet replaced globally.
 - Older finished routes persist, while incompatible unaccepted proposals are marked rejected to avoid silent legacy charge or builder-lock problems.
+
+
+### New: Storage Warehouses and bounded production (0.4.5)
+- Storage Warehouses hold physical goods separately from Caravan Warehouses, which house wagons. Build for 7 Gold + 4 Wood; capacity is 40/80/140 at Levels 1/2/3.
+- Factories hold a shared pool of input and output goods: 12/24/42 units at Levels 1/2/3. Farms, mines, and lumber camps hold 16/32/54; military posts 32/56/88.
+- Full sites cannot continue producing. No idle housed wagon means no outgoing shipment. The capital warehouse remains uncapped for existing-save compatibility.
+- Producers with no explicit destination route automatically choose the nearest reachable Storage Warehouse with free space or the capital. Players can explicitly direct goods to capital and manually dispatch up to 10 goods from Storage Warehouses to other eligible buildings.
+- Factories automatically request missing inputs from the nearest stocked warehouse or capital; the wagon must visit pickup before delivery, and it requires available room at its destination.
+- If delivery storage unexpectedly becomes full, the wagon waits with its remaining goods rather than making the cargo disappear. A garage's carriages remain limited to its level's available berths.
+- International cargo exchange and interception are not implemented yet; cooperative road construction is separate from cargo-trade agreements.
