@@ -5,14 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
   <meta name="theme-color" content="#101e2a">
   <meta name="description" content="Global Standoff, an offline turn-based civilization prototype against three CPU nations.">
-  <title>Global Standoff — Prototype 0.3.2</title>
+  <title>Global Standoff — Prototype 0.3.3</title>
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div id="app">
   <header class="topbar">
-    <div class="brand"><div class="brand-icon">GS<span>✦</span></div><div><div class="brand-name">GLOBAL <b>STANDOFF</b></div><div class="brand-sub">WORLD SANDBOX · PROTOTYPE 0.3.2</div></div></div>
+    <div class="brand"><div class="brand-icon">GS<span>✦</span></div><div><div class="brand-name">GLOBAL <b>STANDOFF</b></div><div class="brand-sub">WORLD SANDBOX · PROTOTYPE 0.3.3</div></div></div>
     <div class="header-right"><div id="roundBadge" class="round-badge">SOLO TEST</div><button id="topMenuBtn" class="icon-button top-menu hidden" title="Match options" aria-label="Match options">⚙</button></div>
   </header>
 
@@ -47,6 +47,7 @@
           <svg id="worldMap" xmlns="http://www.w3.org/2000/svg" viewBox="-560 -490 1120 980" role="img" aria-label="Interactive hexagonal strategy map"><defs id="mapDefs"></defs><g id="mapContent"></g></svg>
           <div id="cpuCinematic" class="cpu-cinematic hidden" aria-live="polite"><span class="cpu-now">NATION IN FOCUS</span><strong id="cpuNation">Rival nation</strong><span id="cpuAction">Planning its next move…</span><button id="skipCpuBtn" type="button">Skip CPU animations ↠</button></div>
           <div class="view-badge">◈ 2.5D WORLD VIEW</div>
+          <div id="mapActionCounter" class="map-action-counter" aria-live="polite">● ● ● 3/3 ACTIONS LEFT</div>
           <div id="quickStats" class="quick-stats" aria-label="Current resources"></div>
           <div id="mapQuickbar" class="map-quickbar" aria-label="Game actions">
             <button id="nationQuickBtn" type="button"><span>⚜</span> Nation</button>
@@ -74,7 +75,7 @@
       <section class="research-panel panel hidden" id="researchPanel"><div class="panel-heading"><h2>Research</h2><button id="closeResearchBtn" class="light-close" aria-label="Close research menu">✕</button></div><div id="researchOptions" class="build-options"></div></section>
       <section class="roster-panel panel"><div class="panel-heading"><h2>National roster</h2><span id="rosterCount" class="tiny-tag">0 TOTAL</span></div><div class="roster-tabs"><button id="rosterCitizensBtn" class="active" type="button">Citizens</button><button id="rosterTroopsBtn" type="button">Military</button></div><div id="rosterList" class="roster-list" aria-live="polite"></div></section>
       <section class="cards-panel panel"><div class="panel-heading"><h2>Your hand</h2><span id="cardCount" class="tiny-tag">0 / 4</span></div><div id="hand" class="hand"></div><p class="footnote">Play one card per turn. Draw one at the start of each turn. The card deck is a testing system, not the final design.</p></section>
-      <section class="turn-panel panel"><div id="actionNotice" class="action-notice"></div><div class="utility-actions"><button id="researchBtn" class="small-outline">⌬ Research</button><button id="levyBtn" class="small-outline">◈ Emergency Taxes</button></div><button id="endTurnBtn" class="primary wide">END TURN <span>→</span></button><div id="turnFoot" class="turn-foot">One major action per turn · Cards are optional</div></section>
+      <section class="turn-panel panel"><div id="actionNotice" class="action-notice"></div><div class="utility-actions"><button id="researchBtn" class="small-outline">⌬ Research</button><button id="levyBtn" class="small-outline">◈ Emergency Taxes</button></div><button id="endTurnBtn" class="primary wide">END TURN <span>→</span></button><div id="turnFoot" class="turn-foot">3 major actions per turn · Cards are optional</div></section>
     </aside>
   </main>
 </div>
