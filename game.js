@@ -165,7 +165,7 @@ function syncBuilders(p,world=G){
  let builders=p.citizens.filter(c=>!!c.builder);
  // Preserve existing builders on active jobs; only dismiss idle surplus.
  while(builders.length>max){const idle=builders.find(c=>!c.builder.projectId);if(!idle)break;idle.builder=null;builders=p.citizens.filter(c=>!!c.builder);}
- const candidates=p.citizens.filter(c=>c.age>=18&&!c.military&&!c.builder&&c.health>=25&&!isBusyPorter(c,world)).sort((a,b)=>(!!a.job)-(!!b.job)||b.health-a.health||b.morale-a.morale);
+ const candidates=p.citizens.filter(c=>c.age>=18&&!c.military&&!c.builder&&c.health>=25&&!isBusyPorter(c,world)&&!isBusyExpedition(c,world)).sort((a,b)=>(!!a.job)-(!!b.job)||b.health-a.health||b.morale-a.morale);
  while(builders.length<max&&candidates.length){const citizen=candidates.shift();citizen.job=null;citizen.builder={locationId:capital.id,projectId:null,travelRemaining:0};builders.push(citizen);}
 }
 function idleBuilders(p){return p.citizens.filter(c=>c.builder&&!c.builder.projectId);}
@@ -193,7 +193,11 @@ function ensureStartingCrews(world){
   // Capital civic package is part of the nation's original starting infrastructure.
   if(!capital.buildings.includes('homes')){capital.buildings.push('homes');capital.buildingMeta??=[];capital.buildingMeta.push({id:world.nextBuildingId++,level:1,autoHire:false,stock:{},routes:{}});}
   if(!capital.buildings.includes('builderBunk')){capital.buildings.push('builderBunk');capital.buildingMeta??=[];capital.buildingMeta.push({id:world.nextBuildingId++,level:1,autoHire:false,stock:{},routes:{}});}
-  p.expeditions??=[{id:`exp-${p.id}-1`,name:'Frontier Expedition',level:1,locationId:capital.id,targetId:null,remaining:0}];
+  p.expeditions??=[{id:`exp-${p.id}-1`,name:'Frontier Expedition',level:1,locationId:capital.id,targetId:null,remaining:0,citizenIds:[],elapsed:0}];
+   for(const exp of p.expeditions){
+    if(!Array.isArray(exp.citizenIds))exp.citizenIds=[];
+    exp.elapsed??=0;
+   }
   for(const c of p.citizens){c.builder??=null;if(c.builder)c.job=null;}
   syncBuilders(p,world);
  }
@@ -201,18 +205,50 @@ function ensureStartingCrews(world){
 function idleExpedition(p){return (p.expeditions||[]).find(crew=>!crew.targetId);}
 function expeditionForTile(tileId){return G.players.flatMap(p=>(p.expeditions||[]).map(crew=>({...crew,owner:p.id}))).find(c=>c.targetId===tileId);}
 function pendingClaim(tileId){return G.players.some(p=>(p.expeditions||[]).some(c=>c.targetId===tileId));}
+// Expeditions are undertaken by named civilians, never by builders, soldiers,
+// hired workers, or citizens simultaneously carrying resources. Age 16+ may
+// volunteer even though paid building jobs require adults of age 18+.
+function isBusyExpedition(c,world=G){
+ return !!world?.players?.some(p=>(p.expeditions||[]).some(crew=>crew.targetId&&(crew.citizenIds||[]).includes(c.id)));
+}
+function eligibleExpeditionCitizens(p,world=G){
+ return (p.citizens||[]).filter(c=>c.age>=16&&!c.job&&!c.builder&&!c.military&&!isBusyPorter(c,world)&&!isBusyExpedition(c,world)&&(c.health??0)>0);
+}
+function clearExpedition(crew){crew.targetId=null;crew.originId=null;crew.citizenIds=[];crew.remaining=0;crew.travelTotal=0;crew.elapsed=0;crew.legacyInFlight=false;}
 function progressExpeditions(){
  for(const p of G.players)for(const crew of p.expeditions||[]){
   if(!crew.targetId||(G.turnClock||0)<=(crew.startedClock??-2)+1)continue;
+  // Only pre-update expeditions without assigned names may finish as legacy
+  // flights. All newly dispatched expeditions require 1-2 real citizens.
+  if(!crew.legacyInFlight){
+   crew.citizenIds=(crew.citizenIds||[]).filter(id=>p.citizens.some(c=>c.id===id));
+   if(!crew.citizenIds.length){
+    const destination=G.tiles.find(t=>t.id===crew.targetId);
+    addLog(`${p.name}'s expedition to ${destination?.name||'the frontier'} was abandoned: no civilian participants remain.`);
+    clearExpedition(crew);continue;
+   }
+   crew.elapsed=(crew.elapsed||0)+1;
+   const target=G.tiles.find(t=>t.id===crew.targetId),harsh=target?.terrain==='desert'||target?.terrain==='mountain';
+   for(const citizenId of crew.citizenIds){
+    const citizen=p.citizens.find(c=>c.id===citizenId);if(!citizen)continue;
+    citizen.morale=Math.max(0,(citizen.morale??50)-(crew.citizenIds.length===1?2:1));
+    // Companions share the hardship; difficult terrain, poor morale, and
+    // older age make health loss more likely, with deterministic world RNG.
+    const odds=(crew.citizenIds.length===1?.35:.20)+(harsh?.20:0)+(citizen.morale<35?.15:0)+(citizen.age>=60?.10:0);
+    const rng=mulberry32(hash(G.seed+':expedition-health:'+crew.id+':'+crew.startedClock+':'+crew.elapsed+':'+citizen.id));
+    if(rng()<Math.min(.85,odds))citizen.health=Math.max(0,(citizen.health??50)-1);
+   }
+  }
   crew.remaining=Math.max(0,crew.remaining-1);
   if(crew.remaining>0)continue;
   const tile=G.tiles.find(t=>t.id===crew.targetId);
   if(tile&&tile.owner===null&&tile.terrain!=='water'&&neighbors(tile).some(n=>n.owner===p.id)){
    tile.owner=p.id;reallocateHousing(p);discoverContacts();checkWarningViolation(tile,p.id);
    G.completedScenes.push({projectId:`claim-${p.id}-${tile.id}-${G.turnClock}`,owner:p.id,tileId:tile.id,kind:'expand'});
-   addLog(`${p.name}'s expedition established control of ${tile.name}.`);
+   const names=(crew.citizenIds||[]).map(id=>p.citizens.find(c=>c.id===id)?.name).filter(Boolean);
+   addLog(`${p.name}'s expedition established control of ${tile.name}${names.length?' with '+names.join(' and '):''}.`);
   }
-  crew.locationId=tile?.owner===p.id?tile.id:crew.locationId;crew.targetId=null;
+  crew.locationId=tile?.owner===p.id?tile.id:crew.locationId;clearExpedition(crew);
  }
 }
 function advanceWorldTurn(){
@@ -225,7 +261,7 @@ function worksite(t,index){return t.buildingMeta?.[index]||null;}
 function workCapacity(type,level){const spaces=BUILDINGS[type]?.jobs||[0,0,0];return spaces[Math.max(0,Math.min(2,level-1))]||0;}
 function worksiteWorkers(p,site){return site?p.citizens.filter(c=>c.job?.siteId===site.id&&!c.military&&c.age>=18):[];}
 function isBusyPorter(c,world=G){return !!world?.shipments?.some(j=>j.kind==='porter'&&j.porterId===c.id);}
-function eligibleWorker(c){return c.age>=18&&!c.military&&!c.builder&&c.health>=25;}
+function eligibleWorker(c){return c.age>=18&&!c.military&&!c.builder&&!isBusyExpedition(c)&&c.health>=25;}
 function assignWorkers(p,world=G){
  if(!world)return;
  const owned=world.tiles.filter(t=>t.owner===p.id);
@@ -815,7 +851,7 @@ function citizenDeathProbability(c){
 function advanceCitizenHealthAndMortality(p){
  let losses=0;
  for(const citizen of [...p.citizens]){
-  const hauling=isBusyPorter(citizen);
+  const hauling=isBusyPorter(citizen)||isBusyExpedition(citizen);
   const morale=Math.max(0,Math.min(100,Number(citizen.morale??60)));
   let health=Math.max(0,Math.min(100,Number(citizen.health??70)));
   if(morale<15)health-=2;
@@ -1561,7 +1597,7 @@ function progressProjects(){
  }
 }
 function volunteeringChance(c,p){
- if(c.military||c.builder||isBusyPorter(c)||c.age<18||c.health<35)return 0;
+ if(c.military||c.builder||isBusyPorter(c)||isBusyExpedition(c)||c.age<18||c.health<35)return 0;
  const age=c.age<30?1:c.age<45?.8:c.age<60?.42:c.age<70?.1:.008;
  const health=Math.max(0,(c.health-35)/65),morale=Math.max(0,(c.morale-30)/70);
  return Math.min(.65,(.012+.11*health+.12*morale)*age+(p.marketingUntil>=G.round?.22*age:0));
