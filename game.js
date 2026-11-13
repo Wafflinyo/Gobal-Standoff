@@ -1419,23 +1419,42 @@ function visibleWarOrderMarkers(){
 }
 function renderWarPanel(){
  const panel=el('warBody');if(!panel||!G)return;const me=G.players[0],wars=opponentsAtWar(0),incoming=G.diplomaticFalcons.filter(n=>n.to===0&&n.status==='awaiting-reply');
- let html=`<p class="gs-war-intro">Falcons carry territorial warnings, declarations and ceasefire proposals. Declaring war begins a <b>war phase</b>, not combat. Enemy troop movements are concealed. Civilian morale suffers while war continues.</p>`;
+  let html=`<p class="gs-war-intro">Messenger Falcons carry territorial warnings, war declarations, ceasefires, <b>Non-Aggression Treaties</b> and <b>Defensive Alliances</b>. Proposals require approval; alliances answer future attacks, not wars already underway.</p>`;
  if(wars.length)html+=`<div class="gs-war-alert"><strong>WAR PHASE ACTIVE</strong><span>${wars.map(id=>esc(G.players[id].name)).join(' · ')} · Civilians lose 2 morale per round</span></div>`;
- for(const f of incoming)html+=`<div class="gs-war-order"><b>${esc(G.players[f.from].name)} requests a ceasefire</b><div class="gs-war-actions"><button data-peace-answer="${f.id}" data-accept="yes">Accept</button><button data-peace-answer="${f.id}" data-accept="no">Reject</button></div></div>`;
+  for(const f of incoming){
+   const agreement=['treaty','alliance'].includes(f.kind);
+   html+=`<div class="gs-war-order"><b>${esc(G.players[f.from].name)} proposes ${agreement?esc(treatyLabel(f.kind)):'a ceasefire'}</b>
+    <small>${agreement?esc(TREATY_TYPES[f.kind].description):'End the current war phase.'}</small>
+    <div class="gs-war-actions">
+     <button ${agreement?'data-treaty-answer':'data-peace-answer'}="${f.id}" data-accept="yes" ${agreement&&!canActivateTreaty(f)?'disabled':''}>Accept</button>
+     <button ${agreement?'data-treaty-answer':'data-peace-answer'}="${f.id}" data-accept="no">Decline</button>
+    </div></div>`;
+  }
  const owned=G.tiles.filter(t=>t.owner===0),warnable=G.tiles.filter(t=>t.owner===null&&t.terrain!=='water');
  const flights=G.diplomaticFalcons.filter(f=>(f.from===0||f.to===0)&&['flying','awaiting-reply'].includes(f.status));
  if(flights.length)html+=`<div class="gs-war-order"><strong>Messenger Falcons</strong>${flights.map(f=>`<div class="gs-war-unit"><b>${esc(G.players[f.from].name)} → ${esc(G.players[f.to].capital)}</b><small>${esc(f.kind.toUpperCase())} · ${f.status==='flying'?`${f.remaining}T until delivery`:'Awaiting your response'}${f.tileId?` · ${esc(G.tiles.find(t=>t.id===f.tileId)?.name||'')}`:''}</small></div>`).join('')}</div>`;
  for(const other of G.players.filter(p=>p.id!==0)){
   const atWar=!!currentWar(0,other.id),capital=capitalOf(other.id),warnings=visibleTerritorialWarnings().filter(w=>w.from===other.id);
   const issued=G.warnings.filter(w=>w.from===0&&w.to===other.id&&['active','escalated'].includes(w.status)&&G.tiles.some(t=>t.id===w.tileId&&t.owner===null));
-  html+=`<div class="gs-war-order"><strong>${esc(other.name)} ${atWar?'<span class="gs-war-state">AT WAR</span>':'<span class="gs-war-peace">PEACE</span>'}</strong><small>Falcon destination: ${esc(capital?.name||other.capital)}. Courier cost: 1 SP.</small>`;
+   const pact=activeTreaty(0,other.id);
+   const awaitingPact=G.diplomaticFalcons.some(f=>['treaty','alliance'].includes(f.kind)&&warPair(f.from,f.to)===warPair(0,other.id)&&['flying','awaiting-reply'].includes(f.status));
+   html+=`<div class="gs-war-order"><strong>${esc(other.name)} ${atWar?'<span class="gs-war-state">AT WAR</span>':pact?'<span class="gs-treaty-state">'+esc(treatyLabel(pact.type)).toUpperCase()+'</span>':'<span class="gs-war-peace">PEACE</span>'}</strong><small>Falcon destination: ${esc(capital?.name||other.capital)}. Courier cost: 1 SP. ${awaitingPact?'Agreement awaiting a response.':''}</small>`;
+   if(pact){
+    const expires=pact.type==='treaty'?` · ${Math.max(0,pact.expiresRound-G.round)} rounds left`:' · until dissolved';
+    const dissolving=G.diplomaticFalcons.some(f=>f.kind==='dissolve'&&f.treatyId===pact.id&&f.status==='flying');
+    html+=`<div class="gs-treaty-current"><strong>${esc(treatyLabel(pact.type))}</strong><small>${esc(TREATY_TYPES[pact.type].description)}${expires}${dissolving?' · Termination Falcon on its way':''}</small>
+      <button data-end-agreement="${pact.id}" data-end-partner="${other.id}" ${!canAct()||!hasMoney(me,1)||dissolving?'disabled':''}>End agreement by Falcon · 1 SP</button></div>`;
+   }
   for(const w of warnings){const t=G.tiles.find(x=>x.id===w.tileId);html+=`<p class="gs-warning-text">WARNING RECEIVED: The border of ${esc(t?.name||'the disputed territory')} glows red until the land is claimed or the warning is rescinded.</p>`;}
   for(const w of issued){
    const t=G.tiles.find(x=>x.id===w.tileId),pending=G.diplomaticFalcons.some(f=>f.kind==='retract'&&f.warningId===w.id&&f.status==='flying');
    html+=`<div class="gs-warning-issued"><small>Your threat over ${esc(t?.name||'the disputed territory')} is active.${pending?' Withdrawal falcon on the way.':''}</small>
     <button data-rescind-warning="${w.id}" ${!canAct()||!hasMoney(me,1)||pending?'disabled':''}>Rescind warning by Falcon · 1 SP</button></div>`;
   }
-  if(!atWar){
+   if(!atWar){
+    html+=`<div class="gs-treaty-actions"><small>Send a diplomatic proposal by Falcon (1 SP and one major action). Non-aggression prevents declarations of war for 8 rounds. A defensive alliance also joins the war phase if an ally is attacked.</small>
+      <button data-send-treaty="${other.id}" ${!canAct()||!hasMoney(me,1)||!canProposeTreaty(0,other.id,'treaty')?'disabled':''}>Propose Non-Aggression Treaty</button>
+      <button data-send-alliance="${other.id}" ${!canAct()||!hasMoney(me,1)||!canProposeTreaty(0,other.id,'alliance')?'disabled':''}>Propose Defensive Alliance</button></div>`;
    html+=`<label class="gs-war-field">Disputed territory<select data-warning-land="${other.id}">${warnable.slice().sort((a,b)=>Math.min(...owned.map(o=>distance(a,o)))-Math.min(...owned.map(o=>distance(b,o)))).map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label><div class="gs-war-actions"><button data-send-warning="${other.id}" ${!canAct()?'disabled':''}>Send Warning</button><button data-send-war="${other.id}" ${!canAct()?'disabled':''}>Declare War by Falcon</button></div>`;
   }else html+=`<div class="gs-war-actions"><button data-send-peace="${other.id}" ${!canAct()?'disabled':''}>Send Ceasefire Proposal</button></div>`;
   html+='</div>';
