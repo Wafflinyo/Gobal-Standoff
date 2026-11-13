@@ -3054,14 +3054,38 @@ function bindEvents(){
   if(b.dataset.recallWar!=null){recallMilitary(Number(b.dataset.recallWar));return;}
  });
  el('warBody').addEventListener('change',e=>{if(e.target.id!=='warKind')return;const panel=el('warBody'),options=panel.querySelector('[data-patrol-options]');if(!options)return;const raw=e.target.value==='flank'?options.dataset.flankOptions:options.dataset.patrolOptions;let list=[];try{list=JSON.parse(raw||'[]');}catch(e){}const select=panel.querySelector('#warDestination');if(select)select.innerHTML=list.map(([id,name])=>`<option value="${esc(id)}">${esc(name)}</option>`).join('');});
- el('tradeBody').addEventListener('click',e=>{const propose=e.target.closest('[data-trade-propose]');if(propose){const to=Number(propose.dataset.tradePropose);const panel=el('tradeBody');const select=panel.querySelector(`[data-trade-share="${to}"]`);
-  const from=panel.querySelector(`[data-road-from="${to}"]`)?.value,dest=panel.querySelector(`[data-road-to="${to}"]`)?.value;
-  proposeTradeRoute(to,Number(select?.value||50),0,from,dest);return;}const ans=e.target.closest('[data-trade-answer]');if(ans)respondTradeOffer(Number(ans.dataset.tradeAnswer),ans.dataset.accept==='yes');});
+ el('tradeBody').addEventListener('click',e=>{
+  const panel=el('tradeBody'),counter=e.target.closest('[data-trade-counter]');
+  if(counter){
+   const id=Number(counter.dataset.tradeCounter),offer=G.tradeOffers.find(o=>o.id===id&&o.to===0);
+   if(!offer)return;
+   const own=panel.querySelector(`[data-counter-from="${id}"]`)?.value;
+   const foreign=panel.querySelector(`[data-counter-to="${id}"]`)?.value;
+   const share=Number(panel.querySelector(`[data-counter-share="${id}"]`)?.value);
+   if(!counterTradeOffer(id,share,0,own,foreign))showToast('Cannot send counteroffer: check endpoints and 1 SP courier cost.');
+   return;
+  }
+  const propose=e.target.closest('[data-trade-propose]');
+  if(propose){
+   const to=Number(propose.dataset.tradePropose);
+   const share=panel.querySelector(`[data-trade-share="${to}"]`)?.value;
+   const from=panel.querySelector(`[data-road-from="${to}"]`)?.value;
+   const dest=panel.querySelector(`[data-road-to="${to}"]`)?.value;
+   proposeTradeRoute(to,Number(share||50),0,from,dest);return;
+  }
+  const answer=e.target.closest('[data-trade-answer]');
+  if(answer)respondTradeOffer(Number(answer.dataset.tradeAnswer),answer.dataset.accept==='yes');
+ });
  el('economySummary').addEventListener('change',e=>{
   if(e.target.matches('[data-caravan-policy]')){getCountry().caravanPolicy=e.target.value;save();render();}
   if(e.target.matches('[data-hand-haul-policy]')){getCountry().handHaulingPolicy=e.target.value==='allow'?'allow':'wait';save();render();}
  });
- el('tradeBody').addEventListener('change',e=>{const field=e.target.closest('[data-road-from],[data-road-to],[data-trade-share]');if(field)refreshRouteEstimate(Number(field.dataset.roadFrom||field.dataset.roadTo||field.dataset.tradeShare));});
+ el('tradeBody').addEventListener('change',e=>{
+  const choice=e.target.closest('[data-counter-from],[data-counter-to],[data-counter-share]');
+  if(choice){refreshCounterEstimate(Number(choice.dataset.counterFrom||choice.dataset.counterTo||choice.dataset.counterShare));return;}
+  const field=e.target.closest('[data-road-from],[data-road-to],[data-trade-share]');
+  if(field)refreshRouteEstimate(Number(field.dataset.roadFrom||field.dataset.roadTo||field.dataset.tradeShare));
+ });
  el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':{const picked=[...el('territoryDetails').querySelectorAll('[data-expedition-citizen]')].map(node=>node.value).filter(Boolean);doExpand(t,0,picked);break;}case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Shipment dispatched with '+(GOOD_NAMES[item]||item):'No available wagon or log porter, route, or destination storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
  el('territoryDetails').addEventListener('change',e=>{
    if(e.target.matches('[data-expedition-citizen]')){
