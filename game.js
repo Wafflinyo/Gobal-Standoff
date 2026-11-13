@@ -796,6 +796,13 @@ function dispatchShipment(owner,from,to,item,qty,auto=false,preferredCart=null){
  const freeSource=Math.max(0,endpointCount(p,from,item)-reservedFrom);
  const qtyFit=Math.min(10,amount,freeSource,endpointDeliverySpace(p,to));
  if(qtyFit<1)return false;
+ // Goods move within a shared hex without a caravan, driving job or porter.
+ if(src.tile.id===dst.tile.id){
+  const transferred=endpointAdd(p,to,item,qtyFit);
+  if(transferred>0)endpointAdd(p,from,item,-transferred);
+  if(transferred>0&&!auto)addLog(`${transferred} ${GOOD_NAMES[item]||item} moved locally within ${src.tile.name}.`);
+  return transferred>0;
+ }
  const delivery=ownedPath(owner,src.tile,dst.tile);if(!delivery)return false;
  const available=preferredCart
   ?(!preferredCart.shipmentId&&caravanHasDriver(p,preferredCart)?{cart:preferredCart,path:ownedPath(owner,G.tiles.find(t=>t.id===preferredCart.currentTileId),src.tile)}:null)
@@ -3675,7 +3682,7 @@ function renderTile(t){
  t.buildings.forEach((type,i)=>{
   const b=BUILDINGS[type],meta=worksite(t,i),q=owner?workQuality(owner,meta,type):null,occupied=type==='post'&&owner?postGarrison(owner,t.id).length:0;
   const upgrade=upgradePrice(t,i),inProgress=G.projects.some(job=>job.upgradeSiteId===meta?.id);
-  html+=`<div class="gs-job-card"><div class="gs-job-head"><strong>${b.icon} ${b.name} · Lvl ${meta?.level||1}</strong><small>${type==='homes'?`${8+4*((meta?.level||1)-1)} housing capacity · no employees required`:type==='builderBunk'?`${meta?.level||1} builder position${(meta?.level||1)===1?'':'s'} · provides specialized builders`:type==='caravanWarehouse'?`${meta?.level||1} caravan berth${(meta?.level||1)===1?'':'s'} · stores transport wagons`: `${q?.count||0}/${q?.slots||0} workers · Morale ${q?.count?Math.round(q.morale):'—'}/100`} · ${operatingCost(owner||p,meta,type).total} SP/round operating cost (wages included)${type==='post'?` · ${occupied}/12 troops`:''}</small></div>`;
+  html+=`<div class="gs-job-card"><div class="gs-job-head"><strong>${b.icon} ${b.name} · Lvl ${meta?.level||1}</strong><small>${type==='homes'?`${8+4*((meta?.level||1)-1)} housing capacity · no employees required`:type==='builderBunk'?`${meta?.level||1} builder position${(meta?.level||1)===1?'':'s'} · provides specialized builders`:type==='caravanWarehouse'?`${meta?.level||1} caravan berth${(meta?.level||1)===1?'':'s'} · ${owner?worksiteWorkers(owner,meta).filter(c=>c.job?.role==='caravanDriver').length:0}/${meta?.level||1} employed drivers`: `${q?.count||0}/${q?.slots||0} workers · Morale ${q?.count?Math.round(q.morale):'—'}/100`} · ${operatingCost(owner||p,meta,type).total} SP/round operating cost (wages included)${type==='post'?` · ${occupied}/12 troops`:''}</small></div>`;
   const stockList=Object.entries(meta?.stock||{}).filter(([k,v])=>v>0);
   const storageLimit=siteStorageCapacity(type,meta.level),stored=stockUsed(meta);
   if(storageLimit>0)html+=`<div class="gs-storage-gauge"><b>Storage:</b> ${stored}/${storageLimit} units${stored>=storageLimit?' · FULL — production halted until collected':''}<div class="gs-storage-track"><span style="width:${Math.min(100,100*stored/storageLimit)}%"></span></div><small>Higher building levels increase storage capacity.</small></div>`;
