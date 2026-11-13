@@ -3717,7 +3717,7 @@ function bindEvents(){
    error.classList.remove('hidden');button.disabled=false;button.innerHTML='TRY GENERATING AGAIN <span>→</span>';
   }
  });
- el('resumeBtn').addEventListener('click',()=>{const saved=loadSaved();if(!saved)return;G=saved;enterGame();if(G.turnIndex===0&&G.completedScenes?.length)setTimeout(()=>showCompletedProjects(),200);if(G.finished)showEndGame();else if(G.turnIndex!==0){cpuBusy=true;cpuPlaybackToken++;skipCpuPlayback=true;setTimeout(()=>{for(let i=G.turnIndex;i<=3;i++){beginTurn(i);const p=G.players[i];for(let step=0;step<MAJOR_ACTIONS;step++){const spent=actionsUsed(p);runCpu(i);if(actionsUsed(p)===spent)break;}advanceWorldTurn();}finishRound();G.completedScenes=[];focusHome(true);cpuBusy=false;render();},80);}});
+ el('resumeBtn').addEventListener('click',()=>{const saved=loadSaved();if(!saved)return;G=saved;enterGame();if(G.turnIndex===0&&G.completedScenes?.length)setTimeout(()=>showCompletedProjects(),200);if(G.finished)showEndGame();else if(G.turnIndex!==0){cpuBusy=true;cpuPlaybackToken++;skipCpuPlayback=true;setTimeout(()=>{for(let i=G.turnIndex;i<=3;i++){beginTurn(i);const p=G.players[i];for(let step=0;step<MAJOR_ACTIONS;step++){const spent=actionsUsed(p);runCpu(i);if(actionsUsed(p)===spent)break;}advanceWorldTurn();}finishRound();G.completedScenes=[];focusHome(true);cpuBusy=false;render();setTimeout(presentFalconInbox,220);},80);}});
  el('sheetClose').addEventListener('click',closeSheet);
  el('sheetScrim').addEventListener('click',closeSheet);
  el('nationQuickBtn').addEventListener('click',()=>showSheet('nation'));
