@@ -1514,7 +1514,20 @@ function renderTradePanel(){
  }
  for(const o of allOffers){const other=G.players[o.from===0?o.to:o.from];
   const start=G.tiles.find(t=>t.id===o.fromTileId),end=G.tiles.find(t=>t.id===o.toTileId);
-  html+=`<div class="gs-trade-row"><strong>Messenger · ${esc(other.name)}</strong><small>${esc(start?.name||'Capital')} → ${esc(end?.name||'Capital')} · ${o.status==='falcon'?o.travelRemaining+'T in flight':o.status.toUpperCase()} · ${o.costA}/${o.costB} SP</small>${o.status==='pending'&&o.to===0?`<div class="gs-trade-controls"><button class="primary" data-trade-answer="${o.id}" data-accept="yes">Accept & assign builder</button><button class="small-outline" data-trade-answer="${o.id}" data-accept="no">Decline</button></div>`:''}</div>`;
+  const incoming=o.status==='pending'&&o.to===0;
+  const ownTiles=G.tiles.filter(t=>t.owner===0),theirTiles=G.tiles.filter(t=>t.owner===o.from);
+  const ourOldShare=100-o.share;
+  const defaultShare=ROUTE_SHARE_OPTIONS.filter(v=>v<ourOldShare).slice(-1)[0]??ROUTE_SHARE_OPTIONS[0];
+  const fields=incoming&&(o.revision||0)<3?`<div class="gs-trade-counter"><strong>Negotiate · Send a Falcon back</strong>
+   <label>Your route endpoint<select data-counter-from="${o.id}">${ownTiles.map(t=>`<option value="${esc(t.id)}" ${t.id===o.toTileId?'selected':''}>${esc(t.name)}</option>`).join('')}</select></label>
+   <label>Their route endpoint<select data-counter-to="${o.id}">${theirTiles.map(t=>`<option value="${esc(t.id)}" ${t.id===o.fromTileId?'selected':''}>${esc(t.name)}</option>`).join('')}</select></label>
+   <label>Your proposed cost share<select data-counter-share="${o.id}">${ROUTE_SHARE_OPTIONS.map(v=>`<option value="${v}" ${v===defaultShare?'selected':''}>${v}% you / ${100-v}% them</option>`).join('')}</select></label>
+   <small data-counter-estimate="${o.id}">Calculating revised road route…</small>
+   <button class="small-outline" data-trade-counter="${o.id}" ${!active()||!hasMoney(getCountry(),1)?'disabled':''}>Send counteroffer by Falcon · 1 SP</button>
+   </div>`:'';
+  html+=`<div class="gs-trade-row"><strong>${o.revision?'Counteroffer':'Messenger'} · ${esc(other.name)}</strong>
+   <small>${esc(start?.name||'Capital')} → ${esc(end?.name||'Capital')} · ${o.status==='falcon'?o.travelRemaining+'T in flight':o.status.toUpperCase()} · ${o.costA}/${o.costB} SP${o.revision?' · revision '+o.revision:''}</small>
+   ${incoming?`<div class="gs-trade-controls"><button class="primary" data-trade-answer="${o.id}" data-accept="yes">Accept & assign builder</button><button class="small-outline" data-trade-answer="${o.id}" data-accept="no">Decline</button></div>`:''}${fields}</div>`;
  }
  for(const r of roads){
   const start=G.tiles.find(t=>t.id===r.fromTileId),end=G.tiles.find(t=>t.id===r.toTileId);
@@ -1523,6 +1536,7 @@ function renderTradePanel(){
  }
  node.innerHTML=html;
  for(const partner of G.players.filter(p=>p.id!==0))refreshRouteEstimate(partner.id);
+ for(const pending of allOffers.filter(o=>o.status==='pending'&&o.to===0))refreshCounterEstimate(pending.id);
 }
 function refreshRouteEstimate(partnerId){
  const panel=el('tradeBody'),a=panel?.querySelector(`[data-road-from="${partnerId}"]`)?.value,b=panel?.querySelector(`[data-road-to="${partnerId}"]`)?.value;
