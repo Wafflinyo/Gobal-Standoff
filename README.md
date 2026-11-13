@@ -1,4 +1,12 @@
-# Global Standoff — Prototype 0.4.18
+# Global Standoff — Prototype 0.4.19
+
+## Version 0.4.19 — world-fixed map art and smooth camera turns
+
+- Render the world from an immutable reference orientation and apply camera yaw as a continuous transform. The final frame no longer recreates structures, trees, and terrain at different screen-relative positions.
+- Buildings and capitals keep physical world-ground anchors. Their upright, stylized 2.5D silhouettes foreshorten smoothly as the camera moves, instead of being corrected to a new face-on position when a CPU country's view finishes rotating.
+- Individual trees and mountain miniatures also use stable world-space offsets, preserving realistic relative placement and ground-contact depth.
+- Update painter depth ordering throughout the turn (about 0.025 radian increments) rather than delayed correction after large camera angle changes. Existing scenery remains intact; sorting only reorders elements.
+- Sprite art remains 2.5D vector artwork rather than fully textured 3D rear facades. No economy, movement, or saved-world changes.
 
 ## Version 0.4.18 — expedition dispatch cinematic restored
 
