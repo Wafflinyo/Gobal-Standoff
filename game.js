@@ -804,6 +804,47 @@ function peopleSummary(p){const people=p.citizens||[];const housed=people.filter
  return {count:people.length,housed,homeless:people.length-housed,housing:G.tiles.filter(t=>t.owner===p.id).reduce((n,t)=>n+tileResidentCap(t),0),soldiers:people.filter(c=>!!c.military).length,households:occupiedHouseholds(p)};}
 function getMilitaryPosts(id){return G.tiles.filter(t=>t.owner===id&&buildingCount(t,'post')>0);}
 function postGarrison(p,postId){return p.citizens.filter(c=>c.military?.postId===postId);}
+// Citizens age each fourth round; sustained low morale harms health, and
+// mortality gradually increases with age, poor health and psychological stress.
+function citizenDeathProbability(c){
+ const age=Math.max(0,Number(c.age)||0),health=Math.max(0,Math.min(100,c.health??70));
+ const morale=Math.max(0,Math.min(100,c.morale??60));
+ return Math.min(.35,.00015+Math.pow(Math.max(0,age-52),2)*.000012+
+  Math.pow(Math.max(0,60-health),2)*.000009+Math.pow(Math.max(0,45-morale),2)*.000006);
+}
+function advanceCitizenHealthAndMortality(p){
+ let losses=0;
+ for(const citizen of [...p.citizens]){
+  const hauling=isBusyPorter(citizen);
+  const morale=Math.max(0,Math.min(100,Number(citizen.morale??60)));
+  let health=Math.max(0,Math.min(100,Number(citizen.health??70)));
+  if(morale<15)health-=2;
+  else if(morale<35)health-=1;
+  else if(morale<45&&G.round%2===0)health-=1;
+  else if(morale>=65&&p.food>0&&p.gold>=0)health++;
+  if(citizen.age>=70&&G.round%4===0)health--;
+  citizen.health=Math.max(0,Math.min(100,health));
+  if(!hauling&&p.food>0&&p.gold>=0&&citizen.morale<95){
+   citizen.morale=Math.min(100,citizen.morale+1);
+  }
+  const chance=citizenDeathProbability(citizen);
+  const rng=mulberry32(hash(G.seed+':citizen-mortality:'+G.round+':'+p.id+':'+citizen.id));
+  if(citizen.health>0&&rng()>=chance)continue;
+  p.citizens=p.citizens.filter(c=>c!==citizen);
+  p.deathCount=(p.deathCount||0)+1;
+  p.recentDeaths??=[];
+  p.recentDeaths.unshift({name:citizen.name,age:citizen.age,round:G.round});
+  p.recentDeaths.length=Math.min(8,p.recentDeaths.length);
+  if(citizen.builder?.projectId){
+   const project=G.projects.find(j=>j.id===citizen.builder.projectId);
+   if(project)project.builderIds=(project.builderIds||[]).filter(id=>id!==citizen.id);
+  }
+  addLog(`${citizen.name} of ${p.name} passed away at age ${citizen.age}.`);
+  losses++;
+ }
+ if(losses)reallocateHousing(p);
+ return losses;
+}
 function newCitizensForRound(p){
  const summary=peopleSummary(p);if(p.food<=0||summary.homeless>=7||summary.count>=150)return;
  const rng=mulberry32(hash(G.seed+':'+G.round+':'+p.id+':'+p.nextCitizenId));
@@ -1785,6 +1826,7 @@ function finishRound(){
   if(p.gold<0&&oldGold>=0)addLog(`${p.name} entered debt; the −${CREDIT_LIMIT_SP} SP credit ceiling limits spending.`);
   if(p.food===0&&e.netFood<0)addLog(`${p.name} is experiencing a food shortage. Population growth paused.`);
   if(G.round%4===0)for(const c of p.citizens)c.age++;
+  advanceCitizenHealthAndMortality(p);
   newCitizensForRound(p);
   volunteerEachRound(p);
   assignWorkers(p);
@@ -2106,11 +2148,11 @@ function renderRoster(){
  const p=getCountry(),posts=getMilitaryPosts(0),troops=p.citizens.filter(c=>!!c.military);
  el('rosterCitizensBtn').classList.toggle('active',rosterTab==='citizens');
  el('rosterTroopsBtn').classList.toggle('active',rosterTab==='troops');
- el('rosterCount').textContent=rosterTab==='citizens'?`${p.citizens.length} TOTAL`:`${troops.length} TROOPS`;
+ el('rosterCount').textContent=rosterTab==='citizens'?`${p.citizens.length} LIVING · ${p.deathCount||0} DEATHS`:`${troops.length} TROOPS`;
  if(rosterTab==='citizens'){
-  el('rosterList').innerHTML=`<div class="roster-head">Citizen <span>Age · Residence · Role</span></div>`+p.citizens.map(c=>{
+  el('rosterList').innerHTML=`<p class="gs-citizen-health-note">Poor morale reduces health over time; age, health and morale all influence the chance of death each round. Worker hauling causes fatigue; resting citizens can recover.</p>${(p.recentDeaths||[]).length?'<p class="gs-recent-deaths"><strong>Recent passings:</strong> '+p.recentDeaths.slice(0,3).map(d=>esc(d.name)+' (age '+d.age+', R'+d.round+')').join(' · ')+'</p>':''}<div class="roster-head">Citizen <span>Age · Residence · Role</span></div>`+p.citizens.map(c=>{
    const home=c.homeId?G.tiles.find(t=>t.id===c.homeId)?.name||'Unknown':'Homeless';
-   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>${c.age} years · Health ${c.health}/100 · Morale ${c.morale}/100 · ${esc(home)}${c.military?' · Soldier':c.builder?' · Builder'+(c.builder.projectId?' (on assignment)':' (available)'):c.job?' · Employed: '+esc((()=>{const t=G.tiles.find(t=>t.id===c.job.tileId),idx=t?.buildingMeta?.findIndex(m=>m.id===c.job.siteId);return idx>=0?BUILDINGS[t.buildings[idx]].name:'Workplace';})()):' · Unemployed'}</small></div>`;
+   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>${c.age} years · Health ${c.health}/100 · Morale ${c.morale}/100 · ${esc(home)}${c.military?' · Soldier':c.builder?' · Builder'+(c.builder.projectId?' (on assignment)':' (available)'):isBusyPorter(c)?' · Hand-hauling '+esc((G.shipments||[]).find(j=>j.kind==='porter'&&j.porterId===c.id)?.item||'resources'):c.job?' · Employed: '+esc((()=>{const t=G.tiles.find(t=>t.id===c.job.tileId),idx=t?.buildingMeta?.findIndex(m=>m.id===c.job.siteId);return idx>=0?BUILDINGS[t.buildings[idx]].name:'Workplace';})()):' · Unemployed'}</small></div>`;
   }).join('');
  }else{
   el('rosterList').innerHTML=troops.length?`<p class="roster-instructions">Transfer one soldier between your posts each turn, even after using your main action.</p>`+troops.map(c=>{
