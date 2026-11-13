@@ -1,4 +1,11 @@
-# Global Standoff — Prototype 0.4.19
+# Global Standoff — Prototype 0.4.20
+
+## Version 0.4.20 — 2.5D terrain depth at every viewing angle
+
+- Corrects v0.4.19's flat-hex regression: all visible hex sides keep a vertical screen-space extrusion regardless of camera yaw instead of rotating their thickness sideways.
+- Compute side-wall visibility continuously from the current camera angle. The top surface still rotates smoothly as a world-fixed plane, and near terrain tiles are depth-sorted over far terrain tiles.
+- Keep trees, buildings, capitals and roads physically anchored throughout the rotation; buildings maintain more visual volume at oblique angles.
+- Remove expensive per-frame drop-shadow filters on each dynamic sidewall; retain natural shading via dark face strokes and base shadow. No snapping end-frame redraw or saved-world/gameplay changes.
 
 ## Version 0.4.19 — world-fixed map art and smooth camera turns
 
