@@ -1352,7 +1352,7 @@ function routeCostSplit(plan,percent){
 function alreadyLinked(a,b,fromTileId=null,toTileId=null){
  const same=o=>contactKey(o.a??o.from,o.b??o.to)===contactKey(a,b)&&
   (fromTileId===null||(o.fromTileId===fromTileId&&o.toTileId===toTileId)||(o.fromTileId===toTileId&&o.toTileId===fromTileId));
- return G.tradeRoutes.some(same)||G.tradeOffers.some(o=>!['rejected','expired'].includes(o.status)&&same(o));
+ return G.tradeRoutes.some(same)||G.tradeOffers.some(o=>!['rejected','expired','countered'].includes(o.status)&&same(o));
 }
 function proposeTradeRoute(to,share,id=0,fromTileId=null,toTileId=null){
  const p=G.players[id],target=G.players[to];if(!target||id===to||!canCountryAct(p,id))return false;
@@ -1366,6 +1366,36 @@ function proposeTradeRoute(to,share,id=0,fromTileId=null,toTileId=null){
   plan,split,status:'falcon',createdClock:G.turnClock||0,travelTotal:trip,travelRemaining:trip});
  useAction(p,`${p.name} sent a messenger falcon to ${target.capital}, proposing a border road from ${from.name} to ${dest.name} (${split.costA}/${split.costB} SP).`);
  if(id===0)showToast('Messenger falcon dispatched · awaiting delivery');return true;
+}
+// A counteroffer reverses the negotiation direction. The respondent can
+// revise the cost split and endpoints, then send a physical falcon back.
+// The 1-SP courier reply is a diplomatic response, not a major action.
+function counterTradeOffer(offerId,share,responder=0,ownTileId=null,otherTileId=null){
+ const original=G.tradeOffers.find(o=>o.id===offerId&&o.to===responder&&o.status==='pending');
+ const p=G.players[responder];if(!original||!p||(responder===0&&!active())||!hasMoney(p,1))return false;
+ const percent=Number(share);
+ if(!ROUTE_SHARE_OPTIONS.includes(percent)||(original.revision||0)>=3)return false;
+ const from=routeEndpoint(responder,ownTileId??original.toTileId);
+ const to=routeEndpoint(original.from,otherTileId??original.fromTileId);
+ if(!from||!to||(ownTileId!=null&&from.id!==ownTileId)||(otherTileId!=null&&to.id!==otherTileId))return false;
+ const duplicate=G.tradeOffers.some(o=>o!==original&&contactKey(o.from,o.to)===contactKey(responder,original.from)
+  &&!['rejected','expired','countered'].includes(o.status)
+  &&((o.fromTileId===from.id&&o.toTileId===to.id)||(o.fromTileId===to.id&&o.toTileId===from.id)));
+ if(duplicate||G.tradeRoutes.some(r=>contactKey(r.a,r.b)===contactKey(responder,original.from)
+  &&((r.fromTileId===from.id&&r.toTileId===to.id)||(r.fromTileId===to.id&&r.toTileId===from.id))))return false;
+ const plan=tradePlan(responder,original.from,from.id,to.id),split=routeCostSplit(plan,percent);
+ if(!plan||!split)return false;
+ const trip=Math.max(1,Math.ceil(distance(capitalOf(responder),capitalOf(original.from))/4));
+ const id=G.nextTradeId++;
+ const counter={id,from:responder,to:original.from,share:percent,costA:split.costA,costB:split.costB,
+  fromTileId:from.id,toTileId:to.id,plan,split,status:'falcon',
+  createdClock:G.turnClock||0,travelTotal:trip,travelRemaining:trip,
+  revision:(original.revision||0)+1,counterToId:original.id,negotiationId:original.negotiationId??original.id};
+ p.gold-=1;original.status='countered';original.counterId=id;original.inboxRead=true;
+ G.tradeOffers.push(counter);
+ addLog(`${p.name} sent a road counteroffer by falcon to ${G.players[original.from].capital}: ${from.name}–${to.name}, ${split.costA}/${split.costB} SP.`);
+ if(responder===0){save();render();showToast('Counteroffer sent by falcon · 1 SP');}
+ return true;
 }
 function reserveRoadBuilder(p,route,side,endpoint){
  const citizen=idleBuilders(p)[0];if(!citizen)return null;
@@ -1409,7 +1439,7 @@ function progressTradeOffers(){
   if((G.turnClock||0)<=offer.createdClock+1)continue;
   offer.travelRemaining=Math.max(0,offer.travelRemaining-1);
   if(offer.travelRemaining>0)continue;
-  offer.status='pending';
+  offer.status='pending';offer.deliveredClock=G.turnClock||0;
   const link=contactKey(offer.from,offer.to);if(!G.contacts.includes(link))G.contacts.push(link);
   addLog(`${G.players[offer.from].name}'s falcon reached ${G.players[offer.to].capital} with a road proposal.`);
   if(offer.to!==0){
@@ -1417,6 +1447,10 @@ function progressTradeOffers(){
    const canPay=hasMoney(partner,offer.costB)&&hasMoney(G.players[offer.from],offer.costA);
    const labor=idleBuilders(partner).length&&idleBuilders(G.players[offer.from]).length;
    const rng=mulberry32(hash(G.seed+':road-decision:'+offer.id));
+   // CPUs can negotiate their contribution instead of always accepting or
+   // rejecting. Limit revisions to avoid endless messenger exchanges.
+   const wantsCounter=offer.costB>offer.costA&&offer.costB>2&&(offer.revision||0)<2;
+   if(wantsCounter&&hasMoney(partner,1)&&counterTradeOffer(offer.id,40,partner.id,offer.toTileId,offer.fromTileId))continue;
    if(canPay&&labor&&rng()>(offer.share<30?.35:.16))decideTradeOffer(offer,true);
    else decideTradeOffer(offer,false);
   }
@@ -1450,6 +1484,18 @@ function respondTradeOffer(id,yes){
  if(!offer||!active())return false;
  const success=decideTradeOffer(offer,yes);
  if(success){save();render();}return success;
+}
+function refreshCounterEstimate(offerId){
+ const panel=el('tradeBody'),offer=G.tradeOffers.find(o=>o.id===offerId&&o.to===0);
+ if(!offer||!panel)return;
+ const own=panel.querySelector(`[data-counter-from="${offerId}"]`)?.value;
+ const foreign=panel.querySelector(`[data-counter-to="${offerId}"]`)?.value;
+ const share=Number(panel.querySelector(`[data-counter-share="${offerId}"]`)?.value||40);
+ const plan=tradePlan(0,offer.from,own,foreign),split=routeCostSplit(plan,share);
+ const label=panel.querySelector(`[data-counter-estimate="${offerId}"]`);
+ if(label)label.textContent=plan&&split?`Counteroffer: you pay ${split.costA} SP and build ${split.aSegments} segments; they pay ${split.costB} SP and build ${split.bSegments}. Return falcon: 1 SP now.`:'No permitted border route connects the endpoints.';
+ const send=panel.querySelector(`[data-trade-counter="${offerId}"]`);
+ if(send)send.disabled=!active()||!plan||!split||!hasMoney(getCountry(),1)||(offer.revision||0)>=3;
 }
 function renderTradePanel(){
  const node=el('tradeBody');if(!node||!G)return;
