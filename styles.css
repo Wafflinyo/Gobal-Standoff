@@ -507,3 +507,13 @@ body.gs-playing .sheet-panel small,body.gs-playing .sheet-panel .muted,body.gs-p
 .gs-citizen-health-note,.gs-recent-deaths{font-size:11px;line-height:1.5;padding:9px 10px;border:1px solid #799ea25c;border-radius:9px;background:#193542;color:#e0e5d9}
 .gs-recent-deaths{color:#efd6b0}
 .gs-porter-cargo{filter:drop-shadow(0 1px 0 #26373950)}
+
+/* v0.4.25: named civilian-only expedition roster selection. */
+.gs-expedition-selector{margin:12px 0 14px;padding:12px;border:1px solid #a9926899;border-radius:12px;background:#142d3acc;display:grid;gap:10px}
+.gs-expedition-selector>strong{font-size:13px;font-weight:850;color:#f2dcb2}
+.gs-expedition-selector>small{font-size:11px;line-height:1.55;color:#d1ded7}
+.gs-expedition-selector label{display:grid;gap:5px;font-size:11px;font-weight:800;color:#dfe7dd}
+.gs-expedition-selector select{width:100%;min-width:0;min-height:42px;padding:10px 9px;border:1px solid #799a99;border-radius:9px;color:#f6e6c5;background:#153947;font-size:12px}
+.gs-expedition-selector select option{color:#f6e6c5;background:#153947}
+.gs-expedition-selector .action-btn{margin-top:4px;width:100%}
+.gs-expedition-selector .action-btn:disabled{opacity:.52}
