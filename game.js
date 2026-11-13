@@ -1285,9 +1285,15 @@ function renderWarPanel(){
  const flights=G.diplomaticFalcons.filter(f=>(f.from===0||f.to===0)&&['flying','awaiting-reply'].includes(f.status));
  if(flights.length)html+=`<div class="gs-war-order"><strong>Messenger Falcons</strong>${flights.map(f=>`<div class="gs-war-unit"><b>${esc(G.players[f.from].name)} → ${esc(G.players[f.to].capital)}</b><small>${esc(f.kind.toUpperCase())} · ${f.status==='flying'?`${f.remaining}T until delivery`:'Awaiting your response'}${f.tileId?` · ${esc(G.tiles.find(t=>t.id===f.tileId)?.name||'')}`:''}</small></div>`).join('')}</div>`;
  for(const other of G.players.filter(p=>p.id!==0)){
-  const atWar=!!currentWar(0,other.id),capital=capitalOf(other.id),warnings=G.warnings.filter(w=>w.status==='active'&&w.to===0&&w.from===other.id);
+  const atWar=!!currentWar(0,other.id),capital=capitalOf(other.id),warnings=visibleTerritorialWarnings().filter(w=>w.from===other.id);
+  const issued=G.warnings.filter(w=>w.from===0&&w.to===other.id&&['active','escalated'].includes(w.status)&&G.tiles.some(t=>t.id===w.tileId&&t.owner===null));
   html+=`<div class="gs-war-order"><strong>${esc(other.name)} ${atWar?'<span class="gs-war-state">AT WAR</span>':'<span class="gs-war-peace">PEACE</span>'}</strong><small>Falcon destination: ${esc(capital?.name||other.capital)}. Courier cost: 1 SP.</small>`;
-  for(const w of warnings){const t=G.tiles.find(x=>x.id===w.tileId);html+=`<p class="gs-warning-text">WARNING RECEIVED: If you take ${esc(t?.name||'the specified land')}, war may be declared.</p>`;}
+  for(const w of warnings){const t=G.tiles.find(x=>x.id===w.tileId);html+=`<p class="gs-warning-text">WARNING RECEIVED: The border of ${esc(t?.name||'the disputed territory')} glows red until the land is claimed or the warning is rescinded.</p>`;}
+  for(const w of issued){
+   const t=G.tiles.find(x=>x.id===w.tileId),pending=G.diplomaticFalcons.some(f=>f.kind==='retract'&&f.warningId===w.id&&f.status==='flying');
+   html+=`<div class="gs-warning-issued"><small>Your threat over ${esc(t?.name||'the disputed territory')} is active.${pending?' Withdrawal falcon on the way.':''}</small>
+    <button data-rescind-warning="${w.id}" ${!canAct()||!hasMoney(me,1)||pending?'disabled':''}>Rescind warning by Falcon · 1 SP</button></div>`;
+  }
   if(!atWar){
    html+=`<label class="gs-war-field">Disputed territory<select data-warning-land="${other.id}">${warnable.slice().sort((a,b)=>Math.min(...owned.map(o=>distance(a,o)))-Math.min(...owned.map(o=>distance(b,o)))).map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label><div class="gs-war-actions"><button data-send-warning="${other.id}" ${!canAct()?'disabled':''}>Send Warning</button><button data-send-war="${other.id}" ${!canAct()?'disabled':''}>Declare War by Falcon</button></div>`;
   }else html+=`<div class="gs-war-actions"><button data-send-peace="${other.id}" ${!canAct()?'disabled':''}>Send Ceasefire Proposal</button></div>`;
@@ -3049,6 +3055,11 @@ function bindEvents(){
   if(b.dataset.sendWarning!=null){const to=Number(b.dataset.sendWarning),tile=panel.querySelector(`[data-warning-land="${to}"]`)?.value;sendDiplomaticFalcon(to,'warning',tile);return;}
   if(b.dataset.sendWar!=null){sendDiplomaticFalcon(Number(b.dataset.sendWar),'war');return;}
   if(b.dataset.sendPeace!=null){sendDiplomaticFalcon(Number(b.dataset.sendPeace),'peace');return;}
+  if(b.dataset.rescindWarning!=null){
+   const warning=G.warnings.find(w=>w.id===Number(b.dataset.rescindWarning)&&w.from===0);
+   if(warning)sendDiplomaticFalcon(warning.to,'retract',warning.tileId,0,false,warning.id);
+   return;
+  }
   if(b.dataset.peaceAnswer!=null){acceptCeasefire(Number(b.dataset.peaceAnswer),b.dataset.accept==='yes');return;}
   if(b.dataset.orderWar!=null){orderMilitary(panel.querySelector('#warDestination')?.value,Number(panel.querySelector('#warEnemy')?.value),panel.querySelector('#warPost')?.value,Number(panel.querySelector('#warQuantity')?.value||1),panel.querySelector('#warKind')?.value||'patrol');return;}
   if(b.dataset.recallWar!=null){recallMilitary(Number(b.dataset.recallWar));return;}
