@@ -1723,12 +1723,13 @@ function presentFalconInbox(){
  if(!active()||sheetMode||!el('modalLayer').classList.contains('hidden'))return;
  const dispatch=unreadFalconDispatches()[0];if(!dispatch)return;
  const f=dispatch.item,from=G.players[f.from],route=dispatch.type==='route';
- const label=route?(f.revision?'ROAD COUNTEROFFER':'ROAD PROPOSAL'):f.kind==='warning'?'TERRITORIAL WARNING':f.kind==='retract'?'WARNING RESCINDED':f.kind==='war'?'DECLARATION OF WAR':'CEASEFIRE PROPOSAL';
+ const label=route?(f.revision?'ROAD COUNTEROFFER':'ROAD PROPOSAL'):f.kind==='treaty'?'TREATY PROPOSAL':f.kind==='alliance'?'ALLIANCE PROPOSAL':f.kind==='dissolve'?'AGREEMENT TERMINATED':f.kind==='warning'?'TERRITORIAL WARNING':f.kind==='retract'?'WARNING RESCINDED':f.kind==='war'?'DECLARATION OF WAR':'CEASEFIRE PROPOSAL';
  const body=route?(()=>{
   const a=G.tiles.find(t=>t.id===f.fromTileId),b=G.tiles.find(t=>t.id===f.toTileId);
   return `${from.name} proposes a road from ${a?.name||'their territory'} to ${b?.name||'your territory'}. Your share is ${f.costB} Silver Pents, and their share is ${f.costA}.`;
  })():diplomaticMessageText(f);
- const actions=(route||f.kind==='peace')?`<button class="primary" data-modal="falcon-accept" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">${route?'Accept route':'Accept ceasefire'}</button><button class="secondary" data-modal="falcon-reject" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">Reject</button>`:'';
+ const isTreaty=!route&&['treaty','alliance'].includes(f.kind);
+ const actions=(route||f.kind==='peace'||isTreaty)?`<button class="primary" data-modal="falcon-accept" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}" ${isTreaty&&!canActivateTreaty(f)?'disabled':''}>${route?'Accept route':isTreaty?'Sign agreement':'Accept ceasefire'}</button><button class="secondary" data-modal="falcon-reject" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">Decline</button>`:'';
  const oldShare=route?100-f.share:50;
  const suggested=route?ROUTE_SHARE_OPTIONS.filter(v=>v<oldShare).slice(-1)[0]??ROUTE_SHARE_OPTIONS[0]:40;
  const counterForm=route&&(f.revision||0)<3?`<div class="gs-falcon-counter">
@@ -1745,8 +1746,9 @@ function handleFalconMessageAction(button){
  const target=(type==='route'?G.tradeOffers:G.diplomaticFalcons)?.find(f=>f.id===id&&f.to===0);
  if(!target)return;
  if(action==='falcon-accept'||action==='falcon-reject'){
-  const success=type==='route'?respondTradeOffer(id,action==='falcon-accept'):acceptCeasefire(id,action==='falcon-accept');
-  if(!success){showToast('Unable to respond. Check builders, Silver Pents or the War Room.');return;}
+  const success=type==='route'?respondTradeOffer(id,action==='falcon-accept'):
+   ['treaty','alliance'].includes(target.kind)?respondTreatyOffer(id,action==='falcon-accept'):acceptCeasefire(id,action==='falcon-accept');
+  if(!success){showToast('Unable to respond. Check the agreement, available SP or active war.');return;}
  }
  if(action==='falcon-counter'){
   if(type!=='route'||target.status!=='pending')return;
@@ -3250,6 +3252,14 @@ function bindEvents(){
   if(b.dataset.sendWarning!=null){const to=Number(b.dataset.sendWarning),tile=panel.querySelector(`[data-warning-land="${to}"]`)?.value;sendDiplomaticFalcon(to,'warning',tile);return;}
   if(b.dataset.sendWar!=null){sendDiplomaticFalcon(Number(b.dataset.sendWar),'war');return;}
   if(b.dataset.sendPeace!=null){sendDiplomaticFalcon(Number(b.dataset.sendPeace),'peace');return;}
+  if(b.dataset.sendTreaty!=null){sendDiplomaticFalcon(Number(b.dataset.sendTreaty),'treaty');return;}
+  if(b.dataset.sendAlliance!=null){sendDiplomaticFalcon(Number(b.dataset.sendAlliance),'alliance');return;}
+  if(b.dataset.endAgreement!=null){
+   const target=Number(b.dataset.endPartner),id=Number(b.dataset.endAgreement);
+   if(!sendDiplomaticFalcon(target,'dissolve',null,0,false,null,id))showToast('Unable to terminate agreement. Check SP and remaining actions.');
+   return;
+  }
+  if(b.dataset.treatyAnswer!=null){respondTreatyOffer(Number(b.dataset.treatyAnswer),b.dataset.accept==='yes');return;}
   if(b.dataset.rescindWarning!=null){
    const warning=G.warnings.find(w=>w.id===Number(b.dataset.rescindWarning)&&w.from===0);
    if(warning)sendDiplomaticFalcon(warning.to,'retract',warning.tileId,0,false,warning.id);
