@@ -688,7 +688,7 @@ function shippingDashboard(){
   <label class="gs-routing-label">Workers when all wagons are busy <select data-hand-haul-policy><option value="wait" ${p.handHaulingPolicy!=='allow'?'selected':''}>Wait for a caravan</option><option value="allow" ${p.handHaulingPolicy==='allow'?'selected':''}>Allow 2-unit worker deliveries</option></select></label>
   ${!(p.caravans||[]).length?'<small>No wagons owned: eligible workers transport resources by hand automatically.</small>':''}
   <label class="gs-routing-label">After delivery <select data-caravan-policy><option value="nearest" ${p.caravanPolicy==='nearest'?'selected':''}>Closest warehouse</option><option value="home" ${p.caravanPolicy==='home'?'selected':''}>Original warehouse</option><option value="stay" ${p.caravanPolicy==='stay'?'selected':''}>Stay if destination has space</option></select></label>
-  ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.kind==='porter'?'Worker pushing':'Wagon carrying'} ${j.qty} ${GOOD_NAMES[j.item]||j.item} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
+  ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.kind==='porter'?'Worker':'Wagon'} · ${j.stage==='return'?'Returning empty':j.stage==='pickup'?('Going to collect '+j.qty+' '+(GOOD_NAMES[j.item]||j.item)):(j.qty+' '+(GOOD_NAMES[j.item]||j.item))} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
 }
 function runAgricultureAndForestry(){
  for(const p of G.players)for(const t of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<t.buildings.length;i++){
@@ -2088,7 +2088,7 @@ function renderTile(t){
   if(isOwn&&type==='caravanWarehouse')html+=caravanWarehouseStatus(p,meta.id);
   if(isOwn&&type==='storageWarehouse'&&stockList.length){
    const targets=routingTargets(p,meta.id);
-   html+=`<div class="gs-storage-actions"><strong>Ship stored goods by wagon or worker (when allowed)</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship up to 10</button></div>`).join('')}</div>`;
+   html+=`<div class="gs-storage-actions"><strong>Ship stored goods by wagon or worker (when allowed)</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship (10 wagon / 2 worker)</button></div>`).join('')}</div>`;
   }
   if(isOwn&&FACTORY_RECIPES[type])html+=`<label class="gs-routing-label">Manufacture <select data-recipe-site="${i}">${FACTORY_RECIPES[type].map(recipe=>`<option value="${recipe}" ${meta.recipe===recipe?'selected':''}>${RECIPES[recipe].name}</option>`).join('')}</select></label>`;
   if(isOwn&&OUTPUTS[type]?.length){const targets=routingTargets(p,meta.id);
