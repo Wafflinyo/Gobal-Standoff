@@ -1,4 +1,14 @@
-# Global Standoff — Prototype 0.4.26
+# Global Standoff — Prototype 0.4.27
+
+## Version 0.4.27 — true iPhone landscape support and stable portrait transitions
+
+- Added a **dedicated landscape-phone game layout**: the top header compresses; the hand occupies a compact bottom-left dock; the Nation/Research/Citizens/World/End Turn controls occupy a separate bottom-right strip; zoom controls remain aligned along the right; resources and the action counter use the top-left. Cards, controls, and gameplay no longer share the same bottom region. The design accounts for iPhone notch/home-indicator safe areas and narrow screens.
+- In landscape, selecting a territory, economy, roster, research or World Affairs panel opens a **full-height scrolling right-side sheet** instead of a portrait-style bottom sheet. Card inspection and modal dialogs fit within the shorter screen.
+- Fixed the landscape map zoom bug by keeping a **logical camera zoom independent of screen aspect ratio**. Landscape fits substantially more of the map vertically and horizontally rather than retaining portrait width and collapsing vertical visibility. Manual zoom, Home focus, full-map view and CPU cinematic camera targets all use the same orientation-aware calculation.
+- Added coalesced orientation, resize and visual-viewport handling that preserves the map center, camera angle and current zoom setting without rebuilding the world scene or restarting animations. The map camera adapts live if rotation occurs during CPU cinematic movement.
+- Replaced Safari's volatile 100dvh in the active game viewport with stable 100svh sizing to prevent browser toolbar shifts from repeatedly growing/shrinking the board. Hardware orientation changes release interrupted pan/pinch pointers to avoid stale-touch jitter when returning to portrait. End Turn no longer triggers a redundant page scroll in fullscreen game mode.
+- All changes are visual/layout/camera only; saved games, territory state, economy, citizen assignments, diplomacy and card effects are unchanged.
+
 
 ## Version 0.4.26 — trade-route negotiation by falcon and glowing red territorial threats
 
