@@ -3243,7 +3243,14 @@ function bindEvents(){
  // events. Coalesce them into one viewport-only update without rebuilding SVG
  // world objects, moving the map center or opening/closing the game sheet.
  window.addEventListener('resize',scheduleMapViewportReflow,{passive:true});
- window.addEventListener('orientationchange',scheduleMapViewportReflow,{passive:true});
+ window.addEventListener('orientationchange',()=>{
+  // iOS can retain an interrupted touch after a hardware orientation change.
+  // Clear stale pan/pinch pointers so a return to portrait doesn't jitter.
+  pointers.clear();drag=null;pinchLast=null;suppressClick=true;
+  setTimeout(()=>{suppressClick=false;},220);
+  lastViewportLayoutKey='';
+  scheduleMapViewportReflow();
+ },{passive:true});
  window.visualViewport?.addEventListener('resize',scheduleMapViewportReflow,{passive:true});
  el('modalLayer').addEventListener('click',e=>{const b=e.target.closest('[data-modal]');if(b?.dataset.modal?.startsWith('falcon-')){handleFalconMessageAction(b);return;}if(!b){if(e.target===el('modalBackdrop'))closeModal();return;}switch(b.dataset.modal){case'close':closeModal();break;case'new-confirm':confirmNew();break;case'new':try{localStorage.removeItem(SAVE_KEY);localStorage.removeItem(OLD_SAVE_KEY);}catch(e){}newMatch();break;case'continue':G.finished=false;G.continued=true;G.maxRounds=Math.max(G.round+16,G.maxRounds+16);G.round++;beginTurn(0);cpuBusy=false;save();closeModal();render();break;}});
 }
