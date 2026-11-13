@@ -3951,32 +3951,39 @@ function wagonViewArtwork(countryColor){
 }
 // A tiny worker visibly pushes two timber logs rather than a covered wagon.
 // These are world-anchored miniature units and participate in ground depth.
+function beanPushCart(lod=beanLod()){
+ const detail=lod>=2;
+ let wheels='';
+ for(const cx of [14,31]){
+  wheels+='<g transform="translate('+cx+' 9)"><g class="gs-bean-wheel">'+
+   '<circle r="4.5" fill="#3b4147" stroke="#d4bc8d" stroke-width="1.3"/>'+
+   '<circle r="2" fill="#8d918c" stroke="#263b46" stroke-width=".5"/>'+
+   (detail?'<path d="M0-3.3V3.3M-3.3 0H3.3" stroke="#ecdbbd" stroke-width=".7"/>':'')+
+   '</g></g>';
+ }
+ return '<g class="gs-bean-pushcart" pointer-events="none">'+
+  '<ellipse cx="23" cy="14" rx="22" ry="3" fill="#1e3239" opacity=".20"/>'+
+  '<path d="M4-8L13-5" fill="none" stroke="#70543b" stroke-width="3.6" stroke-linecap="round"/>'+
+  '<path d="M10-5L35-5L34 7L12 7Z" fill="#b78352" stroke="#3b3a36" stroke-width="1.7"/>'+
+  '<path d="M11-5L15-10L36-10L35-5Z" fill="#daae75" stroke="#5a473a" stroke-width="1.1"/>'+
+  (lod>=1?'<path d="M17-3L17 5M29-3V5" stroke="#916640" stroke-width="1.1"/>':'')+
+  wheels+'</g>';
+}
 function porterVisuals(depthEntries=false){
  const entries=(G.shipments||[]).filter(j=>j.kind==='porter').map(job=>{
-  const owner=G.players[job.owner],ids=job.path||[],a=G.tiles.find(t=>t.id===ids[Math.min(job.step,ids.length-1)]);
-  if(!owner||!a)return null;
+  const p=G.players[job.owner],worker=p?.citizens.find(c=>c.id===job.porterId);
+  const ids=job.path||[],a=G.tiles.find(t=>t.id===ids[Math.min(job.step,ids.length-1)]);
+  if(!p||!worker||!a)return null;
   const b=G.tiles.find(t=>t.id===ids[Math.min(job.step+1,ids.length-1)])||a;
   const duration=a.id===b.id?1:porterTicks(a,b);
   const fraction=a.id===b.id?0:Math.max(0,Math.min(1,(job.stepSpent||0)/duration));
-  const from=coords(a),to=coords(b),point=project(from.x+(to.x-from.x)*fraction,from.y+(to.y-from.y)*fraction);
-  const loaded=job.stage==='delivery'||job.stage==='unloading';
-   const cargoGraphic=job.item==='logs'||job.item==='wood'?
-    '<g class="gs-porter-cargo"><rect x="0" y="-5" width="18" height="5" rx="2" fill="#ae7950" stroke="#493e31" stroke-width="1"/><rect x="0" y="-11" width="18" height="5" rx="2" fill="#bc8656" stroke="#493e31" stroke-width="1"/><ellipse cx="18" cy="-8.5" rx="2" ry="2.5" fill="#dfb687" stroke="#563f2e" stroke-width=".7"/><ellipse cx="18" cy="-2.5" rx="2" ry="2.5" fill="#dfb687" stroke="#563f2e" stroke-width=".7"/></g>':
-    job.item==='food'||job.item==='leather'?
-    '<g class="gs-porter-cargo"><path d="M2 -12Q10 -15 16 -11L18 0Q9 6 0 0Z" fill="#d8b67c" stroke="#61513d" stroke-width="1.2"/><path d="M4 -9Q10 -6 15 -10" fill="none" stroke="#97734c" stroke-width="1.2"/></g>':
-    '<g class="gs-porter-cargo"><path d="M0 -10L14 -12L18 -8V3L4 4L0 0Z" fill="#bf9d6f" stroke="#5f513f" stroke-width="1.2"/><path d="M0 -10L4 -6L18 -8M4 -6V4" fill="none" stroke="#7a6548" stroke-width="1"/></g>';
-   const badge=loaded?cargoGraphic:'';
-  const silhouette=`<g class="gs-porter-unit" transform="translate(${point.x.toFixed(2)} ${point.y.toFixed(2)})" pointer-events="none">
-   <ellipse cx="2" cy="4" rx="16" ry="3" fill="#263c35" opacity=".3"/>
-   <g class="gs-porter-step"><circle cx="-7" cy="-15" r="4" fill="#eed1ac" stroke="#344850" stroke-width="1"/>
-    <path d="M-9 -10L-10 -3L-12 3M-9 -3L-5 3" fill="none" stroke="#344850" stroke-width="2.4" stroke-linecap="round"/>
-    <path d="M-9 -10L-1 -7L1 -3" fill="none" stroke="#eed1ac" stroke-width="2" stroke-linecap="round"/>
-    <path d="M-11 -9L-7 -11L-4 -7L-6 -2L-12 -3Z" fill="${owner.color}" stroke="#344850" stroke-width="1"/>
-    ${badge}
-   </g>
-  </g>`;
-  const html=billboardSvg(point.x,point.y,silhouette);
-  return depthEntries?{x:point.x,y:point.y+4,html}:html;
+  const from=coords(a),to=coords(b);
+  const point=project(from.x+(to.x-from.x)*fraction,from.y+(to.y-from.y)*fraction);
+  const lod=beanLod(),scale=lod===0?.50:lod===1?.62:.72;
+  const artwork='<g class="gs-bean-hauler" transform="translate('+point.x.toFixed(2)+' '+point.y.toFixed(2)+') scale('+scale+')">'+
+   beanPerson(worker,p,'civilian',lod)+beanPushCart(lod)+'</g>';
+  const html=billboardSvg(point.x,point.y,artwork);
+  return depthEntries?{x:point.x,y:point.y+6,html}:html;
  });
  return depthEntries?entries.filter(Boolean):entries.filter(Boolean).join('');
 }
