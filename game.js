@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.23 — warehouse caravan tracking, manual shipments and civilian life cycle. */
+/* Global Standoff 0.4.24 — preserve falcon silhouette under 2.5D map rotations. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -2193,7 +2193,7 @@ const blend=(a,b,t)=>a+(b-a)*t;
 let cameraYaw=POV_ANGLES[0],cameraMoveFrame=0,cameraResolve=null,cpuPlaybackToken=0,skipCpuPlayback=false,actionTileId=null,actionKind='';
 let boardBaseYaw=WORLD_SCENE_YAW,boardBillboards=[],boardWorldStructures=[],boardFootprints=[],boardWagons=[],boardTerrainFaces=[],lastTerrainExtrusionYaw=NaN,lastWorldDepthYaw=NaN;
 const wagonMotionSeen=new Set();
-function billboardSvg(x,y,contents){return `<g data-gs-billboard="1" data-anchor-x="${x.toFixed(2)}" data-anchor-y="${y.toFixed(2)}">${contents}</g>`;}
+function billboardSvg(x,y,contents,alwaysUpdate=false){return `<g data-gs-billboard="1" ${alwaysUpdate?'data-gs-always-update="1" ':''}data-anchor-x="${x.toFixed(2)}" data-anchor-y="${y.toFixed(2)}">${contents}</g>`;}
 // Facades stay attached to the world, rather than being repainted to face
 // every new player camera angle. Their upright silhouettes turn continuously.
 function worldStructureSvg(x,y,contents){return `<g data-gs-world-structure="1" data-anchor-x="${x.toFixed(2)}" data-anchor-y="${y.toFixed(2)}">${contents}</g>`;}
@@ -2239,7 +2239,7 @@ function syncBoardRotation(){
  for(const {node,x,y} of boardBillboards){
   const px=co*x+c*y,py=b*x+co*y;
   // Billboard culling: far-offscreen 3D scenery need not update every frame.
-  if(px<view.x-190||px>view.x+view.w+190||py<view.y-190||py>view.y+view.h+190)continue;
+  if(!node.dataset.gsAlwaysUpdate&&(px<view.x-190||px>view.x+view.w+190||py<view.y-190||py>view.y+view.h+190))continue;
   const tx=x-(co*x+ic*y),ty=y-(ib*x+co*y);
   node.setAttribute('transform',`matrix(${co.toFixed(7)} ${ib.toFixed(7)} ${ic.toFixed(7)} ${co.toFixed(7)} ${tx.toFixed(3)} ${ty.toFixed(3)})`);
  }
@@ -2509,12 +2509,18 @@ function roadHudLabels(){
  }).join('');
 }
 
+// Falcon artwork must always stay screen-facing: the billboard's inverse
+// camera transform keeps its silhouette, pose and wing proportions constant.
+// Only the flight anchor follows the rotated 2.5D map.
+function fixedFalconBillboard(x,y,art,altitude=0,extraClass=''){
+ return billboardSvg(x,y,`<g class="gs-messenger-falcon ${extraClass}" pointer-events="none" transform="translate(${x.toFixed(2)} ${(y+altitude).toFixed(2)})">${art}</g>`,true);
+}
 function falconVisuals(){
  return (G.tradeOffers||[]).filter(o=>o.status==='falcon').map(offer=>{
   const a=capitalOf(offer.from),b=capitalOf(offer.to);if(!a||!b)return '';
   const from=coords(a),to=coords(b),total=Math.max(1,offer.travelTotal||1),t=Math.max(.07,1-(offer.travelRemaining||0)/total);
   const point=project(from.x+(to.x-from.x)*t,from.y+(to.y-from.y)*t);
-  return `<g transform="translate(${point.x.toFixed(1)} ${point.y.toFixed(1)})" class="gs-messenger-falcon" pointer-events="none"><path class="gs-falcon-wing" d="M0 -6Q-18 -23 -27 -11Q-11 -12 -4 3Z" fill="#f4deab" stroke="#253e4c" stroke-width="2"/><path class="gs-falcon-wing right" d="M0 -6Q18 -23 27 -11Q11 -12 4 3Z" fill="#e1b878" stroke="#253e4c" stroke-width="2"/><path d="M-7 -2Q0 -12 7 -2L2 10L-2 10Z" fill="#fff4ce" stroke="#253e4c" stroke-width="1.5"/><path d="M-3 10L0 19L3 10" fill="#c78e57"/><path d="M4 -3L12 -1L4 2" fill="#d7a452"/></g>${foregroundTurnLabel(point.x,point.y,`${offer.travelRemaining}T`)}`;
+  return fixedFalconBillboard(point.x,point.y,`<path class="gs-falcon-wing" d="M0 -6Q-18 -23 -27 -11Q-11 -12 -4 3Z" fill="#f4deab" stroke="#253e4c" stroke-width="2"/><path class="gs-falcon-wing right" d="M0 -6Q18 -23 27 -11Q11 -12 4 3Z" fill="#e1b878" stroke="#253e4c" stroke-width="2"/><path d="M-7 -2Q0 -12 7 -2L2 10L-2 10Z" fill="#fff4ce" stroke="#253e4c" stroke-width="1.5"/><path d="M-3 10L0 19L3 10" fill="#c78e57"/><path d="M4 -3L12 -1L4 2" fill="#d7a452"/>`)+foregroundTurnLabel(point.x,point.y,`${offer.travelRemaining}T`);
  }).join('');
 }
 function expeditionTrailVisuals(){
@@ -2692,8 +2698,8 @@ function diplomaticFalconVisuals(){
  return (G.diplomaticFalcons||[]).filter(f=>f.status==='flying').map(f=>{
   const origin=capitalOf(f.from),dest=capitalOf(f.to);if(!origin||!dest)return '';
   const a=sceneCoords(origin),b=sceneCoords(dest),t=1-(f.remaining/f.travelTotal);
-  const x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t-25;
-  return `<g class="gs-messenger-falcon gs-diplomatic-falcon" pointer-events="none" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><path class="gs-falcon-wing" d="M0 0Q-18 -19 -25 -7Q-8 -10 -2 2Z" fill="#e2d6bd" stroke="#263d4e" stroke-width="2"/><path class="gs-falcon-wing right" d="M0 0Q18 -19 25 -7Q8 -10 2 2Z" fill="#d4af74" stroke="#263d4e" stroke-width="2"/><path d="M-5 0Q0 -8 5 0L2 11H-2Z" fill="#faf1d8" stroke="#263d4e" stroke-width="1.5"/><circle cx="0" cy="10" r="3" fill="#8f4e4b"/></g>`;
+  const x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t;
+  return fixedFalconBillboard(x,y,`<path class="gs-falcon-wing" d="M0 0Q-18 -19 -25 -7Q-8 -10 -2 2Z" fill="#e2d6bd" stroke="#263d4e" stroke-width="2"/><path class="gs-falcon-wing right" d="M0 0Q18 -19 25 -7Q8 -10 2 2Z" fill="#d4af74" stroke="#263d4e" stroke-width="2"/><path d="M-5 0Q0 -8 5 0L2 11H-2Z" fill="#faf1d8" stroke="#263d4e" stroke-width="1.5"/><circle cx="0" cy="10" r="3" fill="#8f4e4b"/>`,-25,'gs-diplomatic-falcon');
  }).join('');
 }
 
@@ -2930,5 +2936,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={handHaulingAllowed,availablePorter,progressPorterJob,porterTicks,caravanWarehouseStatus,citizenDeathProbability,advanceCitizenHealthAndMortality,tileDepthSprites,sortWorldDepth,unreadFalconDispatches,presentFalconInbox,handleFalconMessageAction,ownedTerritoryOutlines,edgedRoadSegment,wagonRoadTrace,wagonViewArtwork,caravanVisuals,expeditionTrailVisuals,domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
+window.GS_TEST={fixedFalconBillboard,falconVisuals,diplomaticFalconVisuals,handHaulingAllowed,availablePorter,progressPorterJob,porterTicks,caravanWarehouseStatus,citizenDeathProbability,advanceCitizenHealthAndMortality,tileDepthSprites,sortWorldDepth,unreadFalconDispatches,presentFalconInbox,handleFalconMessageAction,ownedTerritoryOutlines,edgedRoadSegment,wagonRoadTrace,wagonViewArtwork,caravanVisuals,expeditionTrailVisuals,domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
 })();
