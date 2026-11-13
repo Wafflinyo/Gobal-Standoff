@@ -743,3 +743,18 @@ body.gs-playing .map-wrap{isolation:isolate}
  .gs-siege-meters{gap:5px}
  .gs-siege-card-head strong{font-size:13px}
 }
+
+/* v0.4.29 battle dispatches and screen-facing miniature army motion */
+.gs-siege-soldier-idle{transform-box:fill-box;transform-origin:center bottom;animation:gs-siege-soldier-bob 800ms var(--siege-delay,0ms) ease-in-out infinite alternate}
+@keyframes gs-siege-soldier-bob{from{transform:translateY(0)}to{transform:translateY(-2px)}}
+.gs-siege-letter{display:grid;gap:10px;color:#f0e3cd}
+.gs-siege-letter h2{font-family:Georgia,serif;margin:2px 0;font-size:25px;line-height:1.18;color:#f5d3a2}
+.gs-siege-letter>strong{font-size:16px;color:#f8e2ba}
+.gs-siege-letter p,.gs-siege-letter small{font-size:12px;line-height:1.55;color:#e0d4c7;margin:0}
+.gs-siege-letter>small{border-left:3px solid #d3a378;padding:8px;background:#253e44;border-radius:3px}
+@media(orientation:landscape) and (max-height:650px) and (pointer:coarse){
+ .gs-siege-letter{gap:7px}
+ .gs-siege-letter h2{font-size:19px}
+ .gs-siege-letter p,.gs-siege-letter small{font-size:11px}
+}
+@media(prefers-reduced-motion:reduce){.gs-siege-soldier-idle{animation:none!important}}
