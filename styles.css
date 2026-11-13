@@ -488,3 +488,10 @@ body.gs-playing .sheet-panel small,body.gs-playing .sheet-panel .muted,body.gs-p
 #worldQuickBtn{position:relative}
 .gs-falcon-badge:not([hidden]){position:absolute;top:3px;right:3px;min-width:19px;height:19px;border-radius:10px;background:#f2bf80;color:#192c36;border:2px solid #102835;font-size:10px;font-weight:900;display:flex;justify-content:center;align-items:center}
 @media(max-width:370px){.gs-falcon-actions{grid-template-columns:1fr}.gs-falcon-letter h2{font-size:24px}}
+
+/* 0.4.22 — two-log civilian hand-hauling unit. The worker and logs sway
+   gently in place as each expensive overland travel tick is completed. */
+.gs-porter-unit{filter:drop-shadow(0 1px 1px #1d333a77)}
+.gs-porter-step{animation:gs-porter-push 1.15s ease-in-out infinite}
+@keyframes gs-porter-push{0%,100%{transform:translateY(0)}45%{transform:translateY(-1.3px)}}
+@media(prefers-reduced-motion:reduce){.gs-porter-step{animation:none!important}}
