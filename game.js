@@ -1656,6 +1656,47 @@ function visibleWarOrderMarkers(){
   return `<g class="gs-war-marker" pointer-events="none" transform="translate(${c.x.toFixed(1)} ${c.y.toFixed(1)})"><path d="M0 -22L14 -15L11 0Q0 12 -11 0L-14 -15Z" fill="#1b3542" stroke="#f7df9f" stroke-width="2"/><path d="M0 -17V3M-7 -9H7" stroke="#f7df9f" stroke-width="2"/><path d="M0 -37L6 -25L0 -29L-6 -25Z" fill="#f6a77b" stroke="#122e3d" stroke-width="1.5" transform="rotate(${degrees.toFixed(1)})"/><text y="-25" text-anchor="middle">${n}</text></g>`;
  }).join('');
 }
+function siegeWarPanelHtml(){
+ const me=G.players[0],wars=opponentsAtWar(0),posts=getMilitaryPosts(0);
+ let html='<section class="gs-siege-section"><div class="gs-siege-heading"><strong>Multi-round Siege Campaigns</strong><small>Choose orders during your normal turn. Both sides resolve after the round, and saved standing orders remain in effect when you are away.</small></div>';
+ for(const siege of G.sieges||[]){
+  if(![siege.attacker,siege.defender].includes(0)||!['marching','active'].includes(siege.status))continue;
+  const target=G.tiles.find(t=>t.id===siege.targetTileId),side=siege.attacker===0?'attacker':'defender';
+  const available=side==='attacker'?SIEGE_ATTACK_ORDERS:SIEGE_DEFEND_ORDERS,order=siegeOrderFor(siege,side),sent=siege[side+'Order']?.round===G.round;
+  const ours=siegeTeam(siege,side).length,theirs=siegeTeam(siege,side==='attacker'?'defender':'attacker').length;
+  html+=`<div class="gs-siege-card"><div class="gs-siege-card-head"><strong>${esc(target?.name||'Unknown frontier')}</strong><span>${side==='attacker'?'ATTACKING':'DEFENDING'}</span></div>
+   <small>${esc(G.players[siege.attacker].name)} versus ${esc(G.players[siege.defender].name)} · ${siege.status==='marching'?siege.marchRemaining+' travel ticks to arrival': 'Siege round '+(siege.roundNumber+1)+' · '+ours+' of your troops, '+theirs+' opposing'}</small>`;
+  if(siege.status==='active'){
+   html+=`<div class="gs-siege-meters">${[['Supplies',siege.supply],['Defenses',siege.fort],['Morale',siege.morale]].map(([label,value])=>`<div><span>${label}</span><b>${value}/100</b><i style="--siege-fill:${value}%"></i></div>`).join('')}</div>
+    <label class="gs-war-field">Your standing order<select data-siege-order="${siege.id}">${Object.entries(available).map(([k,label])=>`<option value="${k}" ${order===k?'selected':''}>${esc(label)}</option>`).join('')}</select></label>
+    <button data-siege-submit="${siege.id}" ${!active()?'disabled':''}>${sent?'Update saved order':'Submit military order'}</button>
+    <small class="gs-siege-order-note">${sent?'Order saved for this round.':'Your standing order applies automatically if no order is submitted.'} Enemy orders stay hidden until resolution.</small>`;
+  }
+  if(siege.history?.length)html+=`<details class="gs-siege-history"><summary>Previous exchanges (${siege.history.length})</summary>${siege.history.slice(0,4).map(h=>`<p>${esc(h.summary)}</p>`).join('')}</details>`;
+  html+='</div>';
+ }
+ if(wars.length){
+  const routes=[];
+  if(!me.logisticsUsed)for(const post of posts){
+   const available=postGarrison(me,post.id).filter(c=>c.health>0&&!c.military.missionId).length;
+   if(!available)continue;
+   for(const target of G.tiles){
+    if(wars.includes(target.owner)&&!target.capital&&neighbors(target).some(n=>n.owner===0)&&canStartSiege(target.id,post.id,0))routes.push({post,target,available});
+   }
+  }
+  if(routes.length){
+   html+=`<div class="gs-siege-launch"><strong>Lay siege to enemy territory</strong>
+    <small>Soldiers march to friendly land next to a hostile non-capital hex. After arrival both countries can issue orders before the first round resolves.</small>
+    <label class="gs-war-field">Attack route<select id="siegeCampaign">${routes.slice(0,36).map(r=>`<option value="${esc(r.post.id+'|'+r.target.id)}">${esc(r.post.name)} → ${esc(r.target.name)} (${r.available} ready)</option>`).join('')}</select></label>
+    <label class="gs-war-field">Soldiers<select id="siegeQuantity">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===1?'selected':''}>${i+1}</option>`).join('')}</select></label>
+    <button data-start-siege="1" ${!active()||me.logisticsUsed?'disabled':''}>Send soldiers to siege</button></div>`;
+  }else html+='<small class="gs-siege-tip">Siege dispatches require an available military garrison and a friendly hex touching a hostile non-capital territory. One military dispatch per turn.</small>';
+ }
+ const recent=(G.sieges||[]).filter(x=>[x.attacker,x.defender].includes(0)&&!['marching','active'].includes(x.status)).slice(-3).reverse();
+ if(recent.length)html+=`<details class="gs-siege-history"><summary>Finished sieges</summary>${recent.map(x=>`<p>${esc(G.tiles.find(t=>t.id===x.targetTileId)?.name||'Unknown')}: ${esc(x.status)} after ${x.roundNumber} exchanges</p>`).join('')}</details>`;
+ return html+'</section>';
+}
+
 function renderWarPanel(){
  const panel=el('warBody');if(!panel||!G)return;const me=G.players[0],wars=opponentsAtWar(0),incoming=G.diplomaticFalcons.filter(n=>n.to===0&&n.status==='awaiting-reply');
   let html=`<p class="gs-war-intro">Messenger Falcons carry territorial warnings, war declarations, ceasefires, <b>Non-Aggression Treaties</b> and <b>Defensive Alliances</b>. Proposals require approval; alliances answer future attacks, not wars already underway.</p>`;
@@ -1698,6 +1739,7 @@ function renderWarPanel(){
   }else html+=`<div class="gs-war-actions"><button data-send-peace="${other.id}" ${!canAct()?'disabled':''}>Send Ceasefire Proposal</button></div>`;
   html+='</div>';
  }
+ html+=siegeWarPanelHtml();
  const posts=getMilitaryPosts(0);
  if(wars.length&&posts.length){
   const borderOptions=G.tiles.filter(t=>t.owner===0&&neighbors(t).some(n=>n.owner===null||wars.includes(n.owner)));
@@ -2695,6 +2737,13 @@ function renderTile(t){
  const residents=owner?owner.citizens.filter(c=>c.homeId===t.id).length:0;
  el('territoryTag').textContent=t.capital?'CAPITAL':t.terrain.toUpperCase();if(sheetMode==='territory')el('sheetTitle').textContent=t.name;
  let html=`<div class="tile-head"><div><h3 class="tile-title">${esc(t.name)}</h3><div class="tile-sub">${terrain.name} · ${t.q}, ${t.r}</div></div><span class="owner-pill" style="background:${owner?owner.color:'#c6d8c1'}">${owner?esc(owner.name):'Unclaimed'}</span></div><p class="tile-description">${terrain.desc}</p>`;
+ const siege=activeSiege(t.id);
+ if(siege){
+  const involved=[siege.attacker,siege.defender].includes(0);
+  html+=`<div class="gs-tile-siege"><strong>⚔ ${siege.status==='marching'?'ARMY APPROACHING':'UNDER SIEGE'}</strong>
+   <small>${esc(G.players[siege.attacker].name)} vs ${esc(G.players[siege.defender].name)} · ${siege.status==='marching'?siege.marchRemaining+' travel ticks remaining':'Round '+(siege.roundNumber+1)+' · Supplies '+siege.supply+' · Defenses '+siege.fort}</small>
+   ${involved?'<button data-action="siege-world">Open siege command room</button>':''}</div>`;
+ }
  const threats=visibleTerritorialWarnings(t.id);
  if(threats.length&&t.owner===null){
   const senders=threats.map(w=>G.players[w.from]?.name).filter(Boolean);
@@ -3526,6 +3575,17 @@ function bindEvents(){
  el('closeBuildBtn').addEventListener('click',()=>{showBuild=false;render();});
  el('warBody').addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;const panel=el('warBody');
+  if(b.dataset.startSiege!=null){
+   const path=panel.querySelector('#siegeCampaign')?.value||'',split=path.indexOf('|');
+   if(split<0||!startSiege(path.slice(split+1),path.slice(0,split),Number(panel.querySelector('#siegeQuantity')?.value||0)))
+    showToast('Siege unavailable: check available soldiers, owned border and dispatch limit.');
+   return;
+  }
+  if(b.dataset.siegeSubmit!=null){
+   const id=Number(b.dataset.siegeSubmit),kind=panel.querySelector(`[data-siege-order="${id}"]`)?.value;
+   if(!setSiegeOrder(id,kind))showToast('Could not submit the siege order.');
+   return;
+  }
   if(b.dataset.sendWarning!=null){const to=Number(b.dataset.sendWarning),tile=panel.querySelector(`[data-warning-land="${to}"]`)?.value;sendDiplomaticFalcon(to,'warning',tile);return;}
   if(b.dataset.sendWar!=null){sendDiplomaticFalcon(Number(b.dataset.sendWar),'war');return;}
   if(b.dataset.sendPeace!=null){sendDiplomaticFalcon(Number(b.dataset.sendPeace),'peace');return;}
@@ -3579,7 +3639,7 @@ function bindEvents(){
   const field=e.target.closest('[data-road-from],[data-road-to],[data-trade-share]');
   if(field)refreshRouteEstimate(Number(field.dataset.roadFrom||field.dataset.roadTo||field.dataset.tradeShare));
  });
- el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':{const picked=[...el('territoryDetails').querySelectorAll('[data-expedition-citizen]')].map(node=>node.value).filter(Boolean);doExpand(t,0,picked);break;}case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Shipment dispatched with '+(GOOD_NAMES[item]||item):'No available wagon or log porter, route, or destination storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
+ el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'siege-world':showSheet('world');break;case 'expand':{const picked=[...el('territoryDetails').querySelectorAll('[data-expedition-citizen]')].map(node=>node.value).filter(Boolean);doExpand(t,0,picked);break;}case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Shipment dispatched with '+(GOOD_NAMES[item]||item):'No available wagon or log porter, route, or destination storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
  el('territoryDetails').addEventListener('change',e=>{
    if(e.target.matches('[data-expedition-citizen]')){
     const panel=el('territoryDetails'),first=panel.querySelector('[data-expedition-citizen="0"]'),second=panel.querySelector('[data-expedition-citizen="1"]');
