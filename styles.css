@@ -807,3 +807,28 @@ body.gs-playing .map-wrap{isolation:isolate}
 @media(prefers-reduced-motion:reduce){
  .gs-bean-hopper,.gs-bean-pushcart,.gs-bean-wheel,.gs-bean-shield,.gs-bean-fight .gs-bean-weapon,.gs-ruined-hex{animation:none!important}
 }
+
+/* Weapon classes share the original bean silhouettes but never a generic attack. */
+.gs-bean-fight .gs-bean-weapon{animation-duration:var(--gs-attack-duration,.9s)}
+.gs-bean-fight .gs-bean-hopper{animation-duration:var(--gs-attack-duration,.9s)}
+.gs-bean-fight .gs-weapon-spear .gs-bean-weapon{animation-name:gs-bean-spear-jab}
+.gs-bean-fight .gs-weapon-axe .gs-bean-weapon{animation-name:gs-bean-heavy-chop}
+.gs-bean-fight .gs-weapon-hammer .gs-bean-weapon{animation-name:gs-bean-heavy-chop;animation-duration:1.1s}
+@keyframes gs-bean-spear-jab{
+ 0%,100%{transform:translateX(0) rotate(0)}
+ 25%{transform:translateX(-3px) rotate(-15deg)}
+ 47%{transform:translateX(13px) rotate(60deg)}
+ 65%{transform:translateX(3px) rotate(15deg)}
+}
+@keyframes gs-bean-heavy-chop{
+ 0%,100%{transform:rotate(0)}
+ 25%{transform:rotate(-60deg)}
+ 58%{transform:rotate(80deg)}
+ 72%{transform:rotate(25deg)}
+}
+.gs-war-loadout{padding:8px;margin-top:9px;border:1px solid #748c85;border-radius:9px;background:#16333e;display:grid;gap:7px}
+.gs-war-loadout>small{color:#edddbb;font-weight:700;font-size:11px}
+.gs-war-loadout .roster-transfer{display:block;margin:0}
+.gs-war-loadout .roster-transfer b{font-weight:700;color:#e9d29c}
+.gs-aftermath{background:linear-gradient(135deg,#253d44,#4b3232);margin-bottom:12px}
+.gs-aftermath .gs-war-actions{display:flex;gap:8px;flex-wrap:wrap}
