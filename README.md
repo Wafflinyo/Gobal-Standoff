@@ -1,4 +1,13 @@
-# Global Standoff — Prototype 0.4.24
+# Global Standoff — Prototype 0.4.25
+
+## Version 0.4.25 — user-selected civilian expeditions (1–2 named citizens)
+
+- Expeditions no longer behave like a generic anonymous crew. When sending an expedition to a frontier hex, the territory overlay requires the player to select **one or two named unemployed civilian citizens aged 16+**, with an optional second selection. Duplicate names/IDs, soldiers, builders, hired employees, hauling workers, other active explorers and civilians with no health are excluded. No idle builder is required to launch an expedition.
+- Expeditions reserve their selected citizens until the trip completes (or is abandoned). Auto hiring, builder recruitment, voluntary military enlistment and manual/automatic hauling cannot reassign expedition participants. Once the expedition returns/completes, surviving participants rejoin the pool of available unemployed citizens.
+- Each selected participant loses 1 morale upon departure. During travel, a solo explorer loses 2 morale per travel progress tick, while each member of a two-person team loses 1. Health can decline probabilistically while traveling; harsh terrain, low morale and older age increase the chance. Explorers do not recover morale from the normal rest bonus while in transit, and the existing life-cycle mortality system continues to apply.
+- If the last participant dies or becomes incapacitated before arrival, the expedition is abandoned and does not claim the destination. The destination and owned-territory status panels show assigned explorers by name. CPU expeditions recruit one or two citizens from the same age-eligible unemployed pool, with the same costs and exhaustion rules.
+- Preserves the expedition's existing dispatch zoom, flag/bootprint visuals, suspended territory overlay and return animation. Existing saved worlds remain intact; expeditions that were already in transit in a v0.4.24 or earlier save are allowed to finish as previously dispatched legacy flights. Future dispatches must have named civilian participants.
+
 
 ## Version 0.4.24 — falcons keep a fixed flying silhouette at every camera angle
 
