@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.31 — reliable hex tapping and no post-animation panel reopen. */
+/* Global Standoff 0.4.32 — local unloading and smart caravan routes. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -298,6 +298,11 @@ function ensureBuildingMeta(world){
    t.buildingMeta[i].level=Math.max(1,Math.min(3,t.buildingMeta[i].level||1));
    t.buildingMeta[i].autoHire??=true;
    t.buildingMeta[i].stock??={};t.buildingMeta[i].routes??={};
+   if(OUTPUTS[t.buildings[i]]?.length){
+    if(!['full','continuous','once'].includes(t.buildingMeta[i].unloadMode))t.buildingMeta[i].unloadMode='full';
+    t.buildingMeta[i].unloadOncePending??={};
+    if(t.buildingMeta[i].unloadMode==='once'&&!Object.values(t.buildingMeta[i].unloadOncePending).some(n=>n>0))t.buildingMeta[i].unloadMode='full';
+   }
    if(FACTORY_RECIPES[t.buildings[i]]?.length&&!FACTORY_RECIPES[t.buildings[i]].includes(t.buildingMeta[i].recipe))t.buildingMeta[i].recipe=FACTORY_RECIPES[t.buildings[i]][0];
    world.nextBuildingId=Math.max(world.nextBuildingId,t.buildingMeta[i].id+1);
   }
@@ -704,7 +709,7 @@ function availableCaravan(owner,pickup){
   return {cart:c,path,cost:path?pathCost(owner,path):Infinity};
  }).filter(c=>c.path).sort((a,b)=>a.cost-b.cost)[0]||null;
 }
-function dispatchShipment(owner,from,to,item,qty,auto=false){
+function dispatchShipment(owner,from,to,item,qty,auto=false,preferredCart=null){
  const p=G.players[owner],src=siteLookup(owner,from),dst=siteLookup(owner,to),amount=Math.floor(qty);
  // A siege blockade can physically prevent new deliveries into the surrounded
  // tile. Already loaded wagons wait with their cargo until the blockade lifts.
@@ -715,20 +720,23 @@ function dispatchShipment(owner,from,to,item,qty,auto=false){
  const qtyFit=Math.min(10,amount,freeSource,endpointDeliverySpace(p,to));
  if(qtyFit<1)return false;
  const delivery=ownedPath(owner,src.tile,dst.tile);if(!delivery)return false;
- const available=availableCaravan(owner,src.tile);
- const porter=!available&&handHaulingAllowed(p)?availablePorter(owner,src):null;
+ const available=preferredCart
+  ?(!preferredCart.shipmentId?{cart:preferredCart,path:ownedPath(owner,G.tiles.find(t=>t.id===preferredCart.currentTileId),src.tile)}:null)
+  :availableCaravan(owner,src.tile);
+ if(preferredCart&&!available?.path)return false;
+ const porter=!available&&!preferredCart&&handHaulingAllowed(p)?availablePorter(owner,src):null;
  if(!available&&!porter)return false;
  const id=G.nextShipmentId++;
  if(porter){
   const carrying=Math.min(PORTER_CAPACITY,qtyFit);
-  const job={id,kind:'porter',owner,from,to,item,qty:carrying,stage:'pickup',
+  const job={id,kind:'porter',owner,from,to,item,qty:carrying,auto,stage:'pickup',
    porterId:porter.id,caravanId:null,path:[src.tile.id],step:0,stepSpent:0,
    fromTileId:src.tile.id,toTileId:dst.tile.id,startedClock:G.turnClock||0,remaining:1};
   G.shipments.push(job);
   if(!auto)addLog(`${porter.name} started carrying ${carrying} ${GOOD_NAMES[item]||item} from ${src.tile.name} to ${dst.tile.name} by hand.`);
   return true;
  }
- const job={id,owner,from,to,item,qty:qtyFit,stage:'pickup',path:available.path,step:0,
+ const job={id,owner,from,to,item,qty:qtyFit,auto,stage:'pickup',path:available.path,step:0,
   fromTileId:src.tile.id,toTileId:dst.tile.id,homeSiteId:available.cart.homeSiteId,caravanId:available.cart.id,
   startedClock:G.turnClock||0,remaining:Math.ceil((pathCost(owner,available.path)+pathCost(owner,delivery))/2)+2};
  G.shipments.push(job);available.cart.shipmentId=id;
@@ -779,6 +787,14 @@ function moveCaravanToStage(job,cart,p){
   job.qty-=unloaded;
   if(job.qty>0){job.stage='unloading';job.remaining=0;return;}
   if(job.owner===0)addLog(`${unloaded} ${GOOD_NAMES[job.item]||job.item} arrived at ${G.tiles.find(t=>t.id===job.toTileId)?.name}.`);
+  // Automatic shipments chain into the next ready pickup instead of
+  // returning empty to a caravan warehouse between deliveries.
+  if(job.auto){
+   cart.currentTileId=job.toTileId||cart.currentTileId;
+   finishCaravanJob(job,cart,p);
+   scheduleAutoCaravan(p,cart);
+   return;
+  }
   const dest=G.tiles.find(t=>t.id===job.toTileId),bases=caravanWarehouses(p);
   const destinationBase=bases.find(w=>w.tile.id===dest?.id);
   const canStay=destinationBase&&(p.caravanPolicy==='stay')&&p.caravans.filter(c=>c.id!==cart.id&&!c.shipmentId&&c.currentTileId===dest.id).length<destinationBase.capacity;
