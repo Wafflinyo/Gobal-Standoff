@@ -758,3 +758,15 @@ body.gs-playing .map-wrap{isolation:isolate}
  .gs-siege-letter p,.gs-siege-letter small{font-size:11px}
 }
 @media(prefers-reduced-motion:reduce){.gs-siege-soldier-idle{animation:none!important}}
+
+/* v0.4.29 siege reinforcing column */
+.gs-siege-reinforce{display:grid;gap:8px;padding:10px;border:1px solid #9dba9b80;border-radius:10px;background:#193b40}
+.gs-siege-reinforce>strong{color:#d9edc5;font-size:12px}
+.gs-siege-reinforce>small,.gs-siege-pending{font-size:11px;line-height:1.45;color:#d8e1c9}
+.gs-siege-reinforce>button{border-radius:8px;border:1px solid #c2d5a1;background:#315744;color:#f4efcf;padding:10px;font-size:11px;font-weight:850}
+.gs-siege-reinforce>button:disabled{opacity:.4}
+.gs-siege-pending{display:block;border-left:3px solid #8caeaa;padding:5px 8px;background:#1b454c}
+@media(orientation:landscape) and (max-height:650px) and (pointer:coarse){
+ .gs-siege-reinforce{gap:6px;padding:8px}
+ .gs-siege-reinforce>button{padding:8px}
+}
