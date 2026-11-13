@@ -1,4 +1,13 @@
-# Global Standoff — Prototype 0.4.23
+# Global Standoff — Prototype 0.4.24
+
+## Version 0.4.24 — falcons keep a fixed flying silhouette at every camera angle
+
+- Trade-road and diplomatic messenger falcons now use the camera-facing billboard layer instead of inheriting the hex map's nonuniform 2.5D yaw matrix. Their wings, bodies and flying poses remain the same proportions during every rotation.
+- Falcons still follow their normal world-attached routes; only the bird artwork is counter-transformed, not the route or the raised terrain.
+- Diplomatic birds' airborne offset remains vertically above their ground-anchored route in screen space, instead of swinging sideways with camera yaw.
+- Keep all falcon billboards updated even when their projected anchor temporarily leaves the viewport and later comes back.
+- Retains existing wing-flap animation, visual art, delivery timings, depth sorting, saves, and gameplay.
+
 
 ## Version 0.4.23 — warehouse fleet tracking, hand-shipping policy and civilian mortality
 
