@@ -1073,7 +1073,7 @@ function createWorld(seed,name,capital,color){
  prepareMineralVeins(tiles,seed);
  const deck=Array.from({length:6},()=>CARD_POOL).flat().sort(()=>rng()-.5);
  const worldName=['The Wild Marches','The Broken Coast','The Emerald Frontier','The Hinterlands','The New Continent'][randInt(rng,5)];
- G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],domesticRoads:[],domesticRoadJobs:[],nextDomesticRoadId:1,diplomaticFalcons:[],warnings:[],wars:[],militaryOrders:[],nextDiplomacyId:1,nextOrderId:1,nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
+ G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],domesticRoads:[],domesticRoadJobs:[],nextDomesticRoadId:1,diplomaticFalcons:[],warnings:[],wars:[],treaties:[],militaryOrders:[],nextDiplomacyId:1,nextOrderId:1,nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
  for(const p of players){const citizenRng=mulberry32(hash(seed+'-people-'+p.id));for(let k=0;k<10;k++)p.citizens.push(makeCitizen(p,citizenRng,true));reallocateHousing(p);drawCard(p);drawCard(p);}
  ensureBuildingMeta(G);ensureStartingCrews(G);for(const p of G.players){reallocateHousing(p);assignWorkers(p);syncCaravans(p);}
  beginTurn(0);
@@ -1100,7 +1100,7 @@ function upgradeSavedWaterways(s){
 }
 function migrateGameplay(s){
  s.projects=s.projects||[];s.completedScenes=s.completedScenes||[];s.contacts=s.contacts||[];
- s.shipments??=[];s.nextShipmentId??=1; s.diplomaticFalcons??=[];s.warnings??=[];s.wars??=[];s.militaryOrders??=[];s.nextDiplomacyId??=1;s.nextOrderId??=1;
+ s.shipments??=[];s.nextShipmentId??=1; s.diplomaticFalcons??=[];s.warnings??=[];s.wars??=[];s.treaties??=[];s.militaryOrders??=[];s.nextDiplomacyId??=1;s.nextOrderId??=1;
  s.logisticsRouteVersion??=0;
  s.tradeOffers=s.tradeOffers||[];s.tradeRoutes=s.tradeRoutes||[];s.domesticRoads??=[];s.domesticRoadJobs??=[];s.nextDomesticRoadId??=1;
  s.nextProjectId=s.nextProjectId||1;s.nextTradeId=s.nextTradeId||1;
@@ -1168,14 +1168,87 @@ function discoverContacts(){
 // A warning doesn't start a battle. A delivered war declaration starts a war PHASE.
 // Its troop deployments are secret to the opposing country until real reconnaissance exists.
 const warPair=(a,b)=>[a,b].sort((x,y)=>x-y).join(':');
+const TREATY_TYPES={
+ treaty:{label:'Non-Aggression Treaty',duration:8,description:'Both nations agree not to declare war for eight rounds. The pact expires naturally or can be terminated by Falcon.'},
+ alliance:{label:'Defensive Alliance',duration:null,description:'Both nations promise mutual defense. If either nation is attacked, the ally joins the war phase against the aggressor. Lasts until dissolved.'}
+};
+function activeTreaty(a,b){
+ const pair=warPair(a,b);
+ return (G.treaties||[]).find(t=>t.key===pair&&t.status==='active');
+}
+function treatyLabel(type){return TREATY_TYPES[type]?.label||'Diplomatic Agreement';}
+function canProposeTreaty(a,b,type){
+ if(!TREATY_TYPES[type]||a===b||!G.players[a]||!G.players[b]||currentWar(a,b))return false;
+ const present=activeTreaty(a,b);
+ if(present&&(present.type==='alliance'||present.type===type))return false;
+ // A proposed alliance may upgrade an existing non-aggression pact.
+ return !(G.diplomaticFalcons||[]).some(f=>['treaty','alliance'].includes(f.kind)
+  &&warPair(f.from,f.to)===warPair(a,b)&&['flying','awaiting-reply'].includes(f.status));
+}
+function expireTreaties(){
+ for(const t of G.treaties||[]){
+  if(t.status==='active'&&Number.isFinite(t.expiresRound)&&G.round>=t.expiresRound){
+   t.status='expired';t.endedClock=G.turnClock||0;
+   addLog(`${treatyLabel(t.type)} between ${G.players[t.a].name} and ${G.players[t.b].name} expired.`);
+  }
+ }
+}
+function resolveTreatyOffer(note,accepted){
+ if(!note||!['treaty','alliance'].includes(note.kind)||note.status!=='awaiting-reply')return false;
+ if(accepted&&!canActivateTreaty(note)){
+  if(note.to===0)showToast('Agreement cannot be signed during war or after a conflicting treaty.');
+  return false;
+ }
+ note.status=accepted?'accepted':'rejected';
+ const proposer=G.players[note.from],recipient=G.players[note.to];
+ if(accepted){
+  const prior=activeTreaty(note.from,note.to);
+  if(prior){prior.status='upgraded';prior.endedClock=G.turnClock||0;}
+  const type=note.kind;
+  G.treaties.push({id:note.id,key:warPair(note.from,note.to),a:note.from,b:note.to,type,status:'active',
+   startedRound:G.round,startedClock:G.turnClock||0,expiresRound:type==='treaty'?G.round+TREATY_TYPES.treaty.duration:null});
+  // A signed pact supersedes outstanding border threats between the parties.
+  for(const w of G.warnings||[])if(warPair(w.from,w.to)===warPair(note.from,note.to)
+    &&['active','escalated'].includes(w.status)){w.status='rescinded';w.rescindedClock=G.turnClock||0;}
+  addLog(`${proposer.name} and ${recipient.name} signed a ${treatyLabel(type)} by Falcon.`);
+ }else addLog(`${recipient.name} declined the ${treatyLabel(note.kind)} proposal from ${proposer.name}.`);
+ return true;
+}
+function canActivateTreaty(note){
+ if(currentWar(note.from,note.to))return false;
+ const previous=activeTreaty(note.from,note.to);
+ return !previous||(previous.type==='treaty'&&note.kind==='alliance');
+}
+function respondTreatyOffer(id,accepted){
+ const note=G.diplomaticFalcons.find(f=>f.id===id&&f.to===0&&['treaty','alliance'].includes(f.kind)&&f.status==='awaiting-reply');
+ if(!note||!active())return false;
+ if(!resolveTreatyOffer(note,accepted))return false;
+ note.inboxRead=true;note.readRound=G.round;save();render();return true;
+}
 function currentWar(a,b){return (G.wars||[]).find(w=>w.key===warPair(a,b)&&w.status==='war');}
 function opponentsAtWar(id){return (G.wars||[]).filter(w=>w.status==='war'&&(w.a===id||w.b===id)).map(w=>w.a===id?w.b:w.a);}
-function startWar(a,b,cause='A war declaration arrived by messenger falcon'){
+function startWar(a,b,cause='A war declaration arrived by messenger falcon',callDefenders=true){
  if(a===b||currentWar(a,b))return false;
+ if(activeTreaty(a,b)){
+  addLog(`War between ${G.players[a].name} and ${G.players[b].name} was prevented by their active ${treatyLabel(activeTreaty(a,b).type)}.`);
+  return false;
+ }
  const entry={key:warPair(a,b),a,b,status:'war',startedClock:G.turnClock||0,cause};
  G.wars.push(entry);for(const warning of G.warnings||[])if(warning.status==='active'&&warPair(warning.from,warning.to)===entry.key)warning.status='escalated';
  for(const id of [a,b])for(const c of G.players[id].citizens){if(!c.military)c.morale=Math.max(0,(c.morale??50)-4);}
  addLog(`${G.players[a].name} and ${G.players[b].name} entered the WAR PHASE. Troops may patrol, guard borders and flank. No battle begins automatically.`);
+ if(callDefenders){
+  for(const t of G.treaties||[]){
+   if(t.status!=='active'||t.type!=='alliance'||![t.a,t.b].includes(b))continue;
+   const ally=t.a===b?t.b:t.a;
+   if(ally===a||currentWar(a,ally))continue;
+   if(activeTreaty(a,ally)){
+    addLog(`${G.players[ally].name} stayed neutral: its separate peace agreement with ${G.players[a].name} prevents intervention.`);
+    continue;
+   }
+   startWar(a,ally,`Defensive alliance with ${G.players[b].name} was invoked`,false);
+  }
+ }
  return true;
 }
 function endWar(a,b){const w=currentWar(a,b);if(!w)return false;w.status='peace';w.endedClock=G.turnClock||0;addLog(`${G.players[a].name} and ${G.players[b].name} signed a ceasefire.`);return true;}
@@ -1184,6 +1257,8 @@ function diplomaticMessageText(note){
  if(note.kind==='warning')return `If you expand into ${t?.name||'the warned territory'}, ${from.name} will declare war.`;
  if(note.kind==='retract')return `${from.name} has withdrawn their territorial warning over ${t?.name||'the disputed territory'}. The red border is no longer threatened.`;
  if(note.kind==='war')return `${from.name} declares war. A war phase now begins; battles are not automatic.`;
+ if(note.kind==='treaty'||note.kind==='alliance')return `${from.name} proposes a ${treatyLabel(note.kind)}. ${TREATY_TYPES[note.kind].description}`;
+ if(note.kind==='dissolve')return `${from.name} has formally ended the ${treatyLabel(note.agreementType)} between your nations.`;
  return `${from.name} proposes a ceasefire.`;
 }
 function visibleTerritorialWarnings(tileId=null){
