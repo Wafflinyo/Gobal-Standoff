@@ -2122,8 +2122,19 @@ function runCpu(id){
  const p=G.players[id];
  if(!p.cardPlayed)playCpuOpeningCard(id);
  // CPU nations may warn rivals when their frontiers converge; players can respond by expanding or backing off.
+ // Opposing countries can withdraw longstanding warnings by return falcon.
+ if(id!==0&&G.round>=5&&!currentWar(id,0)&&hasMoney(p,1)){
+  const stale=G.warnings.filter(w=>w.from===id&&w.to===0&&w.status==='active'
+   &&G.tiles.some(t=>t.id===w.tileId&&t.owner===null)
+   &&G.turnClock-(w.deliveredClock??G.turnClock)>=12
+   &&!G.diplomaticFalcons.some(note=>note.kind==='retract'&&note.warningId===w.id&&note.status==='flying'));
+  if(stale.length&&G.round%4===id%4){
+   const w=stale[0],chance=mulberry32(hash(G.seed+':withdraw-threat:'+w.id+':'+G.round));
+   if(chance()<.34&&sendDiplomaticFalcon(0,'retract',w.tileId,id,false,w.id))return;
+  }
+ }
  if(id!==0&&G.round>=3&&!currentWar(id,0)&&p.gold>=5){
-  const sent=G.warnings.some(w=>w.from===id&&w.to===0&&['active','violated','escalated'].includes(w.status))||G.diplomaticFalcons.some(f=>f.from===id&&f.to===0&&f.kind==='warning');
+  const sent=G.warnings.some(w=>w.from===id&&w.to===0&&(['active','violated','escalated'].includes(w.status)||(w.status==='rescinded'&&G.turnClock-(w.rescindedClock??0)<24)))||G.diplomaticFalcons.some(f=>f.from===id&&f.to===0&&f.kind==='warning'&&f.status==='flying');
   if(!sent&&G.round%3===id%3){
    const contested=G.tiles.filter(t=>t.owner===null&&t.terrain!=='water'&&
     G.tiles.some(v=>v.owner===0&&distance(v,t)<=2)&&G.tiles.some(v=>v.owner===id&&distance(v,t)<=2));
@@ -2244,6 +2255,12 @@ function renderTile(t){
  const residents=owner?owner.citizens.filter(c=>c.homeId===t.id).length:0;
  el('territoryTag').textContent=t.capital?'CAPITAL':t.terrain.toUpperCase();if(sheetMode==='territory')el('sheetTitle').textContent=t.name;
  let html=`<div class="tile-head"><div><h3 class="tile-title">${esc(t.name)}</h3><div class="tile-sub">${terrain.name} · ${t.q}, ${t.r}</div></div><span class="owner-pill" style="background:${owner?owner.color:'#c6d8c1'}">${owner?esc(owner.name):'Unclaimed'}</span></div><p class="tile-description">${terrain.desc}</p>`;
+ const threats=visibleTerritorialWarnings(t.id);
+ if(threats.length&&t.owner===null){
+  const senders=threats.map(w=>G.players[w.from]?.name).filter(Boolean);
+  html+=`<div class="gs-threat-alert"><strong>⚠ THREATENED TERRITORY</strong>
+   <span>${esc(senders.join(', '))} warned against claiming this land. Its border glows red until claimed or the warning is rescinded.</span></div>`;
+ }
  html+=`<div class="capacity-grid"><div><b>${buildFree(t)} / ${terrain.slots}</b><small>Building space free</small></div><div><b>${residents} / ${tileResidentCap(t)}</b><small>Residents / available housing</small></div><div><b>${terrain.population}</b><small>Terrain population ceiling</small></div></div><div class="terrain-data">`;
  if(t.capital)html+='<span><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-castle"></use></svg> Capital: 2 spaces + 12 housing</span>';
  if(t.river)html+='<span>〰️ River crossing</span>';
