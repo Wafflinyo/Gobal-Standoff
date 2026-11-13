@@ -165,7 +165,7 @@ function syncBuilders(p,world=G){
  let builders=p.citizens.filter(c=>!!c.builder);
  // Preserve existing builders on active jobs; only dismiss idle surplus.
  while(builders.length>max){const idle=builders.find(c=>!c.builder.projectId);if(!idle)break;idle.builder=null;builders=p.citizens.filter(c=>!!c.builder);}
- const candidates=p.citizens.filter(c=>c.age>=18&&!c.military&&!c.builder&&c.health>=25).sort((a,b)=>(!!a.job)-(!!b.job)||b.health-a.health||b.morale-a.morale);
+ const candidates=p.citizens.filter(c=>c.age>=18&&!c.military&&!c.builder&&c.health>=25&&!isBusyPorter(c,world)).sort((a,b)=>(!!a.job)-(!!b.job)||b.health-a.health||b.morale-a.morale);
  while(builders.length<max&&candidates.length){const citizen=candidates.shift();citizen.job=null;citizen.builder={locationId:capital.id,projectId:null,travelRemaining:0};builders.push(citizen);}
 }
 function idleBuilders(p){return p.citizens.filter(c=>c.builder&&!c.builder.projectId);}
@@ -224,6 +224,7 @@ function advanceWorldTurn(){
 function worksite(t,index){return t.buildingMeta?.[index]||null;}
 function workCapacity(type,level){const spaces=BUILDINGS[type]?.jobs||[0,0,0];return spaces[Math.max(0,Math.min(2,level-1))]||0;}
 function worksiteWorkers(p,site){return site?p.citizens.filter(c=>c.job?.siteId===site.id&&!c.military&&c.age>=18):[];}
+function isBusyPorter(c,world=G){return !!world?.shipments?.some(j=>j.kind==='porter'&&j.porterId===c.id);}
 function eligibleWorker(c){return c.age>=18&&!c.military&&!c.builder&&c.health>=25;}
 function assignWorkers(p,world=G){
  if(!world)return;
@@ -241,7 +242,7 @@ function assignWorkers(p,world=G){
  }
  const priority={builderBunk:20,storageWarehouse:18,caravanWarehouse:18,farm:0,lumber:1,mine:2,leatherFactory:3,woodworks:4,stoneworks:5,foundry:6,armory:7,market:8,academy:9,post:10,homes:11};
  sites.sort((a,b)=>(priority[a.kind]??9)-(priority[b.kind]??9));
- const unemployed=p.citizens.filter(c=>eligibleWorker(c)&&!c.job).sort((a,b)=>b.morale-a.morale||b.health-a.health||a.id.localeCompare(b.id));
+ const unemployed=p.citizens.filter(c=>eligibleWorker(c)&&!c.job&&!isBusyPorter(c,world)).sort((a,b)=>b.morale-a.morale||b.health-a.health||a.id.localeCompare(b.id));
  for(const site of sites){
   if(!site.meta.autoHire)continue;
   let used=staff.get(site.meta.id)||0;
@@ -265,7 +266,7 @@ function workQuality(p,site,type){
 function hireAt(t,index,id=0){
  const p=G.players[id],site=worksite(t,index),type=t.buildings[index];
  if(!active()||t.owner!==id||!site)return false;
- const q=workQuality(p,site,type),worker=p.citizens.filter(c=>eligibleWorker(c)&&!c.job).sort((a,b)=>b.morale-a.morale)[0];
+ const q=workQuality(p,site,type),worker=p.citizens.filter(c=>eligibleWorker(c)&&!c.job&&!isBusyPorter(c)).sort((a,b)=>b.morale-a.morale)[0];
  if(!worker||q.count>=q.slots)return false;
  worker.job={tileId:t.id,siteId:site.id};site.autoHire=false;save();render();showToast(`${worker.name} hired at ${BUILDINGS[type].name}`);return true;
 }
@@ -1482,7 +1483,7 @@ function progressProjects(){
  }
 }
 function volunteeringChance(c,p){
- if(c.military||c.builder||c.age<18||c.health<35)return 0;
+ if(c.military||c.builder||isBusyPorter(c)||c.age<18||c.health<35)return 0;
  const age=c.age<30?1:c.age<45?.8:c.age<60?.42:c.age<70?.1:.008;
  const health=Math.max(0,(c.health-35)/65),morale=Math.max(0,(c.morale-30)/70);
  return Math.min(.65,(.012+.11*health+.12*morale)*age+(p.marketingUntil>=G.round?.22*age:0));
