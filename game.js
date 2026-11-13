@@ -2512,9 +2512,36 @@ function playCpuOpeningCard(id){
  return playable>=0?playCard(id,playable):false;
 }
 function cpuSecretWarOrder(id){
- const enemies=opponentsAtWar(id);if(!enemies.length)return;
- const p=G.players[id],post=getMilitaryPosts(id).find(t=>postGarrison(p,t.id).filter(c=>!c.military.missionId).length>=1);
- if(!post||p.logisticsUsed)return;
+ const p=G.players[id],enemies=opponentsAtWar(id);
+ if(!p||!enemies.length||p.siegePlanningRound===G.round)return;
+ p.siegePlanningRound=G.round;
+ // CPU submits independent defensive and attacking orders during its normal
+ // turn; no instant moves and no hidden knowledge of the other side's order.
+ for(const s of G.sieges||[]){
+  if(s.status!=='active'||![s.attacker,s.defender].includes(id))continue;
+  const side=s.attacker===id?'attacker':'defender';
+  const kind=side==='attacker'
+   ?(s.fort<=28||s.roundNumber%3===2?'assault':s.preparation<1&&p.wood>1?'prepare':'blockade')
+   :(s.supply<45&&p.food>=3?'resupply':s.fort<42&&p.wood>=2?'fortify':s.morale<45?'rally':s.roundNumber%4===3?'counterattack':'hold');
+  setSiegeOrder(s.id,kind,id);
+ }
+ if(p.logisticsUsed)return;
+ const readyPosts=getMilitaryPosts(id).filter(t=>postGarrison(p,t.id).some(c=>c.health>0&&!c.military?.missionId));
+ if(!readyPosts.length)return;
+ const enemyTargets=G.tiles.filter(t=>enemies.includes(t.owner)&&!t.capital&&
+  neighbors(t).some(n=>n.owner===id)&&!activeSiege(t.id));
+ // Prefer a campaign over passive patrols, but start one at a time per army.
+ if(!(G.sieges||[]).some(s=>s.attacker===id&&['marching','active'].includes(s.status))){
+  for(const t of enemyTargets){
+   for(const post of readyPosts){
+    if(!canStartSiege(t.id,post.id,id))continue;
+    const qty=Math.min(6,postGarrison(p,post.id).filter(c=>c.health>0&&!c.military.missionId).length);
+    if(qty&&startSiege(t.id,post.id,qty,id))return;
+   }
+  }
+ }
+ // Keep previous patrol behavior when no legal siege is available.
+ const post=readyPosts[0];
  const target=G.tiles.filter(t=>t.owner===id&&neighbors(t).some(n=>n.owner===null||enemies.includes(n.owner)))
   .sort((a,b)=>Math.min(...enemies.map(e=>distance(a,capitalOf(e))))-Math.min(...enemies.map(e=>distance(b,capitalOf(e)))))[0];
  if(target)orderMilitary(target.id,enemies[0],post.id,Math.min(2,postGarrison(p,post.id).filter(c=>!c.military.missionId).length),'patrol',id);
@@ -2522,6 +2549,7 @@ function cpuSecretWarOrder(id){
 
 function runCpu(id){
  const p=G.players[id];
+ if(id!==0)cpuSecretWarOrder(id); // also works during resumed/fast-forwarded CPU turns.
  if(!p.cardPlayed)playCpuOpeningCard(id);
  // CPU nations may warn rivals when their frontiers converge; players can respond by expanding or backing off.
  // Opposing countries can withdraw longstanding warnings by return falcon.
