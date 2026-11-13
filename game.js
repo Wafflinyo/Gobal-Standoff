@@ -2004,12 +2004,22 @@ function renderLog(){el('gameLog').innerHTML=G.log.slice(0,10).map(l=>`<div clas
 const coords=t=>({x:HEX*Math.sqrt(3)*(t.q+t.r/2),y:HEX*1.5*t.r});
 const VIEW_TILT=.68;
 const POV_ANGLES=[-.24,.36,.92,1.48];
+// All camera views project the same world drawing; never redraw structures in
+// a new screen-facing arrangement at the end of a camera rotation.
+const WORLD_SCENE_YAW=POV_ANGLES[0];
 const smooth=t=>t*t*(3-2*t);
 const blend=(a,b,t)=>a+(b-a)*t;
 let cameraYaw=POV_ANGLES[0],cameraMoveFrame=0,cameraResolve=null,cpuPlaybackToken=0,skipCpuPlayback=false,actionTileId=null,actionKind='';
-let boardBaseYaw=cameraYaw,boardBillboards=[],boardFootprints=[],boardWagons=[],lastWorldDepthYaw=NaN;
+let boardBaseYaw=WORLD_SCENE_YAW,boardBillboards=[],boardWorldStructures=[],boardFootprints=[],boardWagons=[],lastWorldDepthYaw=NaN;
 const wagonMotionSeen=new Set();
 function billboardSvg(x,y,contents){return `<g data-gs-billboard="1" data-anchor-x="${x.toFixed(2)}" data-anchor-y="${y.toFixed(2)}">${contents}</g>`;}
+// Facades stay attached to the world, rather than being repainted to face
+// every new player camera angle. Their upright silhouettes turn continuously.
+function worldStructureSvg(x,y,contents){return `<g data-gs-world-structure="1" data-anchor-x="${x.toFixed(2)}" data-anchor-y="${y.toFixed(2)}">${contents}</g>`;}
+function physicalTileOffset(tile,dx,dy){
+ const origin=coords(tile),offset=unprojectScreen(dx,dy,WORLD_SCENE_YAW);
+ return project(origin.x+offset.x,origin.y+offset.y);
+}
 // The plane rotates in camera yaw. These screen-facing sprites counter-rotate
 // around their original anchor; flags, houses and labels always remain upright.
 function syncBoardRotation(){
@@ -2030,6 +2040,15 @@ function syncBoardRotation(){
   const heading=project(f.dx,f.dy,cameraYaw);
   const degrees=Math.atan2(heading.y,heading.x)*180/Math.PI-f.baseHeading;
   f.node.setAttribute('transform',`rotate(${degrees.toFixed(2)} ${f.x.toFixed(1)} ${f.y.toFixed(1)})`);
+ }
+ // Static structures retain their world orientation and are foreshortened
+ // continuously as the camera turns, without changing positions at the end.
+ const yawRelative=cameraYaw-WORLD_SCENE_YAW;
+ const facade=Math.cos(yawRelative),profile=Math.max(.50,Math.abs(facade));
+ for(const {node,x,y} of boardWorldStructures){
+  const shear=Math.sin(yawRelative)*.10;
+  node.setAttribute('transform',`translate(${x.toFixed(2)} ${y.toFixed(2)}) matrix(${profile.toFixed(5)} 0 ${shear.toFixed(5)} 1 0 0) translate(${(-x).toFixed(2)} ${(-y).toFixed(2)})`);
+  node.dataset.facing=facade<-.06?'rear':facade<.27?'side':'front';
  }
  // Wagons are screen-facing while their directional view follows the physical
  // road heading; changing a camera angle never requires replacing the SVG map.
@@ -2109,16 +2128,18 @@ function constructionDustSprite(x,y){
 }
 function tileDepthSprites(t,x,y){
  const result=[],seed=hash(G.seed+'-'+t.id);
- const add=(ax,ay,html)=>{if(html)result.push({x:ax,y:ay,html:billboardSvg(ax,ay,html)});};
+ const add=(ax,ay,html,depthY=ay)=>{if(html)result.push({x:ax,y:depthY,html:billboardSvg(ax,ay,html)});};
  if(t.terrain==='forest'){
-  add(x-13,y+3,treeSprite(x-13,y+3,32,seed%3));
-  add(x+12,y+6,treeSprite(x+12,y+6,29,(seed+1)%3));
-  add(x+1,y-4,treeSprite(x+1,y-4,39,(seed+2)%3));
+  const a=physicalTileOffset(t,-13,3),b=physicalTileOffset(t,12,6),c=physicalTileOffset(t,1,-4);
+  add(a.x,a.y,treeSprite(a.x,a.y,32,seed%3));
+  add(b.x,b.y,treeSprite(b.x,b.y,29,(seed+1)%3));
+  add(c.x,c.y,treeSprite(c.x,c.y,39,(seed+2)%3));
  }else if(t.terrain==='mountain'){
-  add(x-10,y+5,mountainSprite(x-10,y+5,25,37));
-  add(x+14,y+4,mountainSprite(x+14,y+4,21,29));
+  const a=physicalTileOffset(t,-10,5),b=physicalTileOffset(t,14,4);
+  add(a.x,a.y,mountainSprite(a.x,a.y,25,37));
+  add(b.x,b.y,mountainSprite(b.x,b.y,21,29));
  }else add(x,y,terrainSprites(t,x,y));
- if(t.capital)add(x,y+8,capitalSprite(t,x,y));
+ if(t.capital){const foot=physicalTileOffset(t,0,8);add(foot.x,foot.y,worldStructureSvg(foot.x,foot.y,capitalSprite(t,x,y)));}
  const builds=t.buildings||[],offsets=t.capital?[[-22,-9],[21,10],[2,19]]:[[-16,-10],[16,5],[0,18]],scale=t.capital?.57:.74;
  for(let i=0;i<Math.min(3,builds.length);i++){
   const [dx,dy]=offsets[i];
@@ -2127,9 +2148,10 @@ function tileDepthSprites(t,x,y){
   if((queued&&!arriving)||(arriving&&scenePlayback.phase==='prepare'))continue;
   const growing=arriving&&scenePlayback.phase==='play';
   const sprite=buildingSprite(builds[i],x,y,G.players[t.owner].color);
-  const transform=`translate(${(x+dx).toFixed(1)} ${(y+dy).toFixed(1)}) scale(${scale}) translate(${(-x).toFixed(1)} ${(-y).toFixed(1)})`;
-  add(x+dx,y+dy+scale*8,`<g transform="${transform}">${growing?'<g class="gs-construction-rise">'+sprite+'</g>':sprite}</g>`);
-  if(growing)add(x+dx,y+dy+2,constructionDustSprite(x+dx,y+dy));
+  const foot=physicalTileOffset(t,dx,dy);
+  const transform=`translate(${foot.x.toFixed(1)} ${foot.y.toFixed(1)}) scale(${scale}) translate(${(-x).toFixed(1)} ${(-y).toFixed(1)})`;
+  add(foot.x,foot.y,worldStructureSvg(foot.x,foot.y,`<g transform="${transform}">${growing?'<g class="gs-construction-rise">'+sprite+'</g>':sprite}</g>`),foot.y+scale*8);
+  if(growing)add(foot.x,foot.y,constructionDustSprite(foot.x,foot.y));
  }
  const extra=scenePlayback?.kind==='build'&&scenePlayback.tileId===t.id&&scenePlayback.phase==='prepare'&&scenePlayback.buildingIndex>2?builds.length-1:builds.length;
  if(extra>3)add(x+24,y-26,`<g pointer-events="none"><rect x="${x+10}" y="${y-36}" width="28" height="16" rx="8" fill="#182e36" stroke="#e5c994"/><text x="${x+24}" y="${y-25}" font-size="10" font-weight="bold" fill="#fff2d3" text-anchor="middle">+${extra-3}</text></g>`);
@@ -2427,6 +2449,10 @@ function diplomaticFalconVisuals(){
 
 function renderMap(){
  if(!G)return;
+ // Render every tile and static sprite at the same world yaw. The camera's
+ // matrix is applied afterward, preventing the end-of-rotation 'snap'.
+ const displayYaw=cameraYaw;
+ cameraYaw=WORLD_SCENE_YAW;
  const svg=el('worldMap');svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
  const sorted=G.tiles.map(t=>({t,c:sceneCoords(t)})).sort((a,b)=>a.c.y-b.c.y||a.c.x-b.c.x);
  const bases=[],decorations=[],depthItems=[];
@@ -2481,10 +2507,12 @@ function renderMap(){
  // Ground-sorted scenery and wagons. Territory taps and labels remain foreground.
  el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="gs-national-borders" pointer-events="none">${ownerOutlines}</g><g id="gsWorldDepth" class="gs-world-depth" pointer-events="none">${objects}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g><g class="gs-map-frontlabels" pointer-events="none">${upperLabels}</g>`;
  lastWorldDepthYaw=NaN;
- boardBaseYaw=cameraYaw;
+ boardBaseYaw=WORLD_SCENE_YAW;
  boardBillboards=[...el('mapContent').querySelectorAll('[data-gs-billboard]')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY)}));
+ boardWorldStructures=[...el('mapContent').querySelectorAll('[data-gs-world-structure]')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY)}));
  boardFootprints=[...el('mapContent').querySelectorAll('.gs-expedition-footprints')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY),dx:Number(node.dataset.dirX),dy:Number(node.dataset.dirY),baseHeading:Number(node.dataset.baseHeading)}));
  boardWagons=[...el('mapContent').querySelectorAll('[data-gs-wagon]')].map(node=>({node,dx:Number(node.dataset.dirX),dy:Number(node.dataset.dirY)}));
+ cameraYaw=displayYaw;
  syncBoardRotation();
 }
 function mapAspect(){const rect=el('worldMap').getBoundingClientRect();return rect.width>0&&rect.height>0?rect.width/rect.height:1.5;}
