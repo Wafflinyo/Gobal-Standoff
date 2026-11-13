@@ -2095,8 +2095,43 @@ function siegeReinforcementHtml(s){
   <strong>Send reinforcements</strong><small>Dispatch additional real soldiers. They march to the siege over world ticks; at most 12 soldiers per army. Only one military dispatch per turn.</small>
   <label class="gs-war-field">Military Post<select data-siege-reinforce-post>${posts.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} · ${postGarrison(player,t.id).filter(c=>c.health>0&&!c.military.missionId).length} ready</option>`).join('')}</select></label>
   <label class="gs-war-field">Soldiers<select data-siege-reinforce-qty>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}</select></label>
+  <label class="gs-war-field">Transport<select data-siege-reinforce-transport><option value="foot">On foot</option><option value="caravan">Caravan (up to 6 soldiers)</option></select></label>
   <button data-siege-reinforce="${s.id}" ${!active()||player.logisticsUsed?'disabled':''}>Send reinforcement party</button>
  </div>`;
+ return html;
+}
+
+function warAftermathPanelHtml(){
+ if(!G)return '';
+ let html='';
+ for(const siege of G.sieges||[]){
+  if(![siege.attacker,siege.defender].includes(0)||!['breached','aftermath','counterattack'].includes(siege.status))continue;
+  const t=G.tiles.find(t=>t.id===siege.targetTileId);
+  html+='<section class="gs-siege-section gs-aftermath"><div class="gs-siege-heading"><strong>DESTROYED HEX · '+esc(t?.name||'frontier')+'</strong>'+
+   '<small>100% destruction: the hex became unclaimed. Eliminating soldiers alone never captures it.</small></div>';
+  if(siege.status==='counterattack')html+='<p>Late reinforcements are counterattacking through the ruins. Their battle resolves over subsequent normal rounds.</p>';
+  if(siege.attacker===0){
+   if(!siege.attackerChoice){
+    const next=neighbors(t).filter(n=>n.owner===siege.defender&&!n.capital&&n.terrain!=='water');
+    html+='<p><strong>Your next move:</strong> claim the ruins, push into an adjacent enemy hex, or retreat your surviving army.</p>'+
+     '<div class="gs-war-actions"><button data-after-siege="'+siege.id+'" data-choice="claim">Stop & Claim Ruins</button>'+
+     '<button data-after-siege="'+siege.id+'" data-choice="retreat">Retreat to Post</button></div>';
+    if(next.length)html+='<label class="gs-war-field">Next enemy hex<select data-next-hex="'+siege.id+'">'+
+     next.map(n=>'<option value="'+esc(n.id)+'">'+esc(n.name)+'</option>').join('')+'</select></label>'+
+     '<button data-after-siege="'+siege.id+'" data-choice="push">Push Into Next Hex</button>';
+   }else html+='<p>Your army chose '+esc(siege.attackerChoice)+'.'+(siege.reinforcements?.length?' Incoming defenders are still traveling.':'')+'</p>';
+  }
+  if(siege.defender===0){
+   const late=(siege.lateDefenderIds||[]).filter(id=>G.players[0].citizens.some(c=>c.id===id&&c.health>0));
+   if(late.length&&siege.status!=='counterattack'){
+    html+='<p><strong>'+late.length+' defenders reached the ruined territory.</strong> Guard the nearby border, counterattack to reclaim it, or retreat.</p>'+
+     '<div class="gs-war-actions"><button data-after-siege="'+siege.id+'" data-choice="guard">Guard Nearest Border</button>'+
+     '<button data-after-siege="'+siege.id+'" data-choice="attack">Counterattack & Reclaim</button>'+
+     '<button data-after-siege="'+siege.id+'" data-choice="retreat">Retreat to Post</button></div>';
+   }else if(siege.reinforcements?.length)html+='<p>Reinforcements remain en route. Choose their orders on arrival.</p>';
+  }
+  html+='</section>';
+ }
  return html;
 }
 function siegeWarPanelHtml(){
@@ -2110,7 +2145,7 @@ function siegeWarPanelHtml(){
   html+=`<div class="gs-siege-card"><div class="gs-siege-card-head"><strong>${esc(target?.name||'Unknown frontier')}</strong><span>${side==='attacker'?'ATTACKING':'DEFENDING'}</span></div>
    <small>${esc(G.players[siege.attacker].name)} versus ${esc(G.players[siege.defender].name)} · ${siege.status==='marching'?siege.marchRemaining+' travel ticks to arrival': 'Siege round '+(siege.roundNumber+1)+' · '+ours+' of your troops, '+theirs+' opposing'}</small>`;
   if(siege.status==='active'){
-   html+=`<div class="gs-siege-meters">${[['Supplies',siege.supply],['Defenses',siege.fort],['Morale',siege.morale]].map(([label,value])=>`<div><span>${label}</span><b>${value}/100</b><i style="--siege-fill:${value}%"></i></div>`).join('')}</div>
+   html+=`<div class="gs-siege-meters">${[['Destruction',siege.destruction||0],['Fortifications',siege.fort],['Supplies',siege.supply],['Defender Morale',siege.morale]].map(([label,value])=>`<div><span>${label}</span><b>${value}/100</b><i style="--siege-fill:${value}%"></i></div>`).join('')}</div>
     <label class="gs-war-field">Your standing order<select data-siege-order="${siege.id}">${Object.entries(available).map(([k,label])=>`<option value="${k}" ${order===k?'selected':''}>${esc(label)}</option>`).join('')}</select></label>
     <button data-siege-submit="${siege.id}" ${!active()?'disabled':''}>${sent?'Update saved order':'Submit military order'}</button>
     <small class="gs-siege-order-note">${sent?'Order saved for this round.':'Your standing order applies automatically if no order is submitted.'} Enemy orders stay hidden until resolution.</small>`;
@@ -2133,6 +2168,7 @@ function siegeWarPanelHtml(){
     <small>Soldiers march to friendly land next to a hostile non-capital hex. After arrival both countries can issue orders before the first round resolves.</small>
     <label class="gs-war-field">Attack route<select id="siegeCampaign">${routes.slice(0,36).map(r=>`<option value="${esc(r.post.id+'|'+r.target.id)}">${esc(r.post.name)} → ${esc(r.target.name)} (${r.available} ready)</option>`).join('')}</select></label>
     <label class="gs-war-field">Soldiers<select id="siegeQuantity">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===1?'selected':''}>${i+1}</option>`).join('')}</select></label>
+    <label class="gs-war-field">Travel<select id="siegeTransport"><option value="foot">March on foot</option><option value="caravan">Ride caravan (up to 6)</option></select></label>
     <button data-start-siege="1" ${!active()||me.logisticsUsed?'disabled':''}>Send soldiers to siege</button></div>`;
   }else html+='<small class="gs-siege-tip">Siege dispatches require an available military garrison and a friendly hex touching a hostile non-capital territory. One military dispatch per turn.</small>';
  }
@@ -2183,12 +2219,12 @@ function renderWarPanel(){
   }else html+=`<div class="gs-war-actions"><button data-send-peace="${other.id}" ${!canAct()?'disabled':''}>Send Ceasefire Proposal</button></div>`;
   html+='</div>';
  }
- html+=siegeWarPanelHtml();
+ html+=warAftermathPanelHtml()+siegeWarPanelHtml();
  const posts=getMilitaryPosts(0);
  if(wars.length&&posts.length){
   const borderOptions=G.tiles.filter(t=>t.owner===0&&neighbors(t).some(n=>n.owner===null||wars.includes(n.owner)));
   const flankOptions=G.tiles.filter(t=>t.owner===null&&t.terrain!=='water'&&wars.some(w=>G.tiles.some(e=>e.owner===w&&distance(t,e)<=3))).slice(0,45);
-  html+=`<div class="gs-war-order"><strong>Confidential Troop Orders</strong><small>One military logistics order per turn. Patrol owned frontier hexes or flank through neutral land. Roads shorten travel. Enemies cannot view the positions.</small><label class="gs-war-field">Enemy<select id="warEnemy">${wars.map(id=>`<option value="${id}">${esc(G.players[id].name)}</option>`).join('')}</select></label><label class="gs-war-field">Military Post<select id="warPost">${posts.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} (${postGarrison(me,t.id).filter(c=>!c.military.missionId).length} ready)</option>`).join('')}</select></label><label class="gs-war-field">Order<select id="warKind"><option value="patrol">Border patrol</option><option value="flank">Flanking through neutral land</option></select></label><label class="gs-war-field">Destination<select id="warDestination">${borderOptions.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label><label class="gs-war-field">Soldiers<select id="warQuantity">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===1?'selected':''}>${i+1}</option>`).join('')}</select></label><button data-order-war="1" ${!active()||me.logisticsUsed?'disabled':''}>Dispatch Troops</button><div class="gs-war-hidden" data-patrol-options="${esc(JSON.stringify(borderOptions.map(t=>[t.id,t.name])))}" data-flank-options="${esc(JSON.stringify(flankOptions.map(t=>[t.id,t.name])))}"></div></div>`;
+  html+=`<div class="gs-war-order"><strong>Confidential Troop Orders</strong><small>One military logistics order per turn. Patrol owned frontier hexes or flank through neutral land. Roads shorten travel. Enemies cannot view the positions.</small><label class="gs-war-field">Enemy<select id="warEnemy">${wars.map(id=>`<option value="${id}">${esc(G.players[id].name)}</option>`).join('')}</select></label><label class="gs-war-field">Military Post<select id="warPost">${posts.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} (${postGarrison(me,t.id).filter(c=>!c.military.missionId).length} ready)</option>`).join('')}</select></label><label class="gs-war-field">Order<select id="warKind"><option value="patrol">Border patrol</option><option value="flank">Flanking through neutral land</option></select></label><label class="gs-war-field">Destination<select id="warDestination">${borderOptions.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label><label class="gs-war-field">Soldiers<select id="warQuantity">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===1?'selected':''}>${i+1}</option>`).join('')}</select></label><label class="gs-war-field">Transport<select id="warTransport"><option value="foot">March on foot</option><option value="caravan">Caravan (max 6 soldiers)</option></select></label><button data-order-war="1" ${!active()||me.logisticsUsed?'disabled':''}>Dispatch Troops</button><div class="gs-war-hidden" data-patrol-options="${esc(JSON.stringify(borderOptions.map(t=>[t.id,t.name])))}" data-flank-options="${esc(JSON.stringify(flankOptions.map(t=>[t.id,t.name])))}"></div></div>`;
  }
  const own=G.militaryOrders.filter(m=>m.owner===0&&m.status!=='returned');
  if(own.length)html+=`<div class="gs-war-order"><strong>Your Military Orders</strong>${own.map(m=>{const tile=G.tiles.find(t=>t.id===m.path[m.index]),target=G.tiles.find(t=>t.id===m.targetTileId);return `<div class="gs-war-unit"><b>${m.troopIds.length} troops · ${m.kind.toUpperCase()}</b><small>${esc(tile?.name||'Traveling')} → ${esc(target?.name||'Unknown')} · ${m.status}</small><button data-recall-war="${m.id}" ${!active()?'disabled':''}>Recall</button></div>`;}).join('')}</div>`;
@@ -4071,9 +4107,10 @@ function bindEvents(){
  el('closeBuildBtn').addEventListener('click',()=>{showBuild=false;render();});
  el('warBody').addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;const panel=el('warBody');
+  if(b.dataset.afterSiege!=null){const id=Number(b.dataset.afterSiege),siege=(G.sieges||[]).find(x=>x.id===id),target=panel.querySelector('[data-next-hex="'+id+'"]')?.value;if(!warChooseAfternath(siege,b.dataset.choice,target,0))showToast("Could not execute post-battle order.");return;}
   if(b.dataset.startSiege!=null){
    const path=panel.querySelector('#siegeCampaign')?.value||'',split=path.indexOf('|');
-   if(split<0||!startSiege(path.slice(split+1),path.slice(0,split),Number(panel.querySelector('#siegeQuantity')?.value||0)))
+   if(split<0||!startSiege(path.slice(split+1),path.slice(0,split),Number(panel.querySelector('#siegeQuantity')?.value||0),0,panel.querySelector('#siegeTransport')?.value||'foot'))
     showToast('Siege unavailable: check available soldiers, owned border and dispatch limit.');
    return;
   }
@@ -4085,7 +4122,7 @@ function bindEvents(){
   if(b.dataset.siegeReinforce!=null){
    const id=Number(b.dataset.siegeReinforce),box=panel.querySelector(`[data-siege-reinforcement-id="${id}"]`);
    const post=box?.querySelector('[data-siege-reinforce-post]')?.value,number=Number(box?.querySelector('[data-siege-reinforce-qty]')?.value||0);
-   if(!reinforceSiege(id,post,number))showToast('Cannot reinforce: check available soldiers, travel route, or 12-troop capacity.');
+   if(!reinforceSiege(id,post,number,0,box?.querySelector('[data-siege-reinforce-transport]')?.value||'foot'))showToast('Cannot reinforce: check available soldiers, travel route, or 12-troop capacity.');
    return;
   }
   if(b.dataset.sendWarning!=null){const to=Number(b.dataset.sendWarning),tile=panel.querySelector(`[data-warning-land="${to}"]`)?.value;sendDiplomaticFalcon(to,'warning',tile);return;}
@@ -4105,7 +4142,7 @@ function bindEvents(){
    return;
   }
   if(b.dataset.peaceAnswer!=null){acceptCeasefire(Number(b.dataset.peaceAnswer),b.dataset.accept==='yes');return;}
-  if(b.dataset.orderWar!=null){orderMilitary(panel.querySelector('#warDestination')?.value,Number(panel.querySelector('#warEnemy')?.value),panel.querySelector('#warPost')?.value,Number(panel.querySelector('#warQuantity')?.value||1),panel.querySelector('#warKind')?.value||'patrol');return;}
+  if(b.dataset.orderWar!=null){orderMilitary(panel.querySelector('#warDestination')?.value,Number(panel.querySelector('#warEnemy')?.value),panel.querySelector('#warPost')?.value,Number(panel.querySelector('#warQuantity')?.value||1),panel.querySelector('#warKind')?.value||'patrol',0,panel.querySelector('#warTransport')?.value||'foot');return;}
   if(b.dataset.recallWar!=null){recallMilitary(Number(b.dataset.recallWar));return;}
  });
  el('warBody').addEventListener('change',e=>{if(e.target.id!=='warKind')return;const panel=el('warBody'),options=panel.querySelector('[data-patrol-options]');if(!options)return;const raw=e.target.value==='flank'?options.dataset.flankOptions:options.dataset.patrolOptions;let list=[];try{list=JSON.parse(raw||'[]');}catch(e){}const select=panel.querySelector('#warDestination');if(select)select.innerHTML=list.map(([id,name])=>`<option value="${esc(id)}">${esc(name)}</option>`).join('');});
