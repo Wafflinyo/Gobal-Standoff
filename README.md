@@ -1,4 +1,14 @@
-# Global Standoff — Prototype 0.4.22
+# Global Standoff — Prototype 0.4.23
+
+## Version 0.4.23 — warehouse fleet tracking, hand-shipping policy and civilian mortality
+
+- Selecting an owned Caravan Warehouse now shows each assigned wagon separately: current hex, next destination, leg (pickup/delivery/unloading/return), currently held cargo and quantity, reserved pickup cargo when still empty, trip route and time remaining. Idle wagons show their current location and availability.
+- Adds a shared nation-wide transport policy under each Caravan Warehouse and Nation → Caravan logistics: **Wait for a caravan** (default when any wagons exist) or **Allow workers to haul when no free wagon is reachable**. When the nation has no wagons at all, eligible workers may still haul automatically. Free wagons always take priority over workers.
+- The 2-unit, slow hand transport fallback now applies to ALL goods: Farm Food and Leather, Lumber Logs, Mine Stone and Minerals, factory products, and shipments between storage sites. Unpaved borders cost eight world ticks each way (paved: six); workers remain occupied until returning.
+- Walking a hex costs one morale on paved roads or two morale on unpaved ones, on both outgoing and return journeys. Manual-hauling figures show logs, produce sacks, or goods crates appropriate to what they carry.
+- Citizens now undergo a gradual end-of-round life cycle: sustained low morale can reduce health; good conditions help health and morale recover; age rises every four rounds; age, health and morale collectively determine a small per-round mortality probability. Death removes citizens from active population, housing, work and military counts. Passings appear in the game log, a recent-passings summary in Citizens, and cumulative death count. Per-citizen mortality chance is visible in Citizens.
+- Existing saved games are migrated with the 'wait' policy; no forced reset. Caravan capacity remains 10 units and included-in-upkeep wage calculations are unchanged.
+
 
 ## Version 0.4.22 — hand-hauled logs and inclusive building upkeep
 
