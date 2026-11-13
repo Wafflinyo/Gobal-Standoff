@@ -2058,10 +2058,13 @@ function syncBoardRotation(){
   w.node.dataset.view=view;
   w.node.dataset.side=heading.x<0?'left':'right';
  }
- if(!Number.isFinite(lastWorldDepthYaw)||Math.abs(cameraYaw-lastWorldDepthYaw)>.13){
+ if(!Number.isFinite(lastWorldDepthYaw)||Math.abs(cameraYaw-lastWorldDepthYaw)>.025){
   sortWorldDepth();lastWorldDepthYaw=cameraYaw;
  }
 }
+// Depth-test world scenery frequently enough for buildings to pass in front
+// of / behind one another at the actual crossing point, not several degrees
+// after it. This reorders existing DOM nodes and never recreates their art.
 // Sort all visible sprite feet (terrain, structures and caravans), preserving
 // the existing vectors, without rebuilding the hexagon map.
 function sortWorldDepth(){
