@@ -1999,6 +1999,7 @@ function resolveSieges(){
     s.counterRoundCount=(s.counterRoundCount||0)+1;
     if(!ra.length){tile.owner=s.defender;reallocateHousing(G.players[s.defender]);}
     s.status='aftermath';s.lateDefenderIds=[];s.defenderChoice=!ra.length?'reclaimed':'repelled';
+    if(!ra.length)s.attackerChoice='retreat';
     for(const c of rd)c.military.missionId=null;
    }else s.counterRoundCount=(s.counterRoundCount||0)+1;
    addLog('Counterattack at '+tile.name+': '+combat.attacker.hits+' attacker hits, '+combat.defender.hits+' defender hits.');
@@ -3077,13 +3078,26 @@ function cpuSecretWarOrder(id){
  const p=G.players[id],enemies=opponentsAtWar(id);
  if(!p||!enemies.length||p.siegePlanningRound===G.round)return;
  p.siegePlanningRound=G.round;
+ for(const s of G.sieges||[])if(['breached','aftermath'].includes(s.status)){
+  if(s.attacker===id&&!s.attackerChoice){
+   const tile=G.tiles.find(t=>t.id===s.targetTileId);
+   const adjacent=tile?neighbors(tile).filter(t=>t.owner===s.defender&&!t.capital&&!activeSiege(t.id)):[];
+   const ready=siegeTeam(s,'attacker').length;
+   const choice=ready<2?'retreat':adjacent.length&&ready>=5?'push':'claim';
+   warChooseAfternath(s,choice,adjacent[0]?.id,id);
+  }else if(s.defender===id&&s.lateDefenderIds?.length){
+   const able=s.lateDefenderIds.filter(cid=>p.citizens.some(c=>c.id===cid&&c.health>0));
+   const choice=able.length>=3?'attack':'guard';
+   if(!warChooseAfternath(s,choice,null,id))warChooseAfternath(s,'retreat',null,id);
+  }
+ }
  // CPU submits independent defensive and attacking orders during its normal
  // turn; no instant moves and no hidden knowledge of the other side's order.
  for(const s of G.sieges||[]){
   if(s.status!=='active'||![s.attacker,s.defender].includes(id))continue;
   const side=s.attacker===id?'attacker':'defender';
   const kind=side==='attacker'
-   ?(s.fort<=28||s.roundNumber%3===2?'assault':s.preparation<1&&p.wood>1?'prepare':'blockade')
+   ?(s.roundNumber%4===3&&s.preparation<2&&p.wood>1?'prepare':'assault')
    :(s.supply<45&&p.food>=3?'resupply':s.fort<42&&p.wood>=2?'fortify':s.morale<45?'rally':s.roundNumber%4===3?'counterattack':'hold');
   setSiegeOrder(s.id,kind,id);
  }
