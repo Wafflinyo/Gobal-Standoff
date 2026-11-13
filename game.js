@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.32 — local unloading and smart caravan routes. */
+/* Global Standoff 0.4.33 — local unloading, optimized caravans and named citizen drivers. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
