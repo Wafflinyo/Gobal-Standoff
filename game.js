@@ -1658,15 +1658,24 @@ function siegeMapVisuals(){
   const target=G.tiles.find(t=>t.id===s.targetTileId);
   if(!target)return '';
   const outline=pts(hexPoints(target,HEX-1));
-  const center=sceneCoords(target);
+  const anchor=s.status==='marching'?G.tiles.find(t=>t.id===s.stagingTileId)||target:target;
+  const center=sceneCoords(anchor);
   const emblem=`<g transform="translate(${center.x.toFixed(1)} ${(center.y-34).toFixed(1)})">
    <path d="M-15 -11L-11 -19H11L15 -11V7H-15Z" fill="#402c2f" stroke="#f2b48d" stroke-width="2"/>
    <path d="M-10 -19V-25H-5V-19M4 -19V-25H9V-19" fill="#b78b68" stroke="#f2b48d" stroke-width="1.5"/>
    <path d="M-5 7V-5Q0 -13 5 -5V7" fill="#d17b58"/>
+   ${Array.from({length:Math.min(3,siegeTeam(s,'attacker').length)},(_,i)=>`
+    <g class="gs-siege-soldier" transform="translate(${(i-1)*17} 17)">
+     <g class="gs-siege-soldier-idle" style="--siege-delay:${i*120}ms">
+      <circle cx="0" cy="-6" r="3.5" fill="#efd3aa" stroke="#342f35" stroke-width="1"/>
+      <path d="M-5 -2L5 -2L6 7L-6 7Z" fill="${G.players[s.attacker].color||'#a9bfc2'}" stroke="#13262e" stroke-width="1"/>
+      <path d="M-4 1L-7 -3L-8 2L-5 6Z" fill="#c9b788"/>
+     </g>
+    </g>`).join('')}
    <text x="0" y="-29" text-anchor="middle" fill="#fff0c8" font-size="9" font-weight="900">${s.status==='marching'?'MARCH':'SIEGE '+s.roundNumber}</text>
   </g>`;
-  return `<g class="gs-siege-border" pointer-events="none"><polygon points="${outline}" fill="none" stroke="#ffab72" stroke-width="5" stroke-dasharray="10 6"/></g>`
-   +billboardSvg(center.x,center.y,emblem,true);
+  const ring=s.status==='active'? `<g class="gs-siege-border" pointer-events="none"><polygon points="${outline}" fill="none" stroke="#ffab72" stroke-width="5" stroke-dasharray="10 6"/></g>`:'';
+  return ring+billboardSvg(center.x,center.y,emblem,true);
  }).join('');
 }
 
