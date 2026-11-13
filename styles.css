@@ -542,3 +542,146 @@ body.gs-playing .sheet-panel small,body.gs-playing .sheet-panel .muted,body.gs-p
 .gs-falcon-counter{display:grid;gap:9px;margin:10px 0 14px;padding:11px;background:#163545;border:1px solid #b69d6788;border-radius:10px}
 .gs-falcon-counter button{white-space:normal;min-height:42px}
 @media(prefers-reduced-motion:reduce){.gs-threat-border-halo,.gs-threat-border-pulse{animation:none!important;opacity:.65}}
+
+
+/* Global Standoff 0.4.27 — orientation-safe, non-jittery mobile play.
+   Safari's dynamic 100dvh changes as its browser chrome expands/collapses.
+   The stable small viewport prevents repeated layout jumps on rotation. */
+@supports (height:100svh){
+ body.gs-playing{height:100svh;min-height:100svh}
+ .sheet-layer,.card-preview-layer{height:100svh}
+}
+body.gs-playing .world-panel,
+body.gs-playing .map-wrap,
+body.gs-playing #worldMap{min-width:0;min-height:0}
+body.gs-playing .map-wrap{isolation:isolate}
+
+/* The landscape phone layout is deliberately different from portrait:
+   a thin header, a small hand at bottom-left, controls at bottom-right,
+   and a full-height right-side sheet. The center remains usable for the map.
+   Place safe-area padding on BOTH sides of notched phones. */
+@media (orientation:landscape) and (max-height:650px) and (pointer:coarse){
+ body.gs-playing .topbar{
+  min-height:35px;max-height:43px;
+  padding:3px max(10px,env(safe-area-inset-right)) 3px max(10px,env(safe-area-inset-left));
+  gap:8px
+ }
+ body.gs-playing .brand-icon{width:28px;height:28px;border-radius:7px;font-size:14px}
+ body.gs-playing .brand-icon .gs-glyph{width:10px;height:10px}
+ body.gs-playing .brand{gap:7px}
+ body.gs-playing .brand-name{font-size:11px;letter-spacing:.04em}
+ body.gs-playing .brand-sub{display:none}
+ body.gs-playing .round-badge{font-size:8px;padding:4px 7px}
+ body.gs-playing .header-right{gap:5px}
+ body.gs-playing .world-heading{
+  min-height:38px;max-height:44px;padding:4px 12px 5px;
+  gap:7px
+ }
+ body.gs-playing .world-heading h1{font-size:16px;margin-top:0}
+ body.gs-playing .world-heading .section-kicker{font-size:7px}
+ body.gs-playing .world-heading-right .muted-small{font-size:8px;margin-top:2px}
+ body.gs-playing .turn-chip{font-size:8px;padding:3px 7px}
+ body.gs-playing .map-wrap{flex:1 1 auto;height:0!important;min-height:0!important}
+ .view-badge{display:none}
+ .quick-stats{
+  top:7px;left:max(7px,env(safe-area-inset-left));
+  max-width:calc(100% - 155px);gap:3px
+ }
+ .quick-stat{padding:3px 6px;gap:3px;font-size:9px;border-radius:13px}
+ .quick-stat b{font-size:10px}
+ .map-action-counter{
+  top:38px;left:max(7px,env(safe-area-inset-left));
+  padding:4px 7px;font-size:9px
+ }
+ .map-actions{top:8px;right:max(7px,env(safe-area-inset-right));gap:3px}
+ .map-actions button{width:30px;height:30px;font-size:20px;border-radius:8px}
+ .map-quickbar{
+  top:auto;bottom:max(6px,env(safe-area-inset-bottom));
+  left:auto;right:calc(41px + env(safe-area-inset-right));
+  transform:none;width:min(51vw,440px);
+  gap:4px;justify-content:flex-end;align-items:end
+ }
+ .map-quickbar>button{
+  min-width:0;flex:1 1 0;min-height:40px;
+  font-size:9px;line-height:1.2;padding:4px 3px;border-radius:8px
+ }
+ .map-quickbar>button>span{font-size:13px;line-height:1}
+ .map-quickbar .gs-glyph{width:16px;height:16px}
+ .map-quickbar #turnMount{flex:0 0 auto}
+ .map-quickbar #endTurnBtn{
+  max-width:99px;min-height:40px;padding:5px 7px;
+  font-size:9px;white-space:nowrap;border-radius:8px
+ }
+ .map-quickbar #endTurnBtn span{font-size:12px}
+ .hand-dock{
+  left:max(6px,env(safe-area-inset-left));bottom:max(3px,env(safe-area-inset-bottom));
+  transform:none;width:min(36vw,340px);height:97px;
+  min-width:0;overflow:visible
+ }
+ .hand-dock .cards-panel{
+  padding:4px 5px 0;border-radius:10px 10px 0 0;
+  box-shadow:0 -5px 13px #04182177
+ }
+ .hand-dock .panel-heading{margin:0 0 1px}
+ .hand-dock .panel-heading h2{font-size:8px}
+ .hand-dock #cardCount{font-size:8px}
+ .hand-dock .hand{height:74px!important;min-height:0}
+ .hand-dock .card-item{
+  left:calc(50% + var(--fan)*min(35px,5vw));
+  width:66px;height:93px;min-height:0;
+  bottom:-7px;padding:5px 5px 4px;
+  border-radius:7px
+ }
+ .hand-dock .card-item .card-icon{font-size:17px;margin:2px 0 1px}
+ .hand-dock .card-item .card-name{font-size:9px;line-height:1.1}
+ .hand-dock .card-item .card-desc{font-size:7px;line-height:1.14;margin-top:2px}
+ .hand-dock .gs-hand-hint{display:none}
+ .cpu-watching .hand-dock{
+  left:max(6px,env(safe-area-inset-left));bottom:max(6px,env(safe-area-inset-bottom));
+  width:116px;height:111px;min-height:0;max-height:none
+ }
+ .cpu-watching .hand-dock .cards-panel{width:116px}
+ .cpu-watching .gs-watching-hand{padding:5px 6px;gap:3px}
+ .cpu-watching .gs-opponent-deck{bottom:7px;right:max(7px,env(safe-area-inset-right));width:105px;gap:2px}
+ .cpu-watching .gs-deck-backs{width:99px;height:55px}
+ .cpu-watching .gs-card-back{width:35px;height:52px}
+ .cpu-watching .cpu-cinematic{
+  top:4px;bottom:auto;left:50%;width:min(36%,290px);
+  transform:translateX(-50%);padding:5px 7px
+ }
+ .cpu-watching .cpu-cinematic strong{font-size:10px}
+ .cpu-watching .cpu-cinematic #cpuAction{font-size:9px}
+ .cpu-watching .quick-stats{max-width:35%}
+ /* Landscape uses a side sheet so the map remains visible beside it. */
+ .sheet-layer{align-items:stretch;justify-content:flex-end}
+ .sheet-panel{
+  width:min(440px,62vw);height:100%;max-height:none;min-height:0;
+  border-left:1px solid #b5a077;border-top:0;
+  border-radius:0;box-shadow:-16px 0 42px #0009
+ }
+ .sheet-header{padding:8px 11px;gap:8px}
+ .sheet-header h2{font-size:18px;margin:1px 0 0}
+ .sheet-close{width:30px;height:30px;border-radius:8px}
+ .sheet-body{
+  flex:1 1 auto;min-height:0;max-height:none;
+  padding:9px 12px calc(14px + env(safe-area-inset-bottom))
+ }
+ .sheet-body .panel-heading{margin-bottom:7px}
+ .sheet-body .panel-heading h2{font-size:17px}
+ .sheet-economy-tools{padding:6px 12px 10px}
+ .modal-layer{padding:7px}
+ .modal{max-height:calc(100svh - 14px);width:min(540px,86vw);padding:14px}
+ .modal h2{font-size:21px;margin:3px 0 7px}
+ .modal p{font-size:11px;line-height:1.45}
+ .card-preview-layer{padding:8px}
+ .card-preview-content{max-height:calc(100svh - 16px);gap:7px;overflow-y:auto}
+ .expanded-card{width:min(167px,43vw);padding:7px;border-radius:12px}
+ .expanded-card-art{margin:5px 0}
+ .expanded-card-icon{font-size:45px}
+ .expanded-card-details{padding:6px}
+ .expanded-card-name{font-size:17px}
+ .expanded-card-rule{font-size:10px;line-height:1.3}
+ .expanded-card-footer{margin-top:5px}
+ .preview-actions button{padding:8px;font-size:10px;min-height:35px}
+ .toast{bottom:max(6px,env(safe-area-inset-bottom));font-size:10px;padding:8px 12px}
+}
