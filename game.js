@@ -204,7 +204,7 @@ const BUILDINGS={
  homes:{name:'Homes',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-homes"></use></svg>',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces · no workers required · occupied family homes earn Silver Pents'},
  market:{name:'Marketplace',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-market"></use></svg>',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'Silver Pents income scales with worker staffing and morale'},
  academy:{name:'Academy',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-book"></use></svg>',gold:8,wood:2,iron:2,space:2,rounds:3,upkeep:2,jobs:[2,3,4],production:{knowledge:3},allow:['plains','forest','hills','desert','mountain'],text:'Research output requires staffed teachers'},
- caravanWarehouse:{name:'Caravan Warehouse',icon:'▣',gold:8,wood:5,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert'],text:'Houses 1 / 2 / 3 fast wagons. Without one, a worker can slowly push 2 Timber Logs per trip.'},
+ caravanWarehouse:{name:'Caravan Warehouse',icon:'▣',gold:8,wood:5,iron:0,space:2,rounds:2,upkeep:1,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert'],text:'Houses 1 / 2 / 3 wagons and an equal number of paid driver jobs. A wagon cannot move without an employed citizen driver.'},
  storageWarehouse:{name:'Storage Warehouse',icon:'▤',gold:7,wood:4,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Holds 40 / 80 / 140 goods at levels 1 / 2 / 3. Nearby factories can collect supplies here.'},
  builderBunk:{name:'Builders’ Bunk',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-builder"></use></svg>',gold:8,wood:3,iron:0,space:1,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Houses 1 / 2 / 3 active builders by level. Builders travel before working'},
  post:{name:'Military Post',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-shield"></use></svg>',gold:8,wood:2,iron:2,space:2,rounds:2,upkeep:2,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Administrative staff support recruitment and the 12-troop garrison'},
@@ -444,7 +444,7 @@ function assignWorkers(p,world=G){
   if(!site||!eligibleWorker(c,world)||(staff.get(site.meta.id)||0)>=site.capacity){c.job=null;continue;}
   staff.set(site.meta.id,(staff.get(site.meta.id)||0)+1);
  }
- const priority={builderBunk:20,storageWarehouse:18,caravanWarehouse:18,farm:0,lumber:1,mine:2,leatherFactory:3,woodworks:4,stoneworks:5,foundry:6,armory:7,market:8,academy:9,post:10,homes:11};
+ const priority={builderBunk:20,storageWarehouse:18,caravanWarehouse:-2,farm:0,lumber:1,mine:2,leatherFactory:3,woodworks:4,stoneworks:5,foundry:6,armory:7,market:8,academy:9,post:10,homes:11};
  sites.sort((a,b)=>(priority[a.kind]??9)-(priority[b.kind]??9));
  const unemployed=p.citizens.filter(c=>eligibleWorker(c,world)&&!c.job&&!isBusyPorter(c,world)).sort((a,b)=>b.morale-a.morale||b.health-a.health||a.id.localeCompare(b.id));
  for(const site of sites){
@@ -456,7 +456,7 @@ function assignWorkers(p,world=G){
 }
 function workforceSummary(p){
  const employed=p.citizens.filter(c=>!!c.job&&!c.military).length;
- const available=p.citizens.filter(c=>eligibleWorker(c)&&!c.job).length;
+ const available=p.citizens.filter(c=>eligibleWorker(c)&&!c.job&&!isBusyPorter(c)).length;
  return {employed,available,wages:employed};
 }
 function workQuality(p,site,type){
@@ -671,7 +671,7 @@ function handHaulingAllowed(p){
 function availablePorter(owner,source){
  const p=G.players[owner];if(!p)return null;
  const occupied=new Set(G.shipments.filter(j=>j.kind==='porter'&&j.owner===owner).map(j=>j.porterId));
- const workforce=p.citizens.filter(c=>eligibleWorker(c)&&!occupied.has(c.id));
+ const workforce=p.citizens.filter(c=>eligibleWorker(c)&&!occupied.has(c.id)&&c.job?.role!=='caravanDriver');
  // Prefer the source's employee, or someone not currently employed.
  return workforce.find(c=>c.job?.siteId===source.site?.id)||workforce.find(c=>!c.job)||null;
 }
@@ -690,21 +690,95 @@ function caravanWarehouses(p){
   sites.push({tile,site:tile.buildingMeta[i],capacity:Math.max(1,Math.min(3,tile.buildingMeta[i].level||1))});
  return sites;
 }
+function caravanDriver(p,cart){
+ const citizen=p?.citizens?.find(c=>c.id===cart?.driverId);
+ if(!citizen||citizen.job?.role!=='caravanDriver'||citizen.job?.caravanId!==cart.id
+   ||String(citizen.job.siteId)!==String(cart.homeSiteId))return null;
+ return citizen;
+}
+function caravanHasDriver(p,cart){
+ const driver=caravanDriver(p,cart);
+ return !!driver&&eligibleWorker(driver)&&!isBusyPorter(driver);
+}
 function syncCaravans(p){
- p.caravans??=[];p.handHaulingPolicy??='wait';const warehouses=caravanWarehouses(p),valid=new Set(warehouses.map(w=>w.site.id));
- for(const cart of [...p.caravans])if(!valid.has(cart.homeSiteId)&&!cart.shipmentId)p.caravans.splice(p.caravans.indexOf(cart),1);
+ p.caravans??=[];p.handHaulingPolicy??='wait';
+ const warehouses=caravanWarehouses(p),bySite=new Map(warehouses.map(w=>[String(w.site.id),w]));
+ const valid=new Set(warehouses.map(w=>String(w.site.id)));
+ // Retain active shipments if a warehouse is demolished; they can finish
+ // carrying their cargo, then the removed site's wagons are retired.
+ for(const cart of [...p.caravans])if(!valid.has(String(cart.homeSiteId))&&!cart.shipmentId){
+  const worker=p.citizens.find(c=>c.id===cart.driverId);
+  if(worker?.job?.caravanId===cart.id)worker.job=null;
+  p.caravans.splice(p.caravans.indexOf(cart),1);
+ }
  for(const base of warehouses){
-  const home=p.caravans.filter(c=>c.homeSiteId===base.site.id);
+  const home=p.caravans.filter(c=>String(c.homeSiteId)===String(base.site.id));
   while(home.length<base.capacity){
-   const cart={id:p.id+'-cart-'+base.site.id+'-'+home.length,owner:p.id,homeSiteId:base.site.id,currentTileId:base.tile.id,shipmentId:null};
+   const index=home.length;
+   const cart={id:p.id+'-cart-'+base.site.id+'-'+index,owner:p.id,homeSiteId:base.site.id,
+    currentTileId:base.tile.id,shipmentId:null,driverId:null};
    p.caravans.push(cart);home.push(cart);
   }
-  while(home.length>base.capacity){const cart=home.find(c=>!c.shipmentId);if(!cart)break;p.caravans.splice(p.caravans.indexOf(cart),1);home.splice(home.indexOf(cart),1);}
+  while(home.length>base.capacity){
+   const cart=home.find(c=>!c.shipmentId);if(!cart)break;
+   const worker=p.citizens.find(c=>c.id===cart.driverId);
+   if(worker?.job?.caravanId===cart.id)worker.job=null;
+   p.caravans.splice(p.caravans.indexOf(cart),1);home.splice(home.indexOf(cart),1);
+  }
  }
+ const seen=new Set();
+ // Validate saved driver identities and job eligibility. Drivers are never
+ // passengers, porters, builders or soldiers at the same time.
+ for(const cart of p.caravans){
+  const worker=p.citizens.find(c=>c.id===cart.driverId);
+  const match=worker?.job&&String(worker.job.siteId)===String(cart.homeSiteId)
+   &&(!worker.job.caravanId||worker.job.caravanId===cart.id)
+   &&eligibleWorker(worker)&&!isBusyPorter(worker)&&!seen.has(worker.id);
+  if(match){
+   worker.job.role='caravanDriver';worker.job.caravanId=cart.id;seen.add(worker.id);
+  }else{
+   if(worker?.job?.caravanId===cart.id)worker.job=null;
+   cart.driverId=null;
+  }
+ }
+ // Assign existing employees of a caravan warehouse to its wagons. If
+ // automatic hiring is ON, fill vacancies only from eligible unemployed adults.
+ for(const cart of p.caravans){
+  if(cart.driverId||!valid.has(String(cart.homeSiteId)))continue;
+  const base=bySite.get(String(cart.homeSiteId));
+  let driver=p.citizens.find(c=>!seen.has(c.id)&&eligibleWorker(c)&&!isBusyPorter(c)
+   &&String(c.job?.siteId)===String(cart.homeSiteId)&&!c.job?.caravanId);
+  if(!driver&&base.site.autoHire){
+   driver=p.citizens.filter(c=>eligibleWorker(c)&&!isBusyPorter(c)&&!c.job)
+    .sort((a,b)=>b.morale-a.morale||b.health-a.health||a.id.localeCompare(b.id))[0];
+  }
+  if(driver){
+   driver.job={siteId:base.site.id,tileId:base.tile.id,role:'caravanDriver',caravanId:cart.id};
+   cart.driverId=driver.id;seen.add(driver.id);
+  }
+ }
+ // Do not leave orphaned driver jobs locking citizens away from other work.
+ const ids=new Set(p.caravans.map(c=>c.id));
+ for(const worker of p.citizens)if(worker.job?.role==='caravanDriver'&&!ids.has(worker.job.caravanId))worker.job=null;
+}
+function setCaravanDriver(cartId,citizenId){
+ if(!active())return false;
+ const p=getCountry(),cart=p.caravans.find(c=>c.id===cartId);
+ if(!cart||cart.shipmentId)return false; // Do not strand cargo in transit.
+ const base=caravanWarehouses(p).find(w=>String(w.site.id)===String(cart.homeSiteId));
+ if(!base)return false;
+ const next=citizenId?p.citizens.find(c=>c.id===citizenId):null;
+ if(citizenId&&(!next||!eligibleWorker(next)||isBusyPorter(next)
+   ||(next.job&&next.job.caravanId!==cart.id)))return false;
+ const prior=caravanDriver(p,cart);
+ if(prior&&prior!==next)prior.job=null;
+ cart.driverId=next?.id||null;
+ if(next)next.job={siteId:base.site.id,tileId:base.tile.id,role:'caravanDriver',caravanId:cart.id};
+ save();render();return true;
 }
 function availableCaravan(owner,pickup){
  const p=G.players[owner];syncCaravans(p);
- return p.caravans.filter(c=>!c.shipmentId).map(c=>{
+ return p.caravans.filter(c=>!c.shipmentId&&caravanHasDriver(p,c)).map(c=>{
   const from=G.tiles.find(t=>t.id===c.currentTileId),path=ownedPath(owner,from,pickup);
   return {cart:c,path,cost:path?pathCost(owner,path):Infinity};
  }).filter(c=>c.path).sort((a,b)=>a.cost-b.cost)[0]||null;
@@ -721,7 +795,7 @@ function dispatchShipment(owner,from,to,item,qty,auto=false,preferredCart=null){
  if(qtyFit<1)return false;
  const delivery=ownedPath(owner,src.tile,dst.tile);if(!delivery)return false;
  const available=preferredCart
-  ?(!preferredCart.shipmentId?{cart:preferredCart,path:ownedPath(owner,G.tiles.find(t=>t.id===preferredCart.currentTileId),src.tile)}:null)
+  ?(!preferredCart.shipmentId&&caravanHasDriver(p,preferredCart)?{cart:preferredCart,path:ownedPath(owner,G.tiles.find(t=>t.id===preferredCart.currentTileId),src.tile)}:null)
   :availableCaravan(owner,src.tile);
  if(preferredCart&&!available?.path)return false;
  const porter=!available&&!preferredCart&&handHaulingAllowed(p)?availablePorter(owner,src):null;
@@ -874,6 +948,7 @@ function progressShipments(){
    progressPorterJob(job,p);continue;
   }
   const cart=p?.caravans?.find(c=>c.id===job.caravanId);
+  if(p&&cart){syncCaravans(p);if(!caravanHasDriver(p,cart)){job.waitingForDriver=true;continue;}job.waitingForDriver=false;}
   if(!p||!cart){if(p&&job.qty&&['delivery','unloading'].includes(job.stage))addDepot(p,job.item,job.qty);G.shipments.splice(G.shipments.indexOf(job),1);continue;}
   moveCaravanToStage(job,cart,p);
  }
@@ -889,7 +964,14 @@ function caravanWarehouseStatus(p,siteId){
  const rows=carts.map((cart,i)=>{
   const job=G.shipments.find(j=>j.id===cart.shipmentId);
   const where=names(cart.currentTileId);
-  if(!job)return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · Available</strong><small>Located at ${where} · Holding: nothing · Next destination: awaiting assignment</small></div>`;
+  const driver=caravanDriver(p,cart),driverLabel=driver?esc(driver.name):'NO DRIVER — wagon idle';
+   const choices=p.citizens.filter(c=>eligibleWorker(c)&&!isBusyPorter(c)&&(!c.job||c.id===cart.driverId));
+   const control=`<label class="gs-routing-label">Driver for wagon ${i+1}
+    <select data-caravan-driver="${esc(cart.id)}" ${cart.shipmentId?'disabled':''}>
+     <option value="" ${driver?'':'selected'}>Unassigned</option>
+     ${choices.map(c=>`<option value="${esc(c.id)}" ${c.id===cart.driverId?'selected':''}>${esc(c.name)} · ${c.id===cart.driverId?'On duty':'Unemployed'}</option>`).join('')}
+    </select></label>`;
+   if(!job)return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · ${driver?'Available':'Awaiting driver'}</strong><small>Driver: ${driverLabel}</small><small>Located at ${where} · Holding: nothing · Next destination: awaiting assignment</small>${control}</div>`;
   const from=names(job.fromTileId),to=names(job.toTileId);
   const back=siteLookup(p.id,job.returnSiteId||job.homeSiteId)?.tile?.name||'caravan warehouse';
   const heading=job.stage==='pickup'?from:job.stage==='return'?esc(back):to;
@@ -897,7 +979,7 @@ function caravanWarehouseStatus(p,siteId){
    (job.qty>0?`${job.qty} ${esc(GOOD_NAMES[job.item]||job.item)}`:'Empty — unloading'):
    (job.stage==='pickup'?`Empty (will collect ${job.qty} ${esc(GOOD_NAMES[job.item]||job.item)})`:'Empty — returning');
   const stage={pickup:'Traveling to pickup',delivery:'Delivering',unloading:'Waiting for unloading space',return:'Returning to warehouse'}[job.stage]||job.stage;
-  return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · ${stage}</strong><small>Current hex: ${where}</small><small>Heading to: ${heading}</small><small>Holding: ${cargo}</small><small>Route: ${from} → ${to} · ${Math.max(0,job.remaining||0)}T left in current leg</small></div>`;
+  return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · ${job.waitingForDriver?'PAUSED · no driver':stage}</strong><small>Driver: ${driverLabel}</small><small>Current hex: ${where}</small><small>Heading to: ${heading}</small><small>Holding: ${cargo}</small><small>Route: ${from} → ${to} · ${Math.max(0,job.remaining||0)}T left in current leg</small>${control}</div>`;
  }).join('');
  return `<div class="gs-caravan-tracker"><strong>Wagons based at this warehouse · ${carts.filter(c=>!c.shipmentId).length}/${carts.length} available</strong>
   ${rows||'<small>No wagons assigned here yet. New ones appear when construction completes.</small>'}
@@ -1755,7 +1837,7 @@ function warCartAtPost(owner,post,qty){
  if(!post||qty>6)return null;
  const p=G.players[owner];if(!p)return null;
  syncCaravans(p);
- return (p.caravans||[]).filter(c=>!c.shipmentId).map(cart=>{
+ return (p.caravans||[]).filter(c=>!c.shipmentId&&caravanHasDriver(p,c)).map(cart=>{
   const here=G.tiles.find(t=>t.id===cart.currentTileId);
   const path=here?ownedPath(owner,here,post):null;
   return {cart,path,cost:path?pathCost(owner,path):Infinity};
@@ -1771,6 +1853,7 @@ function warMoveRidingCart(owner,job){
  if(!job?.cartId||!job.ridePath?.length)return;
  const cart=G.players[owner]?.caravans.find(c=>c.id===job.cartId);
  if(!cart)return;
+ syncCaravans(G.players[owner]);if(!caravanHasDriver(G.players[owner],cart))return;
  const total=Math.max(1,job.totalTravel||1),remaining=Math.max(0,job.marchRemaining??job.remaining??0);
  const index=Math.min(job.ridePath.length-1,Math.max(0,Math.floor((1-remaining/total)*(job.ridePath.length-1))));
  cart.currentTileId=job.ridePath[index];
@@ -2942,7 +3025,7 @@ function progressProjects(){
  }
 }
 function volunteeringChance(c,p){
- if(c.military||c.builder||isBusyPorter(c)||isBusyExpedition(c)||c.age<18||c.health<35)return 0;
+ if(c.military||c.builder||c.job?.role==='caravanDriver'||isBusyPorter(c)||isBusyExpedition(c)||c.age<18||c.health<35)return 0;
  const age=c.age<30?1:c.age<45?.8:c.age<60?.42:c.age<70?.1:.008;
  const health=Math.max(0,(c.health-35)/65),morale=Math.max(0,(c.morale-30)/70);
  return Math.min(.65,(.012+.11*health+.12*morale)*age+(p.marketingUntil>=G.round?.22*age:0));
