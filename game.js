@@ -2538,6 +2538,32 @@ function wagonViewArtwork(countryColor){
  </g>`;
  return side+front+rear;
 }
+// A tiny worker visibly pushes two timber logs rather than a covered wagon.
+// These are world-anchored miniature units and participate in ground depth.
+function porterVisuals(depthEntries=false){
+ const entries=(G.shipments||[]).filter(j=>j.kind==='porter').map(job=>{
+  const owner=G.players[job.owner],ids=job.path||[],a=G.tiles.find(t=>t.id===ids[Math.min(job.step,ids.length-1)]);
+  if(!owner||!a)return null;
+  const b=G.tiles.find(t=>t.id===ids[Math.min(job.step+1,ids.length-1)])||a;
+  const duration=a.id===b.id?1:porterTicks(a,b);
+  const fraction=a.id===b.id?0:Math.max(0,Math.min(1,(job.stepSpent||0)/duration));
+  const from=coords(a),to=coords(b),point=project(from.x+(to.x-from.x)*fraction,from.y+(to.y-from.y)*fraction);
+  const loaded=job.stage==='delivery'||job.stage==='unloading';
+  const badge=loaded?`<g class="gs-porter-logs"><rect x="0" y="-5" width="18" height="5" rx="2" fill="#ae7950" stroke="#493e31" stroke-width="1"/><rect x="0" y="-11" width="18" height="5" rx="2" fill="#bc8656" stroke="#493e31" stroke-width="1"/><ellipse cx="18" cy="-8.5" rx="2" ry="2.5" fill="#dfb687" stroke="#563f2e" stroke-width=".7"/><ellipse cx="18" cy="-2.5" rx="2" ry="2.5" fill="#dfb687" stroke="#563f2e" stroke-width=".7"/></g>`:'';
+  const silhouette=`<g class="gs-porter-unit" transform="translate(${point.x.toFixed(2)} ${point.y.toFixed(2)})" pointer-events="none">
+   <ellipse cx="2" cy="4" rx="16" ry="3" fill="#263c35" opacity=".3"/>
+   <g class="gs-porter-step"><circle cx="-7" cy="-15" r="4" fill="#eed1ac" stroke="#344850" stroke-width="1"/>
+    <path d="M-9 -10L-10 -3L-12 3M-9 -3L-5 3" fill="none" stroke="#344850" stroke-width="2.4" stroke-linecap="round"/>
+    <path d="M-9 -10L-1 -7L1 -3" fill="none" stroke="#eed1ac" stroke-width="2" stroke-linecap="round"/>
+    <path d="M-11 -9L-7 -11L-4 -7L-6 -2L-12 -3Z" fill="${owner.color}" stroke="#344850" stroke-width="1"/>
+    ${badge}
+   </g>
+  </g>`;
+  const html=billboardSvg(point.x,point.y,silhouette);
+  return depthEntries?{x:point.x,y:point.y+4,html}:html;
+ });
+ return depthEntries?entries.filter(Boolean):entries.filter(Boolean).join('');
+}
 function caravanVisuals(depthEntries=false){
  const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches||false;
  const graphics=G.players.flatMap(p=>(p.caravans||[]).map(cart=>{
@@ -2633,6 +2659,7 @@ function renderMap(){
   }).join('');
  const tradeLines=roadVisuals()+domesticRoadVisuals();
  const ownerOutlines=ownedTerritoryOutlines();
+ depthItems.push(...porterVisuals(true));
  depthItems.push(...caravanVisuals(true));
  const objects=depthItems.map((obj,index)=>`<g data-depth-x="${obj.x.toFixed(2)}" data-depth-y="${obj.y.toFixed(2)}" data-depth-order="${index}" pointer-events="none">${obj.html}</g>`).join('');
  const movementOverlays=falconVisuals()+diplomaticFalconVisuals()+expeditionTrailVisuals()+visibleWarOrderMarkers();
