@@ -910,7 +910,7 @@ function citizenDeathProbability(c){
 function advanceCitizenHealthAndMortality(p){
  let losses=0;
  for(const citizen of [...p.citizens]){
-  const hauling=isBusyPorter(citizen)||isBusyExpedition(citizen);
+  const hauling=isBusyPorter(citizen)||isBusyExpedition(citizen)||!!citizen.military?.missionId?.startsWith('siege-');
   const morale=Math.max(0,Math.min(100,Number(citizen.morale??60)));
   let health=Math.max(0,Math.min(100,Number(citizen.health??70)));
   if(morale<15)health-=2;
@@ -1505,7 +1505,7 @@ function reinforceSiege(id,postId,qty,owner=0){
  s.reinforcements.push({owner,side,postId,ids:troops.map(c=>c.id),remaining:travel,createdClock:G.turnClock||0});
  for(const c of troops)c.military.missionId='siege-r-'+s.id;
  p.logisticsUsed=true;
- addLog(`${p.name} sent ${number} reinforcement${number===1?'':'s'} to the siege of ${destination.name}. Travel: ${travel} world ticks.`);
+ addLog(`${p.name} sent ${number} reinforcement${number===1?'':'s'} toward the siege of ${G.tiles.find(t=>t.id===s.targetTileId)?.name||destination.name}. Travel: ${travel} world ticks.`);
  if(owner===0){save();render();showToast(`${number} reinforcements dispatched`);}
  return true;
 }
@@ -1594,6 +1594,10 @@ function applySiegeInjuries(s,side,amount,roundSeed){
   citizen.health=Math.max(0,citizen.health-damage);citizen.morale=Math.max(0,(citizen.morale||50)-Math.ceil(damage/3));
   if(!citizen.health){
    p.citizens.splice(p.citizens.indexOf(citizen),1);dead++;
+   p.deathCount=(p.deathCount||0)+1;p.recentDeaths??=[];
+   p.recentDeaths.unshift({name:citizen.name,age:citizen.age,round:G.round,cause:'battle',tileId:s.targetTileId});
+   p.recentDeaths.length=Math.min(8,p.recentDeaths.length);
+   reallocateHousing(p);
    addLog(`${citizen.name} of ${p.name} was killed in the fighting at ${G.tiles.find(t=>t.id===s.targetTileId)?.name||'the frontier'}.`);
   }else{citizen.military.experience=(citizen.military.experience||0)+1;wounded++;}
  }
@@ -1688,6 +1692,8 @@ function resolveSieges(){
   if(s.supply<=20){s.morale=Math.max(0,s.morale-(s.supply===0?14:6));for(const c of siegeTeam(s,'defender'))c.morale=Math.max(0,c.morale-(s.supply===0?5:2));}
   else if(aOrder==='assault')s.morale=Math.max(0,s.morale-5);
   if(s.supply===0)for(const c of siegeTeam(s,'defender'))if(c.health>0)c.health=Math.max(1,c.health-2);
+  if(aOrder==='assault'||dOrder==='counterattack')for(const side of ['attacker','defender'])
+   for(const c of siegeTeam(s,side))c.military.experience=(c.military.experience||0)+1;
   // Civilians living inside the surrounded hex face food shortages; individual
   // morale/health feed into the existing age-aware mortality system.
   for(const resident of defender.citizens){
