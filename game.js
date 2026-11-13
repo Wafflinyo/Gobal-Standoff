@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.30 — bean-unit combat, 100% siege destruction and tactical aftermath. */
+/* Global Standoff 0.4.31 — reliable hex tapping and no post-animation panel reopen. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -2683,15 +2683,14 @@ function showSheet(mode='territory'){
 }
 function closeSheet(){sheetMode=null;showBuild=false;showResearch=false;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');if(G)render();setTimeout(presentFalconInbox,140);}
 function suspendSheetForScene(){
- const sheet=el('sheetBody');
- const resume={mode:sheetMode,showBuild,scroll:sheet?.scrollTop||0,tileId:G?.selectedId};
+ // The player must deliberately reopen overlays after a cinematic action.
  sheetMode=null;showBuild=false;showResearch=false;
  el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');
- return resume;
 }
 function startMapScenePlayback(tile,kind,buildingIndex=-1,buildingType=null){
  if(scenePlayback)return null;
- const playback={world:G,serial:++scenePlaybackSerial,tileId:tile.id,kind,buildingIndex,buildingType,phase:'prepare',resume:suspendSheetForScene()};
+ const playback={world:G,serial:++scenePlaybackSerial,tileId:tile.id,kind,buildingIndex,buildingType,phase:'prepare'};
+ suspendSheetForScene();
  playback.done=new Promise(resolve=>playback.resolve=resolve);
  scenePlayback=playback;
  // The action is already validated and paid for. Rendering now keeps the new structure
@@ -2716,12 +2715,7 @@ async function playMapScenePlayback(playback){
   if(playback.fromQueue)G.completedScenes=G.completedScenes.filter(j=>j.projectId!==playback.fromQueue);
   render();
   playback.resolve?.();
-  if(playback.resume.mode&&G===playback.world&&G.turnIndex===0&&!cpuBusy){
-   G.selectedId=playback.resume.tileId;
-   showBuild=playback.resume.showBuild;
-   showSheet(playback.resume.mode);
-   if(el('sheetBody'))el('sheetBody').scrollTop=playback.resume.scroll;
-  }
+  // Leave all sheets closed; taps and quick menus reopen on demand.
   if(playback.kind==='build')showToast(`${BUILDINGS[playback.buildingType]?.name||'Building'} completed`);
   if(playback.kind==='work')showToast(`${BUILDINGS[playback.buildingType]?.name||'Building'} construction underway`);
   else if(playback.kind==='siege')showToast(tile.name+' was destroyed and is now unclaimed');
@@ -2827,7 +2821,7 @@ function openCardPreview(index){
 }
 function closeCardPreview(){previewCardIndex=-1;el('cardPreview').classList.add('hidden');el('cardPreview').setAttribute('aria-hidden','true');}
 
-function enterGame(){scenePlayback=null;scenePlaybackSerial++;document.body.classList.add('gs-playing');lastViewportLayoutKey='';closeCardPreview();sheetMode=null;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');cpuPlaybackToken++;skipCpuPlayback=false;hideCpuHud();el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();focusHome(true);render();scheduleMapViewportReflow();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));setTimeout(presentFalconInbox,300);}
+function enterGame(){scenePlayback=null;scenePlaybackSerial++;suppressClick=false;drag=null;document.body.classList.add('gs-playing');lastViewportLayoutKey='';closeCardPreview();sheetMode=null;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');cpuPlaybackToken++;skipCpuPlayback=false;hideCpuHud();el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();focusHome(true);render();scheduleMapViewportReflow();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));setTimeout(presentFalconInbox,300);}
 function newMatch(){cardEffectBusy=false;el('cardEffectLayer')?.classList.add('hidden');scenePlayback=null;scenePlaybackSerial++;document.body.classList.remove('gs-playing');closeCardPreview();closeSheet();cpuPlaybackToken++;cancelAnimationFrame(cameraMoveFrame);hideCpuHud();if(cameraResolve){cameraResolve();cameraResolve=null;}G=null;cpuBusy=false;el('lobby').classList.remove('hidden');el('game').classList.add('hidden');el('topMenuBtn').classList.add('hidden');el('roundBadge').textContent='SOLO TEST';closeModal();renderLobby();}
 function renderLobby(){
  el('colorOptions').innerHTML=COLORS.map((c,i)=>`<button class="color-swatch" style="--swatch:${c}" aria-label="Choose ${['jade','amber','violet','coral'][i]}" aria-pressed="${i===selectedColor}" data-color="${i}"></button>`).join('');
@@ -4334,10 +4328,33 @@ function bindEvents(){
  el('mineralBody').addEventListener('click',e=>{const smelt=e.target.closest('[data-smelt-steel]');if(smelt){smeltSteel();return;}const b=e.target.closest('[data-mineral]');if(b)mineralTrade(b.dataset.mineral,b.dataset.direction);});
  el('zoomIn').addEventListener('click',()=>zoom(.78));el('zoomOut').addEventListener('click',()=>zoom(1.28));el('zoomReset').addEventListener('click',resetView);el('focusHomeBtn').addEventListener('click',()=>{if(!cpuBusy)focusHome(false);});el('skipCpuBtn').addEventListener('click',()=>{skipCpuPlayback=true;el('cpuAction').textContent='Finishing remaining turns…';});
  const svg=el('worldMap');
- const pointers=new Map();let pinchLast=null;
+ const pointers=new Map();let pinchLast=null,ignoreSyntheticClickUntil=0;
+ // Hit test the current map. During camera transitions Safari may retarget a
+ // pointer release to the SVG instead of the hex it originally touched.
+ function hexIdAtPoint(clientX,clientY){
+  if(!Number.isFinite(clientX)||!Number.isFinite(clientY))return null;
+  for(const node of document.elementsFromPoint?.(clientX,clientY)||[]){
+   if(!svg.contains(node))continue;
+   const match=node.closest?.('[data-hex]');
+   if(match&&svg.contains(match))return match.dataset.hex;
+  }
+  // Geometry fallback for mobile browsers following a map/SVG replacement.
+  const point=svg.createSVGPoint();point.x=clientX;point.y=clientY;
+  for(const poly of svg.querySelectorAll('.hex-hit')){
+   const matrix=poly.getScreenCTM();if(!matrix)continue;
+   let p;try{p=point.matrixTransform(matrix.inverse());}catch{continue;}
+   const verts=poly.points;let inside=false;
+   for(let i=0,j=verts.numberOfItems-1;i<verts.numberOfItems;j=i++){
+    const a=verts.getItem(i),b=verts.getItem(j);
+    if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)inside=!inside;
+   }
+   if(inside)return poly.closest('[data-hex]')?.dataset.hex||null;
+  }
+  return null;
+ }
  svg.addEventListener('pointerdown',e=>{
-  if(!G)return;pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
-  if(pointers.size===1){drag={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false};pinchLast=null;}
+  if(!G)return;pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});try{svg.setPointerCapture(e.pointerId);}catch{}
+  if(pointers.size===1){suppressClick=false;drag={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,moved:false,hexId:hexIdAtPoint(e.clientX,e.clientY)};pinchLast=null;}
   if(pointers.size===2){drag=null;const pts=[...pointers.values()];pinchLast=Math.hypot(pts[0].x-pts[1].x,pts[0].y-pts[1].y);suppressClick=true;}
  });
  svg.addEventListener('pointermove',e=>{
@@ -4353,26 +4370,32 @@ function bindEvents(){
   if(drag.moved){const rect=svg.getBoundingClientRect();view.x-=dx/rect.width*view.w;view.y-=dy/rect.height*view.h;svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);}
   drag.x=e.clientX;drag.y=e.clientY;
  });
- const clearPointer=e=>{
-  const tapped=!!drag&&!drag.moved&&pointers.size===1;
-  if(drag?.moved||pointers.size>1){suppressClick=true;setTimeout(()=>suppressClick=false,120);}
-  if(tapped)handleMapTap(e);
+ const clearPointer=(e,cancelled=false)=>{
+  if(!pointers.has(e.pointerId))return;
+  const tapped=!cancelled&&!!drag&&drag.id===e.pointerId&&!drag.moved&&pointers.size===1;
+  const initialHex=tapped?drag.hexId:null;
+  if(cancelled||drag?.moved||pointers.size>1){suppressClick=true;ignoreSyntheticClickUntil=performance.now()+350;}
   pointers.delete(e.pointerId);drag=null;if(pointers.size<2)pinchLast=null;
+  if(tapped){ignoreSyntheticClickUntil=performance.now()+350;suppressClick=false;handleMapTap(e,initialHex);}
  };
- svg.addEventListener('pointerup',clearPointer);svg.addEventListener('pointercancel',clearPointer);
- let lastMapTap=0;
- function handleMapTap(e){
-  if(!G||cpuBusy||scenePlayback||cardEffectBusy||suppressClick)return;
-  if(performance.now()-lastMapTap<190)return;
-  // A tile can be replaced during camera animation between pointerdown and click.
-  const element=(document.elementFromPoint?.(e.clientX,e.clientY)||e.target);
-  const hit=element?.closest?.('[data-hex]')||e.target?.closest?.('[data-hex]');
-  if(!hit)return;
-  lastMapTap=performance.now();G.selectedId=hit.dataset.hex;showBuild=false;
-  render();save();showSheet('territory');
+ svg.addEventListener('pointerup',e=>clearPointer(e));
+ svg.addEventListener('pointercancel',e=>clearPointer(e,true));
+ function handleMapTap(e,initialHex=null){
+  if(!G||cpuBusy||scenePlayback||cardEffectBusy)return;
+  const id=initialHex||hexIdAtPoint(e.clientX,e.clientY)||e.target?.closest?.('[data-hex]')?.dataset.hex;
+  if(!id||!G.tiles.some(t=>t.id===id))return;
+  G.selectedId=id;showBuild=false;render();save();showSheet('territory');
  }
- svg.addEventListener('click',e=>handleMapTap(e));
- svg.addEventListener('keydown',e=>{if(scenePlayback)return;if(['Enter',' '].includes(e.key)&&e.target.matches('[data-hex]')){e.preventDefault();G.selectedId=e.target.dataset.hex;showBuild=false;render();save();showSheet('territory');}});
+ svg.addEventListener('click',e=>{
+  if(suppressClick||performance.now()<ignoreSyntheticClickUntil)return;
+  handleMapTap(e);
+ });
+ svg.addEventListener('keydown',e=>{
+  if(scenePlayback||cpuBusy||cardEffectBusy)return;
+  if(['Enter',' '].includes(e.key)&&e.target.matches('[data-hex]')){
+   e.preventDefault();handleMapTap(e,e.target.dataset.hex);
+  }
+ });
  svg.addEventListener('wheel',e=>{e.preventDefault();zoom(e.deltaY>0?1.12:.89);},{passive:false});
  // Rotation and Safari browser chrome can fire multiple competing resize
  // events. Coalesce them into one viewport-only update without rebuilding SVG
