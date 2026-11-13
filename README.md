@@ -1,4 +1,15 @@
-# Global Standoff — Prototype 0.4.27
+# Global Standoff — Prototype 0.4.28
+
+## Version 0.4.28 — treaties and alliances by diplomatic Falcon
+
+- **Non-Aggression Treaty**: Any nation may send a 1-SP Falcon proposal asking another nation to promise mutual peace for **8 rounds**. Once signed, neither can send a declaration of war or territorial warning against the other, and a war phase cannot begin between them. Pacts expire automatically after the eighth round or may be formally terminated by Falcon.
+- **Defensive Alliance**: Any nation at peace with the target may propose a defensive alliance via Falcon. If accepted, it remains active until dissolved. Each ally is protected from direct attacks by the other. When a third nation initiates war against one partner, the other joins the war phase against that aggressor automatically, unless it has an independent treaty preventing war with the attacker. An ally does **not** join existing wars retroactively or wars started by its own partner.
+- World Affairs now lists the full set of Falcon functions and has buttons for **Propose Non-Aggression Treaty**, **Propose Defensive Alliance**, and **End agreement by Falcon**, with current diplomatic relationship labels and treaty duration/active status. Nations can upgrade a non-aggression pact into an alliance; signing the alliance marks the previous pact as upgraded.
+- Incoming proposals appear as **Falcon letters on the player's turn** and inside World Affairs, where recipients may **accept or decline**. CPU nations also send and decide proposals under the same travel times, SP courier charges, turn-action limits, and relationship constraints. Sending costs one major action and 1 SP; responding to a delivered proposal does not consume a major action.
+- Agreements remain active during a termination Falcon's flight, then formally end on its arrival. Signing a new pact also rescinds active territorial threats between those nations, including the red threatened-hex border; warnings and declarations cannot be sent while it is in force.
+- Duplicate proposals and repeated in-flight termination messages are blocked. Existing saves migrate to an empty treaties list without resetting citizens, resources, past roads, war phases, or map progress. Treaty history and dispatches are saved with the match.
+- **Scope:** this release implements the agreements and AI war-phase logic in the existing offline/CPU prototype; online asynchronous multiplayer and battle/siege resolution remain future systems.
+
 
 ## Version 0.4.27 — true iPhone landscape support and stable portrait transitions
 
