@@ -1561,6 +1561,32 @@ function siegeStagingRoute(owner,post,target){
  return friendly.map(t=>({tile:t,route:militaryTravelPath(owner,post,t)}))
   .filter(e=>e.route).sort((a,b)=>a.route.points-b.route.points)[0]||null;
 }
+
+function warCartAtPost(owner,post,qty){
+ if(!post||qty>6)return null;
+ const p=G.players[owner];if(!p)return null;
+ syncCaravans(p);
+ return (p.caravans||[]).filter(c=>!c.shipmentId).map(cart=>{
+  const here=G.tiles.find(t=>t.id===cart.currentTileId);
+  const path=here?ownedPath(owner,here,post):null;
+  return {cart,path,cost:path?pathCost(owner,path):Infinity};
+ }).filter(v=>v.path).sort((a,b)=>a.cost-b.cost)[0]||null;
+}
+function warSeatTroops(owner,post,qty,mission,path){
+ const ready=warCartAtPost(owner,post,qty);if(!ready)return null;
+ const cart=ready.cart;
+ cart.shipmentId='troops:'+mission;cart.troopMissionId=mission;
+ return {cartId:cart.id,ridePath:[...ready.path,...(path||[]).slice(1)],rideCost:ready.cost};
+}
+function warMoveRidingCart(owner,job){
+ if(!job?.cartId||!job.ridePath?.length)return;
+ const cart=G.players[owner]?.caravans.find(c=>c.id===job.cartId);
+ if(!cart)return;
+ const total=Math.max(1,job.totalTravel||1),remaining=Math.max(0,job.marchRemaining??job.remaining??0);
+ const index=Math.min(job.ridePath.length-1,Math.max(0,Math.floor((1-remaining/total)*(job.ridePath.length-1))));
+ cart.currentTileId=job.ridePath[index];
+ if(!remaining)warReleaseTransport(cart);
+}
 function canStartSiege(tileId,postId,owner){
  const p=G.players[owner],target=G.tiles.find(t=>t.id===tileId),
   post=G.tiles.find(t=>t.id===postId);
@@ -1570,19 +1596,22 @@ function canStartSiege(tileId,postId,owner){
  if((G.sieges||[]).some(s=>s.attacker===owner&&['marching','active'].includes(s.status)))return false;
  return !!siegeStagingRoute(owner,post,target);
 }
-function startSiege(tileId,postId,qty,owner=0){
+function startSiege(tileId,postId,qty,owner=0,transport='foot'){
  const p=G.players[owner],target=G.tiles.find(t=>t.id===tileId);
  if(!G||!p||G.turnIndex!==owner||G.finished||owner===0&&!active()||!canStartSiege(tileId,postId,owner))return false;
  const men=postGarrison(p,postId).filter(c=>!c.military.missionId&&c.health>0).slice(0,Number(qty));
  if(!Number.isInteger(Number(qty))||qty<1||qty>12||men.length!==Number(qty))return false;
  const staging=siegeStagingRoute(owner,G.tiles.find(t=>t.id===postId),target);
  if(!staging)return false;
- const march=Math.max(1,Math.ceil(staging.route.points/2));
+ const cartChoice=transport==='caravan'?warCartAtPost(owner,G.tiles.find(t=>t.id===postId),men.length):null;
+ if(transport==='caravan'&&!cartChoice)return false;
+ const march=Math.max(1,Math.ceil((staging.route.points+(cartChoice?.cost||0))/(cartChoice?4:2)));
  const siege={id:G.nextSiegeId++,targetTileId:target.id,stagingTileId:staging.tile.id,originPostId:postId,
   attacker:owner,defender:target.owner,attackerIds:men.map(c=>c.id),defenderIds:[],
   status:'marching',marchRemaining:march,createdClock:G.turnClock||0,startedRound:G.round,
   roundNumber:0,supply:0,fort:0,morale:0,destruction:0,preparation:0,history:[],reinforcements:[],
   attackerStanding:'blockade',defenderStanding:'hold',attackerOrder:null,defenderOrder:null};
+ if(cartChoice){const ride=warSeatTroops(owner,G.tiles.find(t=>t.id===postId),men.length,'siege-'+siege.id,staging.route.path);if(!ride)return false;Object.assign(siege,ride,{totalTravel:march,transport:'caravan'});}
  G.sieges.push(siege);
  for(const c of men)c.military.missionId='siege-a-'+siege.id;
  p.logisticsUsed=true;
@@ -1600,7 +1629,7 @@ function canReinforceSiege(s,postId,owner){
  const dest=side==='attacker'?G.tiles.find(t=>t.id===s.stagingTileId):target;
  return !!dest&&dest.owner===owner&&!!militaryTravelPath(owner,post,dest);
 }
-function reinforceSiege(id,postId,qty,owner=0){
+function reinforceSiege(id,postId,qty,owner=0,transport='foot'){
  const s=(G.sieges||[]).find(s=>s.id===Number(id)),p=G.players[owner];
  if(!G||!s||!p||G.turnIndex!==owner||G.finished||owner===0&&!active()||!canReinforceSiege(s,postId,owner))return false;
  const side=owner===s.attacker?'attacker':'defender',destination=G.tiles.find(t=>t.id===(side==='attacker'?s.stagingTileId:s.targetTileId));
@@ -1609,9 +1638,13 @@ function reinforceSiege(id,postId,qty,owner=0){
  const available=postGarrison(p,postId).filter(c=>c.health>0&&!c.military.missionId);
  const number=Number(qty);
  if(!Number.isInteger(number)||number<1||number>capacity||number>available.length||!route)return false;
- const troops=available.slice(0,number),travel=Math.max(1,Math.ceil(route.points/2));
+ const cartChoice=transport==='caravan'?warCartAtPost(owner,post,number):null;
+ if(transport==='caravan'&&!cartChoice)return false;
+ const troops=available.slice(0,number),travel=Math.max(1,Math.ceil((route.points+(cartChoice?.cost||0))/(cartChoice?4:2)));
  s.reinforcements??=[];
- s.reinforcements.push({owner,side,postId,ids:troops.map(c=>c.id),remaining:travel,createdClock:G.turnClock||0});
+ const reinforcement={owner,side,postId,ids:troops.map(c=>c.id),remaining:travel,createdClock:G.turnClock||0};
+ if(cartChoice){const ride=warSeatTroops(owner,post,number,'reinforcement-'+s.id+'-'+G.turnClock,route.path);if(!ride)return false;Object.assign(reinforcement,ride,{totalTravel:travel,transport:'caravan'});}
+ s.reinforcements.push(reinforcement);
  for(const c of troops)c.military.missionId='siege-r-'+s.id;
  p.logisticsUsed=true;
  addLog(`${p.name} sent ${number} reinforcement${number===1?'':'s'} toward the siege of ${G.tiles.find(t=>t.id===s.targetTileId)?.name||destination.name}. Travel: ${travel} world ticks.`);
