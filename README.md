@@ -1,4 +1,14 @@
-# Global Standoff — Prototype 0.4.25
+# Global Standoff — Prototype 0.4.26
+
+## Version 0.4.26 — trade-route negotiation by falcon and glowing red territorial threats
+
+- Received trade-route proposals can now be **accepted, declined, or negotiated**. The incoming falcon popup provides a selectable new construction-cost share and a **Send counteroffer by Falcon** action. Negotiating via World Affairs additionally allows changing **both route endpoints** before dispatching the counteroffer.
+- Counteroffers cost 1 SP in courier fees, do not spend a major action, and fly back to the proposing country with normal falcon travel delays. The original proposal becomes superseded, so it cannot be accepted while the counteroffer is in flight. The counteroffer shows the exact revised construction costs and segment responsibilities before it is sent.
+- The recipient, including a CPU country, can accept or reject the revised offer, and CPU nations may counteroffer when the proposed split is unfavorable. Up to three counter revisions are supported to avoid infinite exchanges. Both countries still require available construction funding and one builder to approve a route; construction starts only after acceptance.
+- Whenever a **territorial threat falcon arrives for the player**, the still-unclaimed threatened hex gains a bright, pulsing **red glowing border**. A corresponding warning appears in that territory's details and World Affairs. This border remains until the hex is claimed or the threat is formally rescinded; claiming the warned hex by its recipient preserves the previously implemented war-declaration consequence.
+- World Affairs lets a country withdraw each of its own active threats by sending a **Rescind warning by Falcon** message (1 SP and a normal diplomatic action). The glow persists until the rescission actually arrives; the recipient receives a separate rescission notice. CPU countries can voluntarily withdraw older threats. Warnings about land already claimed during flight are immediately resolved, and duplicate active warnings on the same tile are blocked.
+- Existing saved worlds, accepted roads, expedition crews, the 2.5D board, and messenger falcon animations are preserved.
+
 
 ## Version 0.4.25 — user-selected civilian expeditions (1–2 named citizens)
 
