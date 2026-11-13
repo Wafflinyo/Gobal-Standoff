@@ -1548,9 +1548,17 @@ function eligibleExpansion(p,t){return !!t&&t.owner===null&&t.terrain!=='water'&
 function expansionCost(p){return Math.max(0,5+2*(p.expansionsThisTurn||0)-p.discountExpand-(p.tech.includes('cartography')?2:0));}
 function buildingCost(p,b){return Math.max(0,b.gold-p.discountBuild);}
 function canBuild(p,t,b){return allowed(p,t)&&idleBuilders(p).length>0&&buildFree(t)>=b.space&&b.allow.includes(t.terrain)&&hasMoney(p,buildingCost(p,b))&&p.wood>=b.wood&&mineralCount(p,'iron')>=b.iron;}
+function operatingCost(p,meta,type){
+ const assigned=worksiteWorkers(p,meta).length;
+ const extra=(G.shipments||[]).filter(j=>j.kind==='porter'&&j.owner===p.id&&String(j.from)===String(meta.id)
+  &&!p.citizens.find(c=>c.id===j.porterId)?.job).length;
+ const fixed=BUILDINGS[type].upkeep+Math.max(0,(meta.level||1)-1)*Math.ceil(BUILDINGS[type].upkeep*.8);
+ // Paid employees are included in the building's running budget.
+ return {total:Math.max(fixed,assigned+extra),staff:assigned+extra,fixed};
+}
 function getEconomy(id){
  const p=G.players[id],summary=peopleSummary(p);
- let vals={gold:0,food:0,wood:0,knowledge:0,upkeep:0,wages:0,buildingUpkeep:0,
+ let vals={gold:0,food:0,wood:0,knowledge:0,upkeep:0,wages:0,buildingUpkeep:0,builderExtraUpkeep:0,
   occupiedHomes:summary.households,householdIncome:summary.households*HOUSEHOLD_RENT,
   capitalIncome:0,marketIncome:0,capitalUpkeep:0,farmUpkeep:0,factoryUpkeep:0,
   otherBuildingUpkeep:0,workerWages:0,builderWages:0,militaryUpkeep:0};
@@ -1561,13 +1569,13 @@ function getEconomy(id){
   for(let i=0;i<(t.buildings||[]).length;i++){
    const type=t.buildings[i],b=BUILDINGS[type],meta=worksite(t,i);if(!b||!meta)continue;
    const q=workQuality(p,meta,type);
-   // Fixed upkeep applies to completed buildings even if idle. Employees add wages.
-   const fixed=b.upkeep+Math.max(0,q.level-1)*Math.ceil(b.upkeep*.8);
-   vals.upkeep+=fixed;vals.buildingUpkeep+=fixed;
-   if(type==='farm')vals.farmUpkeep+=fixed;
-   else if(factories.has(type))vals.factoryUpkeep+=fixed;
-   else vals.otherBuildingUpkeep+=fixed;
-   vals.upkeep+=q.count;vals.wages+=q.count;vals.workerWages+=q.count;
+   // Upkeep INCLUDES wages. Don't stack full fixed maintenance and wages.
+   const operating=operatingCost(p,meta,type);
+   vals.upkeep+=operating.total;vals.buildingUpkeep+=operating.total;
+   if(type==='farm')vals.farmUpkeep+=operating.total;
+   else if(factories.has(type))vals.factoryUpkeep+=operating.total;
+   else vals.otherBuildingUpkeep+=operating.total;
+   vals.wages+=operating.staff;vals.workerWages+=operating.staff;
    if(q.count===0)continue;
    const boost=1+(q.level-1)*.6;
    for(const k in b.production){
@@ -1582,7 +1590,10 @@ function getEconomy(id){
  vals.gold+=vals.householdIncome;
  vals.militaryUpkeep=Math.ceil(summary.soldiers/3);vals.upkeep+=vals.militaryUpkeep;
  vals.builderWages=(p.citizens||[]).filter(c=>!!c.builder).length;
- vals.upkeep+=vals.builderWages;vals.wages+=vals.builderWages;
+ const bunkBudget=G.tiles.filter(t=>t.owner===id).reduce((sum,t)=>
+  sum+(t.buildings||[]).reduce((sub,kind,i)=>kind==='builderBunk'?sub+operatingCost(p,worksite(t,i),kind).total:sub,0),0);
+ vals.builderExtraUpkeep=Math.max(0,vals.builderWages-bunkBudget);
+ vals.upkeep+=vals.builderExtraUpkeep;vals.wages+=vals.builderWages;
  vals.foodUse=Math.ceil(summary.count/6);
  vals.netFood=vals.food-vals.foodUse;
  vals.netGold=vals.gold-vals.upkeep;
@@ -1950,14 +1961,13 @@ function render(){if(!G)return;
    <span>Capital revenue</span><b class="positive">+${e.capitalIncome} SP</b>
    <span>Marketplaces</span><b class="positive">+${e.marketIncome} SP</b>
    <strong class="gs-econ-ledger-title">Expenses per round</strong>
-   <span>Farm upkeep (even if idle)</span><b class="negative">−${e.farmUpkeep} SP</b>
-   <span>Factory & workshop upkeep (even if idle)</span><b class="negative">−${e.factoryUpkeep} SP</b>
-   <span>Other buildings</span><b class="negative">−${e.otherBuildingUpkeep} SP</b>
+   <span>Farm operations (including wages)</span><b class="negative">−${e.farmUpkeep} SP</b>
+   <span>Factory & workshop operations</span><b class="negative">−${e.factoryUpkeep} SP</b>
+   <span>Other building operations</span><b class="negative">−${e.otherBuildingUpkeep} SP</b>
    <span>Capital upkeep</span><b class="negative">−${e.capitalUpkeep} SP</b>
-   <span>Worker wages</span><b class="negative">−${e.workerWages} SP</b>
-   <span>Builder wages</span><b class="negative">−${e.builderWages} SP</b>
+   ${e.builderExtraUpkeep?'<span>Additional builder expenses</span><b class="negative">−'+e.builderExtraUpkeep+' SP</b>':''}
    <span>Military upkeep</span><b class="negative">−${e.militaryUpkeep} SP</b>
-  </div><p class="gs-econ-explainer">Each occupied household (up to ${HOUSEHOLD_SIZE} residents) pays ${HOUSEHOLD_RENT} Silver Pents per round. Empty homes pay nothing. Wages are in addition to upkeep; level upgrades increase fixed upkeep.</p><div class="gs-econ-extra">Employed ${workforceSummary(p).employed} · Available ${workforceSummary(p).available} · Food ${e.netFood>=0?'+':''}${e.netFood}/round</div>${p.gold<=-CREDIT_LIMIT_SP?'<div class="economy-alert"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-warning"></use></svg> Credit limit reached (−10 SP). New construction, research and purchases locked. Sell assets, trade or collect income to recover.</div>':p.gold<0?'<div class="gs-credit-warning">Borrowing Silver Pents: spending cannot exceed the −10 SP credit limit.</div>':''}`;
+  </div><p class="gs-econ-explainer">Each occupied household (up to ${HOUSEHOLD_SIZE} residents) pays ${HOUSEHOLD_RENT} Silver Pents per round. Empty homes pay nothing. Wages are part of each building's listed operating cost. You pay whichever is higher: base maintenance or the staff required, not both combined. Builder Bunks cover their builders. Upgrades may increase costs.</p><div class="gs-econ-extra">Employed ${workforceSummary(p).employed} · Available ${workforceSummary(p).available} · Food ${e.netFood>=0?'+':''}${e.netFood}/round</div>${p.gold<=-CREDIT_LIMIT_SP?'<div class="economy-alert"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-warning"></use></svg> Credit limit reached (−10 SP). New construction, research and purchases locked. Sell assets, trade or collect income to recover.</div>':p.gold<0?'<div class="gs-credit-warning">Borrowing Silver Pents: spending cannot exceed the −10 SP credit limit.</div>':''}`;
  el('economySummary').innerHTML+=`<div class="gs-depot-note"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> Capital warehouse: ${Object.entries(p.warehouse||{}).filter(([k,v])=>v>0).map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · ')||'No crafted goods yet'}</div>`+shippingDashboard();
   el('populationSummary').innerHTML=`<div class="population-stat"><strong>${people.count}</strong><span>Citizens</span></div><div class="population-stat"><strong>${people.housed} / ${people.housing}</strong><span>Housed / Beds</span></div><div class="population-stat ${people.homeless?'population-warning':''}"><strong>${people.homeless}</strong><span>Homeless</span></div><div class="population-stat"><strong>${people.soldiers}</strong><span>Troops</span></div><div class="gs-household-population"><strong>${people.households}</strong> occupied family homes · <strong>+${people.households*HOUSEHOLD_RENT} SP</strong> / round</div>`;
  el('populationAdvice').textContent=people.homeless>0?`${people.homeless} citizens need homes. Build on an owned tile with open space, or expand to make room.`:people.housing<=people.count+2?'Housing is nearly full. Consider additional homes before the next population increase.':'Each round can bring new citizens when Food is available. Homes need building space, and terrain limits residents.';
@@ -1989,7 +1999,7 @@ function renderTile(t){
  t.buildings.forEach((type,i)=>{
   const b=BUILDINGS[type],meta=worksite(t,i),q=owner?workQuality(owner,meta,type):null,occupied=type==='post'&&owner?postGarrison(owner,t.id).length:0;
   const upgrade=upgradePrice(t,i),inProgress=G.projects.some(job=>job.upgradeSiteId===meta?.id);
-  html+=`<div class="gs-job-card"><div class="gs-job-head"><strong>${b.icon} ${b.name} · Lvl ${meta?.level||1}</strong><small>${type==='homes'?`${8+4*((meta?.level||1)-1)} housing capacity · no employees required`:type==='builderBunk'?`${meta?.level||1} builder position${(meta?.level||1)===1?'':'s'} · provides specialized builders`:type==='caravanWarehouse'?`${meta?.level||1} caravan berth${(meta?.level||1)===1?'':'s'} · stores transport wagons`: `${q?.count||0}/${q?.slots||0} workers · Morale ${q?.count?Math.round(q.morale):'—'}/100`} · ${(b.upkeep+(meta.level-1)*Math.ceil(b.upkeep*.8))} base upkeep${q.slots?' + '+q.count+' wages':''}${type==='post'?` · ${occupied}/12 troops`:''}</small></div>`;
+  html+=`<div class="gs-job-card"><div class="gs-job-head"><strong>${b.icon} ${b.name} · Lvl ${meta?.level||1}</strong><small>${type==='homes'?`${8+4*((meta?.level||1)-1)} housing capacity · no employees required`:type==='builderBunk'?`${meta?.level||1} builder position${(meta?.level||1)===1?'':'s'} · provides specialized builders`:type==='caravanWarehouse'?`${meta?.level||1} caravan berth${(meta?.level||1)===1?'':'s'} · stores transport wagons`: `${q?.count||0}/${q?.slots||0} workers · Morale ${q?.count?Math.round(q.morale):'—'}/100`} · ${operatingCost(owner||p,meta,type).total} SP/round operating cost (wages included)${type==='post'?` · ${occupied}/12 troops`:''}</small></div>`;
   const stockList=Object.entries(meta?.stock||{}).filter(([k,v])=>v>0);
   const storageLimit=siteStorageCapacity(type,meta.level),stored=stockUsed(meta);
   if(storageLimit>0)html+=`<div class="gs-storage-gauge"><b>Storage:</b> ${stored}/${storageLimit} units${stored>=storageLimit?' · FULL — production halted until collected':''}<div class="gs-storage-track"><span style="width:${Math.min(100,100*stored/storageLimit)}%"></span></div><small>Higher building levels increase storage capacity.</small></div>`;
