@@ -1138,28 +1138,58 @@ function startWar(a,b,cause='A war declaration arrived by messenger falcon'){
  return true;
 }
 function endWar(a,b){const w=currentWar(a,b);if(!w)return false;w.status='peace';w.endedClock=G.turnClock||0;addLog(`${G.players[a].name} and ${G.players[b].name} signed a ceasefire.`);return true;}
-function diplomaticMessageText(note){const from=G.players[note.from],t=G.tiles.find(t=>t.id===note.tileId);return note.kind==='warning'?`If you expand into ${t?.name||'the warned territory'}, ${from.name} will declare war.`:note.kind==='war'?`${from.name} declares war. A war phase now begins; battles are not automatic.`:`${from.name} proposes a ceasefire.`;}
-function sendDiplomaticFalcon(to,kind,tileId=null,id=0,automatic=false){
- const from=G.players[id],other=G.players[to];if(!from||!other||id===to||!['warning','war','peace'].includes(kind))return false;
+function diplomaticMessageText(note){
+ const from=G.players[note.from],t=G.tiles.find(t=>t.id===note.tileId);
+ if(note.kind==='warning')return `If you expand into ${t?.name||'the warned territory'}, ${from.name} will declare war.`;
+ if(note.kind==='retract')return `${from.name} has withdrawn their territorial warning over ${t?.name||'the disputed territory'}. The red border is no longer threatened.`;
+ if(note.kind==='war')return `${from.name} declares war. A war phase now begins; battles are not automatic.`;
+ return `${from.name} proposes a ceasefire.`;
+}
+function visibleTerritorialWarnings(tileId=null){
+ if(!G)return [];
+ return (G.warnings||[]).filter(w=>w.to===0&&['active','escalated'].includes(w.status)
+  &&(tileId===null||w.tileId===tileId)&&G.tiles.some(t=>t.id===w.tileId&&t.owner===null&&t.terrain!=='water'));
+}
+function threatenedHexBorders(){
+ const seen=new Set();
+ return visibleTerritorialWarnings().map(w=>{
+  if(seen.has(w.tileId))return '';seen.add(w.tileId);
+  const tile=G.tiles.find(t=>t.id===w.tileId),outline=pts(hexPoints(tile,HEX-.7));
+  return `<g class="gs-threatened-hex" data-threatened-hex="${esc(tile.id)}" pointer-events="none">
+    <polygon class="gs-threat-border-halo" points="${outline}" fill="none"/>
+    <polygon class="gs-threat-border-core" points="${outline}" fill="none"/>
+    <polygon class="gs-threat-border-pulse" points="${outline}" fill="none"/>
+   </g>`;
+ }).join('');
+}
+function sendDiplomaticFalcon(to,kind,tileId=null,id=0,automatic=false,warningId=null){
+ const from=G.players[id],other=G.players[to];if(!from||!other||id===to||!['warning','war','peace','retract'].includes(kind))return false;
  if(!automatic&&!canCountryAct(from,id))return false;
  if(kind==='warning'&&(!tileId||!G.tiles.some(t=>t.id===tileId&&t.terrain!=='water'&&t.owner===null)))return false;
+ const withdrawn=kind==='retract'?(G.warnings||[]).find(w=>w.id===warningId&&w.from===id&&w.to===to&&['active','escalated'].includes(w.status)&&G.tiles.some(t=>t.id===w.tileId&&t.owner===null)):null;
+ if(kind==='retract'&&(!withdrawn||G.diplomaticFalcons.some(f=>f.kind==='retract'&&f.warningId===warningId&&f.status==='flying')))return false;
+ if(kind==='retract')tileId=withdrawn.tileId;
  if(kind==='war'&&currentWar(id,to))return false;
  if(kind==='peace'&&!currentWar(id,to))return false;
  if(!automatic&&!hasMoney(from,1))return false;
  if(!automatic)from.gold-=1;
  const dist=distance(capitalOf(id),capitalOf(to)),trip=Math.max(1,Math.ceil(dist/5));
- const note={id:G.nextDiplomacyId++,kind,from:id,to,tileId,createdClock:G.turnClock||0,travelTotal:trip,remaining:trip,status:'flying',automatic};
+ const note={id:G.nextDiplomacyId++,kind,from:id,to,tileId,warningId:withdrawn?.id??null,createdClock:G.turnClock||0,travelTotal:trip,remaining:trip,status:'flying',automatic};
  G.diplomaticFalcons.push(note);
- if(!automatic)useAction(from,`${from.name} launched a messenger falcon to ${other.capital} carrying a ${kind==='war'?'declaration of war':kind==='peace'?'ceasefire proposal':'territorial warning'}.`);
+ if(!automatic)useAction(from,`${from.name} launched a messenger falcon to ${other.capital} carrying a ${kind==='war'?'declaration of war':kind==='peace'?'ceasefire proposal':kind==='retract'?'withdrawal of a territorial warning':'territorial warning'}.`);
  else addLog(`${from.name} dispatched a falcon after a territorial warning was violated.`);
  if(id===0)showToast(`Falcon dispatched to ${other.capital}`);
  return true;
 }
 function checkWarningViolation(tile,newOwner){
- for(const w of G.warnings.filter(x=>x.to===newOwner&&x.tileId===tile.id&&x.status==='active')){
-  w.status='violated';
-  if(!currentWar(w.from,newOwner)&&!G.diplomaticFalcons.some(f=>f.kind==='war'&&f.from===w.from&&f.to===newOwner&&f.status==='flying'))
-   sendDiplomaticFalcon(newOwner,'war',tile.id,w.from,true);
+ // Claiming a threatened hex settles all warnings, not just the one
+ // addressed to the claiming nation. Preserve the war consequence.
+ for(const w of G.warnings.filter(x=>x.tileId===tile.id&&['active','escalated'].includes(x.status))){
+  const violation=w.to===newOwner;
+  const triggerWar=violation&&w.status==='active'&&!currentWar(w.from,newOwner)
+   &&!G.diplomaticFalcons.some(f=>f.kind==='war'&&f.from===w.from&&f.to===newOwner&&f.status==='flying');
+  w.status=violation?'violated':'resolved';w.resolvedClock=G.turnClock||0;
+  if(triggerWar)sendDiplomaticFalcon(newOwner,'war',tile.id,w.from,true);
  }
 }
 function progressDiplomaticFalcons(){
@@ -1171,6 +1201,12 @@ function progressDiplomaticFalcons(){
   if(note.kind==='warning'){
    G.warnings.push({id:note.id,from:note.from,to:note.to,tileId:note.tileId,status:'active',deliveredClock:G.turnClock});
    addLog(`Messenger falcon delivered a warning to ${recipient.capital}: ${diplomaticMessageText(note)}`);
+  }else if(note.kind==='retract'){
+   const warning=G.warnings.find(w=>w.id===note.warningId&&w.from===note.from&&w.to===note.to);
+   if(warning&&['active','escalated'].includes(warning.status)){
+    warning.status='rescinded';warning.rescindedClock=G.turnClock||0;
+    addLog(`${G.players[note.from].name} rescinded the territorial warning over ${G.tiles.find(t=>t.id===warning.tileId)?.name||'the disputed territory'}.`);
+   }
   }else if(note.kind==='war'){startWar(note.from,note.to,`War declaration delivered to ${recipient.capital}`);}
   else if(note.kind==='peace'){
    if(note.to===0){note.status='awaiting-reply';addLog(`${G.players[note.from].name} requested a ceasefire. Review World Affairs.`);}
@@ -1461,7 +1497,7 @@ function presentFalconInbox(){
  if(!active()||sheetMode||!el('modalLayer').classList.contains('hidden'))return;
  const dispatch=unreadFalconDispatches()[0];if(!dispatch)return;
  const f=dispatch.item,from=G.players[f.from],route=dispatch.type==='route';
- const label=route?'ROAD PROPOSAL':f.kind==='warning'?'TERRITORIAL WARNING':f.kind==='war'?'DECLARATION OF WAR':'CEASEFIRE PROPOSAL';
+ const label=route?(f.revision?'ROAD COUNTEROFFER':'ROAD PROPOSAL'):f.kind==='warning'?'TERRITORIAL WARNING':f.kind==='retract'?'WARNING RESCINDED':f.kind==='war'?'DECLARATION OF WAR':'CEASEFIRE PROPOSAL';
  const body=route?(()=>{
   const a=G.tiles.find(t=>t.id===f.fromTileId),b=G.tiles.find(t=>t.id===f.toTileId);
   return `${from.name} proposes a road from ${a?.name||'their territory'} to ${b?.name||'your territory'}. Your share is ${f.costB} Silver Pents, and their share is ${f.costA}.`;
@@ -2831,14 +2867,14 @@ function renderMap(){
    return `<g class="river-course" pointer-events="none"><path d="${d}" stroke="#49675b" stroke-width="12" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".82"/><path d="${d}" stroke="#398aab" stroke-width="8.2" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="${d}" stroke="#a0dbe5" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".77"/></g>`;
   }).join('');
  const tradeLines=roadVisuals()+domesticRoadVisuals();
- const ownerOutlines=ownedTerritoryOutlines();
+ const ownerOutlines=ownedTerritoryOutlines(),threatBorders=threatenedHexBorders();
  depthItems.push(...porterVisuals(true));
  depthItems.push(...caravanVisuals(true));
  const objects=depthItems.map((obj,index)=>`<g data-depth-x="${obj.x.toFixed(2)}" data-depth-y="${obj.y.toFixed(2)}" data-depth-order="${index}" pointer-events="none">${obj.html}</g>`).join('');
  const movementOverlays=falconVisuals()+diplomaticFalconVisuals()+expeditionTrailVisuals()+visibleWarOrderMarkers();
  const upperLabels=constructionHudLabels()+roadHudLabels();
  // Ground-sorted scenery and wagons. Territory taps and labels remain foreground.
- el('mapContent').innerHTML=`<g class="world-terrain" id="gsWorldTerrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="gs-national-borders" pointer-events="none">${ownerOutlines}</g><g id="gsWorldDepth" class="gs-world-depth" pointer-events="none">${objects}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g><g class="gs-map-frontlabels" pointer-events="none">${upperLabels}</g>`;
+ el('mapContent').innerHTML=`<g class="world-terrain" id="gsWorldTerrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="gs-national-borders" pointer-events="none">${ownerOutlines}</g><g class="gs-territory-threat-layer" pointer-events="none">${threatBorders}</g><g id="gsWorldDepth" class="gs-world-depth" pointer-events="none">${objects}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g><g class="gs-map-frontlabels" pointer-events="none">${upperLabels}</g>`;
  lastWorldDepthYaw=NaN;
  lastTerrainExtrusionYaw=NaN;
  boardBaseYaw=WORLD_SCENE_YAW;
