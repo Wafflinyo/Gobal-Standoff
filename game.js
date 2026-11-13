@@ -2304,6 +2304,16 @@ function runCpu(id){
    if(contested.length&&sendDiplomaticFalcon(0,'warning',contested[0].id,id))return;
   }
  }
+ // CPU countries also initiate peace treaties and defensive alliances,
+ // delivered through the same Falcon inbox as human proposals.
+ if(id!==0&&G.round>=4&&G.round%6===id%6&&actionsRemaining(p)>0&&hasMoney(p,1)){
+  const candidates=G.players.filter(v=>v.id!==id&&!currentWar(id,v.id)).sort((a,b)=>(a.id===0?-1:0)-(b.id===0?-1:0));
+  for(const partner of candidates){
+   const existing=activeTreaty(id,partner.id);
+   const kind=existing?.type==='treaty'?'alliance':G.round>=9&&G.round%3===0?'alliance':'treaty';
+   if(canProposeTreaty(id,partner.id,kind)&&sendDiplomaticFalcon(partner.id,kind,null,id))return;
+  }
+ }
  if(G.round>=4&&G.round%4===id%4&&actionsRemaining(p)>0){
   const available=G.players.filter(v=>v.id!==id&&!alreadyLinked(id,v.id)&&idleBuilders(p).length&&idleBuilders(v).length);
   if(available.length&&p.gold>18&&proposeTradeRoute(available[0].id,50,id))return;
