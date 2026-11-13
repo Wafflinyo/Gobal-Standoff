@@ -386,7 +386,7 @@ body.gs-playing:not(.cpu-watching) .hand-dock .cards-panel{background:linear-gra
 .gs-world-label text,.gs-route-label{font-family:system-ui,-apple-system,BlinkMacSystemFont,sans-serif;font-weight:900;letter-spacing:.15px;fill:#fff4d4;paint-order:stroke fill;stroke:#102b39;stroke-width:2.1px;stroke-linejoin:round;filter:drop-shadow(0 1px 2px #122934)}
 .gs-map-frontlabels{pointer-events:none}
 .gs-world-label{filter:drop-shadow(0 3px 2px #13252b80)}
-.gs-hex-side{filter:drop-shadow(0 1px 1px #182a30a0)}
+.gs-hex-side{filter:none} /* Moving raised faces already have dark outlines and base shadows; per-frame SVG filters cause mobile GPU jitter. */
 .gs-expedition-banner{filter:drop-shadow(0 2px 2px #152a3288)}
 .gs-expedition-boot{opacity:0;animation:gs-directional-boots 1.35s ease-in-out infinite;animation-delay:calc(var(--step)*.19s)}
 @keyframes gs-directional-boots{0%{opacity:0;filter:brightness(.9)}28%{opacity:1;filter:brightness(1.13)}64%{opacity:.85}100%{opacity:0;filter:brightness(.9)}}
