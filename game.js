@@ -1172,8 +1172,7 @@ function autoDispatchOutputs(){
   for(const cart of p.caravans.filter(c=>!c.shipmentId))scheduleAutoCaravan(p,cart);
   // Preserve hand delivery for nations without wagons or those that explicitly
   // allow porters when all staffed wagons are occupied.
-  if(!handHaulingAllowed(p))continue;
-  for(const task of outputPickupTasks(p)){
+  if(handHaulingAllowed(p))for(const task of outputPickupTasks(p)){
    if(availableCaravan(p.id,task.source))continue;
    const before=G.shipments.length;
    if(dispatchShipment(p.id,task.from,task.to,task.item,task.qty,true)&&G.shipments.length>before){
