@@ -565,7 +565,7 @@ function progressShipments(){
 function shippingDashboard(){
  const p=getCountry(),jobs=G.shipments.filter(j=>j.owner===0),carts=p.caravans||[];
  return `<div class="gs-shipping-summary"><b>Caravan logistics · ${carts.filter(c=>!c.shipmentId).length}/${carts.length} wagons available</b>
-  <small>Build Caravan Warehouses with Wood to house wagons. Each shipment travels warehouse → pickup → delivery → warehouse over individual turns.</small>
+  <small>Each completed Caravan Warehouse supplies 1 wagon (Level 2: 2, Level 3: 3). Each wagon carries up to 10 units per trip. Factory routes dispatch automatically when cargo, a reachable destination and a free wagon are available; trips take turns: warehouse → pickup → delivery → warehouse.</small>
   <label class="gs-routing-label">After delivery <select data-caravan-policy><option value="nearest" ${p.caravanPolicy==='nearest'?'selected':''}>Closest warehouse</option><option value="home" ${p.caravanPolicy==='home'?'selected':''}>Original warehouse</option><option value="stay" ${p.caravanPolicy==='stay'?'selected':''}>Stay if destination has space</option></select></label>
   ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.qty} ${GOOD_NAMES[j.item]||j.item} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
 }
@@ -636,10 +636,13 @@ function routingTargets(p,siteId){
  return [{id:'depot',name:'Capital warehouse'},...G.tiles.filter(t=>t.owner===p.id).flatMap(t=>t.buildings.flatMap((type,i)=>t.buildingMeta?.[i]?.id===siteId||!['storageWarehouse','post',...Object.keys(FACTORY_RECIPES)].includes(type)?[]:[{id:t.buildingMeta[i].id,name:`${t.name} · ${BUILDINGS[type].name}`}]))];
 }
 function setDeliveryRoute(tile,index,item,destination){
- const p=getCountry(),site=worksite(tile,index);
- if(!active()||!site||tile.owner!==0||!(OUTPUTS[tile.buildings[index]]||[]).includes(item)||!siteLookup(0,destination)||destination===String(site.id))return false;
- if(!ownedPath(0,tile,siteLookup(0,destination).tile))return false;
- site.routes??={};site.routes[item]=destination==='depot'?'depot':Number(destination);
+ const p=getCountry(),site=worksite(tile,index),automatic=destination==='auto';
+ const target=automatic?null:siteLookup(0,destination);
+ if(!active()||!site||tile.owner!==0||!(OUTPUTS[tile.buildings[index]]||[]).includes(item)||(!automatic&&!target)||destination===String(site.id))return false;
+ if(target&&!ownedPath(0,tile,target.tile))return false;
+ site.routes??={};
+ if(automatic)delete site.routes[item];
+ else site.routes[item]=destination==='depot'?'depot':Number(destination);
  save();render();return true;
 }
 function setFactoryRecipe(tile,index,name){
@@ -1915,9 +1918,12 @@ function renderTile(t){
   }
   if(isOwn&&FACTORY_RECIPES[type])html+=`<label class="gs-routing-label">Manufacture <select data-recipe-site="${i}">${FACTORY_RECIPES[type].map(recipe=>`<option value="${recipe}" ${meta.recipe===recipe?'selected':''}>${RECIPES[recipe].name}</option>`).join('')}</select></label>`;
   if(isOwn&&OUTPUTS[type]?.length){const targets=routingTargets(p,meta.id);
-   const current=FACTORY_RECIPES[type]?[meta.recipe]:OUTPUTS[type].filter(item=>type!=='mine'||item==='stone'||(t.vein?.kind===item)||(t.coalVein?.kind===item));
-   for(const item of current){const route=meta.routes?.[item]||'depot';
-    html+=`<label class="gs-routing-label"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-caravan"></use></svg> ${GOOD_NAMES[item]||item} destination <select data-route-site="${i}" data-route-good="${item}">${targets.map(target=>`<option value="${target.id}" ${String(route)===String(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>`;}
+   // Recipe identifiers (e.g. woodPlanks) aren't the cargo keys (wood).
+   // Only cargo keys can be dispatched or assigned a delivery route.
+   const current=FACTORY_RECIPES[type]?[RECIPES[meta.recipe]?.output].filter(Boolean):OUTPUTS[type].filter(item=>type!=='mine'||item==='stone'||(t.vein?.kind===item)||(t.coalVein?.kind===item));
+   for(const item of current){const route=meta.routes?.[item]??'auto';
+    html+=`<label class="gs-routing-label"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-caravan"></use></svg> ${GOOD_NAMES[item]||item} destination <select data-route-site="${i}" data-route-good="${item}"><option value="auto" ${route==='auto'?'selected':''}>Automatic · nearest storage</option>${targets.map(target=>`<option value="${target.id}" ${String(route)===String(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>`;}
+   if(FACTORY_RECIPES[type])html+='<small class="gs-routing-help">Choose Capital warehouse to send finished goods to your capital. Free caravans ship automatically at round end, up to 10 units per wagon.</small>';
   }
   if(isOwn){html+=`<div class="gs-job-controls">${q.slots?`<button data-action="hire-worker" data-index="${i}" ${!active()||q.count>=q.slots||!p.citizens.some(c=>eligibleWorker(c)&&!c.job)?'disabled':''}>Hire</button><button data-action="release-worker" data-index="${i}" ${!active()||!q.count?'disabled':''}>Release</button><button data-action="auto-workers" data-index="${i}" ${!active()?'disabled':''}>Auto ${meta.autoHire?'ON':'OFF'}</button>`:''}`;
    if(upgrade)html+=`<button data-action="upgrade" data-index="${i}" ${!canAct()||!idleBuilders(p).length||inProgress||!hasMoney(p,upgrade.gold)||p.wood<upgrade.wood||mineralCount(p,'iron')<upgrade.iron?'disabled':''}>${inProgress?'Upgrading…':`Upgrade L${meta.level+1}: ${upgrade.gold} SP ${upgrade.wood} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg> ${upgrade.iron} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>`}</button>`;
