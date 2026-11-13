@@ -195,7 +195,7 @@ function prepareMineralVeins(tiles,seed,legacy=false){
  }
 }
 function mineralCount(p,key){return Math.max(0,Math.floor(p.minerals?.[key]||0));}
-function gearReadiness(c){return 10+2*(c.military?.training||1)+Math.floor((c.military?.experience||0)/3)+(GEAR[c.military?.gear]?.bonus||0)+(c.military?.shield==='woodShield'?2:0)+(c.military?.weapon?.startsWith('stone')?2:0);}
+function gearReadiness(c){return Math.round(10+2*(c.military?.training||1)+Math.floor((c.military?.experience||0)/3)+(GEAR[c.military?.gear]?.bonus||0)+30*warDefense(c)+warWeaponDamage(c)+warSkill(c)*.10);}
 
 const BUILDINGS={
  farm:{name:'Farm',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>',gold:4,wood:2,iron:0,space:2,rounds:1,upkeep:1,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Workers produce Food and raw Leather · both must be delivered'},
@@ -1528,10 +1528,18 @@ function progressWarOrders(){
   if(m.index>=m.path.length-1){m.status=m.kind==='return'?'returned':'patrolling';continue;}
   const t=G.tiles.find(t=>t.id===m.path[m.index]),next=G.tiles.find(t=>t.id===m.path[m.index+1]);if(!t||!next)continue;
   const need=roadExistsBetween(t,next)?1:(next.owner===m.owner?2:3)+(next.terrain==='mountain'?1:0);
-  m.stepSpent+=m.transport==='caravan'?2:1;if(m.stepSpent>=need){m.index++;m.stepSpent=0;}
+  if(m.transport==='caravan'){
+    let budget=4;
+    while(budget>0&&m.index<m.path.length-1){
+     const from=G.tiles.find(t=>t.id===m.path[m.index]),toward=G.tiles.find(t=>t.id===m.path[m.index+1]);
+     if(!from||!toward)break;
+     const step=roadExistsBetween(from,toward)?1:(toward.owner===m.owner?2:3)+(toward.terrain==='mountain'?1:0);
+     if(step>budget)break;budget-=step;m.index++;
+    }
+   }else{m.stepSpent++;if(m.stepSpent>=need){m.index++;m.stepSpent=0;}}
    if(m.cartId){const cart=G.players[m.owner]?.caravans.find(c=>c.id===m.cartId);if(cart)cart.currentTileId=m.path[m.index];}
   if(m.index>=m.path.length-1){m.status=m.kind==='return'?'returned':'patrolling';
-   if(m.cartId)warReleaseTransport(G.players[m.owner]?.caravans.find(c=>c.id===m.cartId));
+   if(m.cartId){warReleaseTransport(G.players[m.owner]?.caravans.find(c=>c.id===m.cartId));m.cartId=null;m.transport='foot';}
     if(m.status==='returned'){const p=G.players[m.owner];for(const c of p.citizens)if(c.military?.missionId===m.id)c.military.missionId=null;}
    else if(m.owner===0)addLog(`Your ${m.kind==='flank'?'flanking party':'border patrol'} reached its assigned position.`);
   }
@@ -4154,8 +4162,9 @@ function resetView(){
  renderMap();
 }
 function zoom(f){
- const cx=view.x+view.w/2,cy=view.y+view.h/2;
+ const previous=beanLod(),cx=view.x+view.w/2,cy=view.y+view.h/2;
  setCenter(cx,cy,Math.min(2400,Math.max(140,cameraDesiredWidth*f)));
+ if(G&&beanLod()!==previous)renderMap();
 }
 function moveCamera(tile,targetYaw=cameraYaw,duration=800,targetWidth=460){
  if(!G||!tile)return Promise.resolve();
