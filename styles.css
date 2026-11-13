@@ -517,3 +517,28 @@ body.gs-playing .sheet-panel small,body.gs-playing .sheet-panel .muted,body.gs-p
 .gs-expedition-selector select option{color:#f6e6c5;background:#153947}
 .gs-expedition-selector .action-btn{margin-top:4px;width:100%}
 .gs-expedition-selector .action-btn:disabled{opacity:.52}
+
+/* v0.4.26: sustained disputed-territory red glow. Animate opacity/strokes,
+   not a blurred GPU filter, so iPhone camera turns stay smooth. */
+.gs-territory-threat-layer{pointer-events:none}
+.gs-threatened-hex{pointer-events:none}
+.gs-threat-border-halo{stroke:#e42131;stroke-width:11;stroke-linejoin:round;opacity:.24;animation:gs-threat-breath 1.55s ease-in-out infinite}
+.gs-threat-border-core{stroke:#ff2636;stroke-width:4.4;stroke-linejoin:round;opacity:.96}
+.gs-threat-border-pulse{stroke:#ffd1c4;stroke-width:2.1;stroke-linejoin:round;stroke-dasharray:8 7;opacity:.85;animation:gs-threat-signal 2.5s linear infinite}
+@keyframes gs-threat-breath{0%,100%{opacity:.18;stroke-width:8}50%{opacity:.53;stroke-width:14}}
+@keyframes gs-threat-signal{0%{stroke-dashoffset:0;opacity:.38}50%{opacity:1}100%{stroke-dashoffset:-60;opacity:.38}}
+.gs-threat-alert{display:grid;gap:5px;margin:9px 0 12px;padding:10px 11px;border:1px solid #f15c66a8;border-radius:10px;background:#4c2430;color:#ffe7de}
+.gs-threat-alert>strong{font-size:12px;letter-spacing:.06em;color:#ffb2b0}
+.gs-threat-alert>span{font-size:11px;line-height:1.5}
+.gs-warning-issued{display:grid;gap:7px;margin:8px 0;padding:9px;border:1px solid #d5757588;border-radius:9px;background:#362b34}
+.gs-warning-issued small{font-size:11px;color:#f4d3c5}
+.gs-warning-issued button{white-space:normal}
+.gs-trade-counter{margin:10px 0;padding:11px;display:grid;gap:9px;border:1px solid #c4ad7888;border-radius:11px;background:#183541}
+.gs-trade-counter>strong{font-size:12px;color:#f3ddb1}
+.gs-trade-counter label,.gs-falcon-counter label{display:grid;gap:6px;font-size:11px;font-weight:750;color:#dfe8e1}
+.gs-trade-counter select,.gs-falcon-counter select{width:100%;min-height:40px;border:1px solid #789b9b;border-radius:8px;color:#fff0cf;background:#173b48;padding:8px;font-size:12px}
+.gs-trade-counter small,.gs-falcon-counter small{font-size:11px;line-height:1.5;color:#d6d6ce}
+.gs-trade-counter button{white-space:normal}
+.gs-falcon-counter{display:grid;gap:9px;margin:10px 0 14px;padding:11px;background:#163545;border:1px solid #b69d6788;border-radius:10px}
+.gs-falcon-counter button{white-space:normal;min-height:42px}
+@media(prefers-reduced-motion:reduce){.gs-threat-border-halo,.gs-threat-border-pulse{animation:none!important;opacity:.65}}
