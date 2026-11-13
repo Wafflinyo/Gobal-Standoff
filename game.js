@@ -1563,7 +1563,15 @@ function presentFalconInbox(){
   return `${from.name} proposes a road from ${a?.name||'their territory'} to ${b?.name||'your territory'}. Your share is ${f.costB} Silver Pents, and their share is ${f.costA}.`;
  })():diplomaticMessageText(f);
  const actions=(route||f.kind==='peace')?`<button class="primary" data-modal="falcon-accept" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">${route?'Accept route':'Accept ceasefire'}</button><button class="secondary" data-modal="falcon-reject" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">Reject</button>`:'';
- showModal(`<div class="gs-falcon-letter"><div class="gs-falcon-kicker">${icoMarkup('scroll')} MESSENGER FALCON · ROUND ${G.round}</div><div class="gs-falcon-subject">${esc(label)}</div><h2>${esc(from.name)}</h2><p class="gs-falcon-text">${esc(body)}</p><div class="gs-falcon-actions">${actions}<button class="secondary" data-modal="falcon-read" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">${actions?'Review later':'Acknowledge'}</button><button class="secondary" data-modal="falcon-world" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">Open World Affairs</button></div></div>`);
+ const oldShare=route?100-f.share:50;
+ const suggested=route?ROUTE_SHARE_OPTIONS.filter(v=>v<oldShare).slice(-1)[0]??ROUTE_SHARE_OPTIONS[0]:40;
+ const counterForm=route&&(f.revision||0)<3?`<div class="gs-falcon-counter">
+   <label>Negotiate · Your new share<select data-falcon-counter-share="${f.id}">${ROUTE_SHARE_OPTIONS.map(v=>`<option value="${v}" ${v===suggested?'selected':''}>${v}% you / ${100-v}% them</option>`).join('')}</select></label>
+   <button class="secondary" data-modal="falcon-counter" data-inbox-type="route" data-inbox-id="${f.id}">Send counteroffer by Falcon · 1 SP</button>
+   <small>To negotiate the route endpoints too, open World Affairs.</small>
+  </div>`:'';
+
+ showModal(`<div class="gs-falcon-letter"><div class="gs-falcon-kicker">${icoMarkup('scroll')} MESSENGER FALCON · ROUND ${G.round}</div><div class="gs-falcon-subject">${esc(label)}</div><h2>${esc(from.name)}</h2><p class="gs-falcon-text">${esc(body)}</p>${counterForm}<div class="gs-falcon-actions">${actions}<button class="secondary" data-modal="falcon-read" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">${actions?'Review later':'Acknowledge'}</button><button class="secondary" data-modal="falcon-world" data-inbox-type="${dispatch.type}" data-inbox-id="${f.id}">Open World Affairs</button></div></div>`);
 }
 function handleFalconMessageAction(button){
  if(!G||!active())return;
@@ -1573,6 +1581,13 @@ function handleFalconMessageAction(button){
  if(action==='falcon-accept'||action==='falcon-reject'){
   const success=type==='route'?respondTradeOffer(id,action==='falcon-accept'):acceptCeasefire(id,action==='falcon-accept');
   if(!success){showToast('Unable to respond. Check builders, Silver Pents or the War Room.');return;}
+ }
+ if(action==='falcon-counter'){
+  if(type!=='route'||target.status!=='pending')return;
+  const share=Number(el('modalBody').querySelector(`[data-falcon-counter-share="${id}"]`)?.value);
+  if(!counterTradeOffer(id,share,0,target.toTileId,target.fromTileId)){
+   showToast('Unable to send counteroffer. Check the route and 1 SP courier cost.');return;
+  }
  }
  target.inboxRead=true;target.readRound=G.round;
  save();closeModal();render();
