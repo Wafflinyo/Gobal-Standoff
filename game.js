@@ -2152,7 +2152,7 @@ function renderRoster(){
  if(rosterTab==='citizens'){
   el('rosterList').innerHTML=`<p class="gs-citizen-health-note">Poor morale reduces health over time; age, health and morale all influence the chance of death each round. Worker hauling causes fatigue; resting citizens can recover.</p>${(p.recentDeaths||[]).length?'<p class="gs-recent-deaths"><strong>Recent passings:</strong> '+p.recentDeaths.slice(0,3).map(d=>esc(d.name)+' (age '+d.age+', R'+d.round+')').join(' · ')+'</p>':''}<div class="roster-head">Citizen <span>Age · Residence · Role</span></div>`+p.citizens.map(c=>{
    const home=c.homeId?G.tiles.find(t=>t.id===c.homeId)?.name||'Unknown':'Homeless';
-   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>${c.age} years · Health ${c.health}/100 · Morale ${c.morale}/100 · ${esc(home)}${c.military?' · Soldier':c.builder?' · Builder'+(c.builder.projectId?' (on assignment)':' (available)'):isBusyPorter(c)?' · Hand-hauling '+esc((G.shipments||[]).find(j=>j.kind==='porter'&&j.porterId===c.id)?.item||'resources'):c.job?' · Employed: '+esc((()=>{const t=G.tiles.find(t=>t.id===c.job.tileId),idx=t?.buildingMeta?.findIndex(m=>m.id===c.job.siteId);return idx>=0?BUILDINGS[t.buildings[idx]].name:'Workplace';})()):' · Unemployed'}</small></div>`;
+   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>${c.age} years · Health ${c.health}/100 · Morale ${c.morale}/100 · Mortality ${(100*citizenDeathProbability(c)).toFixed(2)}%/round · ${esc(home)}${c.military?' · Soldier':c.builder?' · Builder'+(c.builder.projectId?' (on assignment)':' (available)'):isBusyPorter(c)?' · Hand-hauling '+esc((G.shipments||[]).find(j=>j.kind==='porter'&&j.porterId===c.id)?.item||'resources'):c.job?' · Employed: '+esc((()=>{const t=G.tiles.find(t=>t.id===c.job.tileId),idx=t?.buildingMeta?.findIndex(m=>m.id===c.job.siteId);return idx>=0?BUILDINGS[t.buildings[idx]].name:'Workplace';})()):' · Unemployed'}</small></div>`;
   }).join('');
  }else{
   el('rosterList').innerHTML=troops.length?`<p class="roster-instructions">Transfer one soldier between your posts each turn, even after using your main action.</p>`+troops.map(c=>{
@@ -2631,7 +2631,12 @@ function porterVisuals(depthEntries=false){
   const fraction=a.id===b.id?0:Math.max(0,Math.min(1,(job.stepSpent||0)/duration));
   const from=coords(a),to=coords(b),point=project(from.x+(to.x-from.x)*fraction,from.y+(to.y-from.y)*fraction);
   const loaded=job.stage==='delivery'||job.stage==='unloading';
-  const badge=loaded?`<g class="gs-porter-logs"><rect x="0" y="-5" width="18" height="5" rx="2" fill="#ae7950" stroke="#493e31" stroke-width="1"/><rect x="0" y="-11" width="18" height="5" rx="2" fill="#bc8656" stroke="#493e31" stroke-width="1"/><ellipse cx="18" cy="-8.5" rx="2" ry="2.5" fill="#dfb687" stroke="#563f2e" stroke-width=".7"/><ellipse cx="18" cy="-2.5" rx="2" ry="2.5" fill="#dfb687" stroke="#563f2e" stroke-width=".7"/></g>`:'';
+   const cargoGraphic=job.item==='logs'||job.item==='wood'?
+    '<g class="gs-porter-cargo"><rect x="0" y="-5" width="18" height="5" rx="2" fill="#ae7950" stroke="#493e31" stroke-width="1"/><rect x="0" y="-11" width="18" height="5" rx="2" fill="#bc8656" stroke="#493e31" stroke-width="1"/><ellipse cx="18" cy="-8.5" rx="2" ry="2.5" fill="#dfb687" stroke="#563f2e" stroke-width=".7"/><ellipse cx="18" cy="-2.5" rx="2" ry="2.5" fill="#dfb687" stroke="#563f2e" stroke-width=".7"/></g>':
+    job.item==='food'||job.item==='leather'?
+    '<g class="gs-porter-cargo"><path d="M2 -12Q10 -15 16 -11L18 0Q9 6 0 0Z" fill="#d8b67c" stroke="#61513d" stroke-width="1.2"/><path d="M4 -9Q10 -6 15 -10" fill="none" stroke="#97734c" stroke-width="1.2"/></g>':
+    '<g class="gs-porter-cargo"><path d="M0 -10L14 -12L18 -8V3L4 4L0 0Z" fill="#bf9d6f" stroke="#5f513f" stroke-width="1.2"/><path d="M0 -10L4 -6L18 -8M4 -6V4" fill="none" stroke="#7a6548" stroke-width="1"/></g>';
+   const badge=loaded?cargoGraphic:'';
   const silhouette=`<g class="gs-porter-unit" transform="translate(${point.x.toFixed(2)} ${point.y.toFixed(2)})" pointer-events="none">
    <ellipse cx="2" cy="4" rx="16" ry="3" fill="#263c35" opacity=".3"/>
    <g class="gs-porter-step"><circle cx="-7" cy="-15" r="4" fill="#eed1ac" stroke="#344850" stroke-width="1"/>
