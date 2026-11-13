@@ -1,4 +1,11 @@
-# Global Standoff — Prototype 0.4.20
+# Global Standoff — Prototype 0.4.21
+
+## Version 0.4.21 — factory caravan delivery routing clarification and fix
+
+- Factory delivery dropdowns now use the actual produced goods (e.g., Construction Wood from the Woodworks Factory's woodPlanks recipe), rather than the recipe identifier, so chosen destinations actually save.
+- Show an honest Automatic · nearest storage default; selecting Capital warehouse explicitly routes that factory's finished goods to the capital. Existing saved-world routes remain intact.
+- The Nation caravan logistics panel now explains that a completed Caravan Warehouse provides one/two/three wagons at levels 1/2/3 and that each wagon transports at most 10 units per trip.
+- Factory output shipments are queued automatically at the normal round-end production stage when an idle wagon and traversable route exist. No cargo-capacity or economic balance changes.
 
 ## Version 0.4.20 — 2.5D terrain depth at every viewing angle
 
