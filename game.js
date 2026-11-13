@@ -1472,7 +1472,7 @@ function startSiege(tileId,postId,qty,owner=0){
  const siege={id:G.nextSiegeId++,targetTileId:target.id,stagingTileId:staging.tile.id,originPostId:postId,
   attacker:owner,defender:target.owner,attackerIds:men.map(c=>c.id),defenderIds:[],
   status:'marching',marchRemaining:march,createdClock:G.turnClock||0,startedRound:G.round,
-  roundNumber:0,supply:0,fort:0,morale:0,preparation:0,history:[],
+  roundNumber:0,supply:0,fort:0,morale:0,preparation:0,history:[],reinforcements:[],
   attackerStanding:'blockade',defenderStanding:'hold',attackerOrder:null,defenderOrder:null};
  G.sieges.push(siege);
  for(const c of men)c.military.missionId='siege-a-'+siege.id;
@@ -1481,6 +1481,61 @@ function startSiege(tileId,postId,qty,owner=0){
  if(owner===0){showToast(`Siege expedition marching to ${target.name}`);save();render();}
  return true;
 }
+function canReinforceSiege(s,postId,owner){
+ if(!s||s.status!=='active'||![s.attacker,s.defender].includes(owner)||G.players[owner]?.logisticsUsed)return false;
+ const post=G.tiles.find(t=>t.id===postId),target=G.tiles.find(t=>t.id===s.targetTileId);
+ if(!post||post.owner!==owner||!buildingCount(post,'post')||!target)return false;
+ const side=owner===s.attacker?'attacker':'defender';
+ const current=siegeTeam(s,side).length+(s.reinforcements||[]).filter(r=>r.side===side).reduce((n,r)=>n+r.ids.length,0);
+ if(current>=12||!postGarrison(G.players[owner],postId).some(c=>c.health>0&&!c.military?.missionId))return false;
+ const dest=side==='attacker'?G.tiles.find(t=>t.id===s.stagingTileId):target;
+ return !!dest&&dest.owner===owner&&!!militaryTravelPath(owner,post,dest);
+}
+function reinforceSiege(id,postId,qty,owner=0){
+ const s=(G.sieges||[]).find(s=>s.id===Number(id)),p=G.players[owner];
+ if(!G||!s||!p||G.turnIndex!==owner||G.finished||owner===0&&!active()||!canReinforceSiege(s,postId,owner))return false;
+ const side=owner===s.attacker?'attacker':'defender',destination=G.tiles.find(t=>t.id===(side==='attacker'?s.stagingTileId:s.targetTileId));
+ const post=G.tiles.find(t=>t.id===postId),route=militaryTravelPath(owner,post,destination);
+ const capacity=12-siegeTeam(s,side).length-(s.reinforcements||[]).filter(r=>r.side===side).reduce((n,r)=>n+r.ids.length,0);
+ const available=postGarrison(p,postId).filter(c=>c.health>0&&!c.military.missionId);
+ const number=Number(qty);
+ if(!Number.isInteger(number)||number<1||number>capacity||number>available.length||!route)return false;
+ const troops=available.slice(0,number),travel=Math.max(1,Math.ceil(route.points/2));
+ s.reinforcements??=[];
+ s.reinforcements.push({owner,side,postId,ids:troops.map(c=>c.id),remaining:travel,createdClock:G.turnClock||0});
+ for(const c of troops)c.military.missionId='siege-r-'+s.id;
+ p.logisticsUsed=true;
+ addLog(`${p.name} sent ${number} reinforcement${number===1?'':'s'} to the siege of ${destination.name}. Travel: ${travel} world ticks.`);
+ if(owner===0){save();render();showToast(`${number} reinforcements dispatched`);}
+ return true;
+}
+function progressSiegeReinforcements(){
+ for(const s of G.sieges||[]){
+  if(s.status!=='active')continue;
+  s.reinforcements??=[];
+  for(const job of [...s.reinforcements]){
+   if((G.turnClock||0)<=job.createdClock+1)continue;
+   const p=G.players[job.owner],target=G.tiles.find(t=>t.id===(job.side==='attacker'?s.stagingTileId:s.targetTileId));
+   if(!p||!target||target.owner!==job.owner){
+    for(const c of p?.citizens||[])if(job.ids.includes(c.id)&&c.military?.missionId==='siege-r-'+s.id)c.military.missionId=null;
+    s.reinforcements=s.reinforcements.filter(r=>r!==job);continue;
+   }
+   job.remaining=Math.max(0,job.remaining-1);
+   if(job.remaining>0)continue;
+   const roster=job.side==='attacker'?s.attackerIds:s.defenderIds;
+   let arrived=0;
+   for(const cid of job.ids){
+    const citizen=p.citizens.find(c=>c.id===cid&&c.health>0&&c.military?.missionId==='siege-r-'+s.id);
+    if(!citizen)continue;
+    if(siegeTeam(s,job.side).length>=12){citizen.military.missionId=null;continue;}
+    roster.push(cid);citizen.military.missionId='siege-'+(job.side==='attacker'?'a-':'d-')+s.id;arrived++;
+   }
+   s.reinforcements=s.reinforcements.filter(r=>r!==job);
+   if(arrived)addLog(`${arrived} ${p.name} reinforcement${arrived===1?'':'s'} arrived at the siege of ${G.tiles.find(t=>t.id===s.targetTileId)?.name||'the frontier'}.`);
+  }
+ }
+}
+
 function establishSiege(s){
  const target=G.tiles.find(t=>t.id===s.targetTileId),defender=G.players[s.defender];
  if(!target||target.owner!==s.defender||!currentWar(s.attacker,s.defender)){finishSiege(s,'cancelled');return;}
@@ -1506,6 +1561,7 @@ function progressSiegeMarches(){
   s.marchRemaining=Math.max(0,s.marchRemaining-1);
   if(!s.marchRemaining)establishSiege(s);
  }
+ progressSiegeReinforcements();
 }
 function setSiegeOrder(siegeId,kind,owner=0){
  const s=(G.sieges||[]).find(x=>x.id===Number(siegeId)&&x.status==='active');
@@ -1545,9 +1601,9 @@ function applySiegeInjuries(s,side,amount,roundSeed){
 }
 function finishSiege(s,status){
  if(!['marching','active'].includes(s.status))return;
- s.status=status;s.endedRound=G.round;s.attackerOrder=null;s.defenderOrder=null;
+ s.status=status;s.endedRound=G.round;s.attackerOrder=null;s.defenderOrder=null;s.reinforcements=[];
  for(const id of [s.attacker,s.defender]){
-  for(const c of G.players[id]?.citizens||[])if(c.military&&['siege-a-'+s.id,'siege-d-'+s.id].includes(c.military.missionId))
+  for(const c of G.players[id]?.citizens||[])if(c.military&&['siege-a-'+s.id,'siege-d-'+s.id,'siege-r-'+s.id].includes(c.military.missionId))
    c.military.missionId=null;
  }
  const target=G.tiles.find(t=>t.id===s.targetTileId);
