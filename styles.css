@@ -707,3 +707,39 @@ body.gs-playing .map-wrap{isolation:isolate}
  .gs-treaty-actions button,.gs-treaty-current button{min-height:36px;font-size:10px;padding:7px}
  .gs-treaty-current{padding:8px}
 }
+
+/* v0.4.29 · real-soldier, multi-round siege campaigns. */
+.gs-siege-section{margin:12px 0 17px;display:grid;gap:11px}
+.gs-siege-heading{display:grid;gap:5px;padding:12px;border:1px solid #bc9c7970;border-radius:11px;background:#2a3540}
+.gs-siege-heading strong{font-size:15px;color:#ffda9d}
+.gs-siege-heading small,.gs-siege-tip{font-size:11px;line-height:1.55;color:#ddd4c3}
+.gs-siege-card,.gs-siege-launch{display:grid;gap:10px;border:1px solid #c68d6999;border-radius:12px;background:linear-gradient(150deg,#392d35,#18323f);padding:12px}
+.gs-siege-card-head{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.gs-siege-card-head strong{font-size:15px;color:#ffe3ad;min-width:0}
+.gs-siege-card-head span{border-radius:6px;padding:4px 6px;background:#7c5344;color:#fff0d8;font-size:9px;letter-spacing:.06em;font-weight:900}
+.gs-siege-card>small,.gs-siege-launch small,.gs-siege-order-note{font-size:11px;line-height:1.5;color:#e5d8c6}
+.gs-siege-card>button,.gs-siege-launch>button,.gs-tile-siege button{
+ border-radius:9px;border:1px solid #e7bf83;background:#74533a;color:#fff1d6;
+ padding:10px 12px;font-size:12px;font-weight:850;white-space:normal
+}
+.gs-siege-card>button:disabled,.gs-siege-launch>button:disabled{opacity:.4}
+.gs-siege-meters{display:grid;gap:8px}
+.gs-siege-meters>div{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 10px;align-items:center}
+.gs-siege-meters span{color:#e5d6c1;font-size:11px}
+.gs-siege-meters b{font-variant-numeric:tabular-nums;font-size:11px;color:#f7e7cd}
+.gs-siege-meters i{grid-column:1/-1;height:6px;background:linear-gradient(90deg,#c48f61 var(--siege-fill),#24353c var(--siege-fill));border:1px solid #bc9d7766;border-radius:5px}
+.gs-siege-history{padding:8px 9px;border-radius:8px;background:#112c38aa;border:1px solid #8c8b7c55;color:#e1d6c2}
+.gs-siege-history summary{cursor:pointer;font-size:11px;font-weight:850}
+.gs-siege-history p{font-size:11px;line-height:1.5;border-top:1px solid #b6a38344;padding:8px 0;margin:6px 0}
+.gs-siege-launch>strong{color:#eac48b;font-size:14px}
+.gs-tile-siege{display:grid;gap:6px;padding:10px;margin:8px 0 13px;border:1px solid #edb17c;border-radius:10px;background:#47352f}
+.gs-tile-siege strong{font-size:12px;color:#ffe2b8;letter-spacing:.05em}
+.gs-tile-siege small{font-size:11px;line-height:1.5;color:#e9d9c5}
+.gs-siege-border{animation:gs-siege-alert 2s ease-in-out infinite}
+@keyframes gs-siege-alert{0%,100%{opacity:.65}50%{opacity:1}}
+@media(prefers-reduced-motion:reduce){.gs-siege-border{animation:none}}
+@media(orientation:landscape) and (max-height:650px) and (pointer:coarse){
+ .gs-siege-card,.gs-siege-launch,.gs-siege-heading{padding:9px;gap:7px}
+ .gs-siege-meters{gap:5px}
+ .gs-siege-card-head strong{font-size:13px}
+}
