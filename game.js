@@ -455,15 +455,21 @@ function domesticRoadVisuals(){
  }
  return `<g class="gs-domestic-road" pointer-events="none">${visuals.join('')}</g>`;
 }
-// Manual hand transport: 2 logs; each hex needs 8 world ticks unpaved or
+// Manual hand transport: 2 resource units; each hex needs 8 world ticks unpaved or
 // 6 with roads, roughly 2 rounds for one hex on an unpaved route, each way.
 const PORTER_CAPACITY=2,PORTER_UNPAVED_TICKS=8,PORTER_PAVED_TICKS=6;
 function porterTicks(a,b){return domesticMoveCost(a,b)===1?PORTER_PAVED_TICKS:PORTER_UNPAVED_TICKS;}
+function handHaulingAllowed(p){
+ // No wagons means hand-delivery is compulsory. Otherwise respect the
+ // elected policy (including while all wagons are dispatched).
+ return !(p.caravans||[]).length||p.handHaulingPolicy==='allow';
+}
 function availablePorter(owner,source){
  const p=G.players[owner];if(!p)return null;
  const occupied=new Set(G.shipments.filter(j=>j.kind==='porter'&&j.owner===owner).map(j=>j.porterId));
- const workforce=p.citizens.filter(c=>c.age>=18&&!c.military&&!c.builder&&!occupied.has(c.id));
- return workforce.find(c=>c.job?.siteId===source.site?.id)||workforce.find(c=>!c.job)||workforce[0]||null;
+ const workforce=p.citizens.filter(c=>eligibleWorker(c)&&!occupied.has(c.id));
+ // Prefer the source's employee, or someone not currently employed.
+ return workforce.find(c=>c.job?.siteId===source.site?.id)||workforce.find(c=>!c.job)||null;
 }
 function porterRemaining(job){
  let ticks=0;
@@ -508,7 +514,7 @@ function dispatchShipment(owner,from,to,item,qty,auto=false){
  if(qtyFit<1)return false;
  const delivery=ownedPath(owner,src.tile,dst.tile);if(!delivery)return false;
  const available=availableCaravan(owner,src.tile);
- const porter=!available&&item==='logs'?availablePorter(owner,src):null;
+ const porter=!available&&handHaulingAllowed(p)?availablePorter(owner,src):null;
  if(!available&&!porter)return false;
  const id=G.nextShipmentId++;
  if(porter){
@@ -517,7 +523,7 @@ function dispatchShipment(owner,from,to,item,qty,auto=false){
    porterId:porter.id,caravanId:null,path:[src.tile.id],step:0,stepSpent:0,
    fromTileId:src.tile.id,toTileId:dst.tile.id,startedClock:G.turnClock||0,remaining:1};
   G.shipments.push(job);
-  if(!auto)addLog(`${porter.name} started carrying ${carrying} logs from ${src.tile.name} to ${dst.tile.name}.`);
+  if(!auto)addLog(`${porter.name} started carrying ${carrying} ${GOOD_NAMES[item]||item} from ${src.tile.name} to ${dst.tile.name} by hand.`);
   return true;
  }
  const job={id,owner,from,to,item,qty:qtyFit,stage:'pickup',path:available.path,step:0,
@@ -602,7 +608,11 @@ function progressPorterJob(job,p){
    G.shipments=G.shipments.filter(j=>j!==job);return;
   }
   job.stepSpent=(job.stepSpent||0)+1;
-  if(job.stepSpent>=porterTicks(a,b)){job.step++;job.stepSpent=0;}
+  if(job.stepSpent>=porterTicks(a,b)){
+   // Hauling is tiring in both directions, worse on unpaved roads.
+   worker.morale=Math.max(0,worker.morale-(domesticMoveCost(a,b)===1?1:2));
+   job.step++;job.stepSpent=0;
+  }
   job.remaining=porterRemaining(job);return;
  }
  if(job.stage==='pickup'){
@@ -626,7 +636,7 @@ function progressPorterJob(job,p){
   const unloaded=endpointAdd(p,job.to,job.item,job.qty);
   job.qty-=unloaded;
   if(job.qty>0){job.stage='unloading';job.remaining=0;return;}
-  if(p.id===0&&unloaded)addLog(`${worker.name} hand-delivered ${unloaded} Timber Logs to ${target.tile.name}.`);
+  if(p.id===0&&unloaded)addLog(`${worker.name} hand-delivered ${unloaded} ${GOOD_NAMES[job.item]||job.item} to ${target.tile.name}.`);
   const from=siteLookup(p.id,job.from),returnRoute=from?.tile&&ownedPath(p.id,target.tile,from.tile);
   if(!returnRoute){G.shipments=G.shipments.filter(j=>j!==job);return;}
   job.stage='return';job.path=returnRoute;job.step=0;job.stepSpent=0;job.remaining=porterRemaining(job);return;
@@ -649,7 +659,9 @@ function progressShipments(){
 function shippingDashboard(){
  const p=getCountry(),jobs=G.shipments.filter(j=>j.owner===0),carts=p.caravans||[];
  return `<div class="gs-shipping-summary"><b>Caravan logistics · ${carts.filter(c=>!c.shipmentId).length}/${carts.length} wagons available</b>
-  <small>A wagon carries 10 units, but even with no wagons, one worker can push 2 Timber Logs to storage. Hand transport takes 8 world turns per unpaved hex (6 on roads) each way; the worker must return. Lumber Camps send logs directly to storage. Woodworks is only needed when manufacturing finished Wood.</small>
+  <small>Wagons carry 10 units each. A worker carries 2 units of any resource when permitted. A hand trip takes 8 world turns per unpaved hex (6 on paved borders), each way; longer trips reduce worker morale and can affect health.</small>
+  <label class="gs-routing-label">Workers when all wagons are busy <select data-hand-haul-policy><option value="wait" ${p.handHaulingPolicy!=='allow'?'selected':''}>Wait for a caravan</option><option value="allow" ${p.handHaulingPolicy==='allow'?'selected':''}>Allow 2-unit worker deliveries</option></select></label>
+  ${!(p.caravans||[]).length?'<small>No wagons owned: eligible workers transport resources by hand automatically.</small>':''}
   <label class="gs-routing-label">After delivery <select data-caravan-policy><option value="nearest" ${p.caravanPolicy==='nearest'?'selected':''}>Closest warehouse</option><option value="home" ${p.caravanPolicy==='home'?'selected':''}>Original warehouse</option><option value="stay" ${p.caravanPolicy==='stay'?'selected':''}>Stay if destination has space</option></select></label>
   ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.kind==='porter'?'Worker pushing':'Wagon carrying'} ${j.qty} ${GOOD_NAMES[j.item]||j.item} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
 }
@@ -2008,7 +2020,7 @@ function renderTile(t){
   html+=`<div class="gs-site-inventory"><small><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>On the road: ${outgoing.slice(0,4).map(job=>`${job.qty} ${GOOD_NAMES[job.item]||job.item} (${job.remaining}T)`).join(' · ')}`:''}</small></div>`;
   if(isOwn&&type==='storageWarehouse'&&stockList.length){
    const targets=routingTargets(p,meta.id);
-   html+=`<div class="gs-storage-actions"><strong>Send stored goods by wagon, or slowly push logs by hand</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship up to 10</button></div>`).join('')}</div>`;
+   html+=`<div class="gs-storage-actions"><strong>Ship stored goods by wagon or worker (when allowed)</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship up to 10</button></div>`).join('')}</div>`;
   }
   if(isOwn&&FACTORY_RECIPES[type])html+=`<label class="gs-routing-label">Manufacture <select data-recipe-site="${i}">${FACTORY_RECIPES[type].map(recipe=>`<option value="${recipe}" ${meta.recipe===recipe?'selected':''}>${RECIPES[recipe].name}</option>`).join('')}</select></label>`;
   if(isOwn&&OUTPUTS[type]?.length){const targets=routingTargets(p,meta.id);
@@ -2018,7 +2030,7 @@ function renderTile(t){
    for(const item of current){const route=meta.routes?.[item]??'auto';
     html+=`<label class="gs-routing-label"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-caravan"></use></svg> ${GOOD_NAMES[item]||item} destination <select data-route-site="${i}" data-route-good="${item}"><option value="auto" ${route==='auto'?'selected':''}>Automatic · nearest storage</option>${targets.map(target=>`<option value="${target.id}" ${String(route)===String(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>`;}
    if(FACTORY_RECIPES[type])html+='<small class="gs-routing-help">Choose Capital warehouse to send finished goods to your capital. A wagon handles up to 10 units per trip.</small>';
-   if(type==='lumber')html+='<small class="gs-routing-help">Timber Logs go straight to storage or the capital. A Woodworks Factory is optional and only processes logs into Construction Wood or shields. With no wagon available, a worker slowly pushes 2 logs at a time and must walk back before the next delivery.</small>';
+   if(type==='lumber')html+='<small class="gs-routing-help">Timber Logs go straight to storage or the capital. A Woodworks Factory is optional and only processes logs into Construction Wood or shields. With no wagons, workers slowly carry 2 units per trip. When wagons exist, your transport policy decides whether workers can walk while all wagons are busy.</small>';
   }
   if(isOwn){html+=`<div class="gs-job-controls">${q.slots?`<button data-action="hire-worker" data-index="${i}" ${!active()||q.count>=q.slots||!p.citizens.some(c=>eligibleWorker(c)&&!c.job)?'disabled':''}>Hire</button><button data-action="release-worker" data-index="${i}" ${!active()||!q.count?'disabled':''}>Release</button><button data-action="auto-workers" data-index="${i}" ${!active()?'disabled':''}>Auto ${meta.autoHire?'ON':'OFF'}</button>`:''}`;
    if(upgrade)html+=`<button data-action="upgrade" data-index="${i}" ${!canAct()||!idleBuilders(p).length||inProgress||!hasMoney(p,upgrade.gold)||p.wood<upgrade.wood||mineralCount(p,'iron')<upgrade.iron?'disabled':''}>${inProgress?'Upgrading…':`Upgrade L${meta.level+1}: ${upgrade.gold} SP ${upgrade.wood} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg> ${upgrade.iron} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>`}</button>`;
