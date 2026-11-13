@@ -1,4 +1,20 @@
-# Global Standoff — Prototype 0.4.29
+# Global Standoff — Prototype 0.4.30
+
+## 0.4.30 — Bean troops, long sieges and tactical aftermath
+
+This release changes **the local CPU prototype**, not yet an online/asynchronous multiplayer service.
+
+- **Real SVG bean units on the playable hex map**: country-colored oval bodies, round heads with skin-tone variations, and morale faces. Resource-carrying workers push generic carts whose wheels rotate at their axles. Soldiers have floating equipped weapons, optional shields, faster hops, attack swings and three zoom-detail levels.
+- **Modular craftable equipment**: separate helmets, chest / chain plates, weapons and shields in the roster. Leather, wood, stone, iron, steel, gold-reinforced steel and diamond-reinforced steel have matching material visuals; existing stored armor bundles remain valid in older saves. New recipes use the game's established factory, delivery and Military Post storage system.
+- **Persistent troop statistics**: citizen health is real HP, morale changes attack frequency (high ×1.25, neutral ×1, low ×0.75), and soldier skill changes hit probability rather than damage. Weapon types determine base speed and base damage. Chest protection exceeds shield protection, which exceeds helmet protection. Weapon damage has been reduced to lengthen battles.
+- **100% structural destruction required**: every siege round uses per-soldier strikes and saved outcomes. Killing defenders is **not** an automatic victory, surrender does not bypass structural damage, and defenses can be repaired by fortifying. Once destruction reaches 100%, the attacked noncapital hex loses its structures and ownership, becoming **unclaimed**.
+- **Post-breach decisions**: the attacker can claim the ruins, continue pushing toward an adjacent enemy hex, or retreat. Defenders arriving too late to save a destroyed hex can guard the nearest friendly border, counterattack to reclaim the land or retreat to their post. CPU countries also issue post-breach choices.
+- **Troop caravans**: up to six soldiers can ride one available caravan for faster troop deployment or reinforcement; the wagon is reserved during transport and released when troops arrive. The normal turn/round rules still apply.
+- **Campaign length**: unfinished sieges extend the prototype's test-round limit in four-round increments rather than ending mid-battle. Capital sieges are still disabled pending a separate capitulation system.
+
+The exact speed, accuracy, damage and mitigation numbers are provisional balance values; they can be adjusted without replacing the bean art. The test harness exercised siege attrition, 100% destruction, claim, push, retreat, counterattack, late reinforcements and caravan travel, but full iOS/Safari user testing is still recommended.
+
+---
 
 ## Version 0.4.29 — persistent multi-round siege battle system
 

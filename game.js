@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.29 — round-by-round sieges, soldier battles, blockade, capture and orders. */
+/* Global Standoff 0.4.30 — bean-unit combat, 100% siege destruction and tactical aftermath. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -57,6 +57,117 @@ const RECIPES={
 const FACTORY_RECIPES={foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['woodPlanks','woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
 const OUTPUTS={farm:['food','leather'],lumber:['logs'],mine:['stone',...MINERAL_KEYS],foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['wood','woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
 const GOOD_NAMES={food:'Food',logs:'Timber Logs',wood:'Construction Wood',stone:'Stone',leather:'Raw Leather',coal:'Coal',iron:'Iron',copper:'Copper',silver:'Silver',goldOre:'Gold Ore',diamond:'Diamonds',steel:'Steel',woodShield:'Wooden Shield',stoneAxe:'Stone Axe',stonePickaxe:'Stone Pickaxe',stoneSword:'Stone Sword',stoneClub:'Stone Club',leatherArmor:'Leather Armor',ironArmor:'Iron Armor',steelArmor:'Steel Armor',goldArmor:'Gold-Reinforced Steel',diamondArmor:'Diamond-Reinforced Steel'};
+
+// v0.4.30: individually craftable helmets, chest plates, weapons and shields.
+// Existing armor bundles remain readable for saved soldiers; the new slots are independent.
+const WAR_EQUIPMENT={
+ leatherHelmet:['Leather Helmet','leatherFactory',{leather:1},'helmet'],
+ leatherChest:['Leather Chest Plate','leatherFactory',{leather:2},'chest'],
+ woodSword:['Wooden Sword','woodworks',{wood:2},'weapon'],
+ woodBattleAxe:['Wooden Battle Axe','woodworks',{wood:3},'weapon'],
+ woodSpear:['Wooden Spear','woodworks',{wood:2},'weapon'],
+ stoneHelmet:['Stone Helmet','stoneworks',{stone:2},'helmet'],
+ stoneChest:['Stone Chest Plate','stoneworks',{stone:4},'chest'],
+ stoneBattleAxe:['Stone Battle Axe','stoneworks',{stone:3,wood:1},'weapon'],
+ stoneSpear:['Stone Spear','stoneworks',{stone:2,wood:1},'weapon'],
+ stoneSledgehammer:['Stone Sledgehammer','stoneworks',{stone:4,wood:1},'weapon'],
+ ironHelmet:['Iron Helmet','armory',{iron:2},'helmet'],
+ ironChest:['Iron Chest Plate','armory',{iron:3},'chest'],
+ ironChain:['Iron Chain Plate','armory',{iron:2},'chest'],
+ ironSword:['Iron Sword','armory',{iron:2,wood:1},'weapon'],
+ ironBattleAxe:['Iron Battle Axe','armory',{iron:3,wood:1},'weapon'],
+ ironSpear:['Iron Spear','armory',{iron:2,wood:1},'weapon'],
+ ironShield:['Iron Shield','armory',{iron:2,wood:1},'shield'],
+ steelHelmet:['Steel Helmet','armory',{steel:2},'helmet'],
+ steelChest:['Steel Chest Plate','armory',{steel:3},'chest'],
+ steelChain:['Steel Chain Plate','armory',{steel:2},'chest'],
+ steelSword:['Steel Sword','armory',{steel:2,wood:1},'weapon'],
+ steelBattleAxe:['Steel Battle Axe','armory',{steel:3,wood:1},'weapon'],
+ steelSpear:['Steel Spear','armory',{steel:2,wood:1},'weapon'],
+ steelShield:['Steel Shield','armory',{steel:2,wood:1},'shield']
+};
+for(const material of ['gold','diamond']){
+ const prefix=material==='gold'?'Gold-Reinforced Steel':'Diamond-Reinforced Steel';
+ const ingredient=material==='gold'?'goldOre':'diamond';
+ for(const [key,label,qty,slot] of [
+  ['Helmet','Helmet',2,'helmet'],['Chest','Chest Plate',3,'chest'],
+  ['Chain','Chain Plate',2,'chest'],['Sword','Sword',2,'weapon'],
+  ['BattleAxe','Battle Axe',3,'weapon'],['Spear','Spear',2,'weapon'],
+  ['Shield','Shield',2,'shield']]){
+  WAR_EQUIPMENT[material+'Steel'+key]=[prefix+' '+label,'armory',{steel:qty,[ingredient]:1},slot];
+ }
+}
+for(const [key,[label,factory,input]] of Object.entries(WAR_EQUIPMENT)){
+ RECIPES[key]={name:label,input,output:key};
+ FACTORY_RECIPES[factory].push(key);
+ OUTPUTS[factory].push(key);
+ GOOD_NAMES[key]=label;
+}
+const WAR_SLOT_ITEMS={
+ helmet:Object.keys(WAR_EQUIPMENT).filter(k=>WAR_EQUIPMENT[k][3]==='helmet'),
+ chest:Object.keys(WAR_EQUIPMENT).filter(k=>WAR_EQUIPMENT[k][3]==='chest'),
+ weapon:['stoneSword','stoneAxe',...Object.keys(WAR_EQUIPMENT).filter(k=>WAR_EQUIPMENT[k][3]==='weapon')],
+ shield:['woodShield',...Object.keys(WAR_EQUIPMENT).filter(k=>WAR_EQUIPMENT[k][3]==='shield')]
+};
+const WAR_SHIELD_VALUES={wood:0.06,stone:0.09,iron:0.12,steel:0.15,gold:0.17,diamond:0.19};
+const WAR_CHEST_VALUES={leather:0.08,stone:0.11,iron:0.16,steel:0.20,gold:0.22,diamond:0.24};
+const WAR_HELM_VALUES={leather:0.025,stone:0.035,iron:0.045,steel:0.06,gold:0.07,diamond:0.08};
+function warMaterial(item){
+ const key=String(item||'').toLowerCase();
+ if(key.includes('diamond'))return 'diamond';
+ if(key.includes('gold'))return 'gold';
+ if(key.includes('steel'))return 'steel';
+ if(key.includes('iron'))return 'iron';
+ if(key.includes('stone'))return 'stone';
+ if(key.includes('leather'))return 'leather';
+ if(key.includes('wood'))return 'wood';
+ return 'none';
+}
+function warSkill(c){
+ return Math.max(0,Math.min(100,Math.round(Number.isFinite(c.military?.skill)
+  ?c.military.skill:16+(c.military?.training||1)*13+(c.military?.experience||0)*3)));
+}
+function warMoraleSpeed(c){const m=c.morale??50;return m>=70?1.25:m<35?.75:1;}
+function warWeaponClass(key){
+ key=String(key||'').toLowerCase();
+ return key.includes('sledge')||key.includes('club')?'hammer':
+ key.includes('battleaxe')||key.includes('axe')?'axe':
+ key.includes('spear')?'spear':'sword';
+}
+function warAttackSpeed(c){
+ if(!c.military?.weapon)return .85*warMoraleSpeed(c);
+ const type=warWeaponClass(c.military?.weapon);
+ return ({sword:1.15,axe:0.82,spear:1.40,hammer:0.58})[type]*warMoraleSpeed(c);
+}
+function warWeaponDamage(c){
+ if(!c.military?.weapon)return .8;
+ const mat=warMaterial(c.military?.weapon),kind=warWeaponClass(c.military?.weapon);
+ const base=({sword:2.4,axe:3.2,spear:1.9,hammer:4.2})[kind];
+ return base+({none:0,wood:0,stone:0.5,iron:1,steel:1.4,gold:1.7,diamond:1.9})[mat];
+}
+function warDefense(c){
+ const m=c.military||{},old=m.gear&&GEAR[m.gear]?m.gear:null;
+ const helmet=warMaterial(m.helmet),chest=warMaterial(m.chest)||'none',shield=warMaterial(m.shield);
+ return Math.min(0.58,(WAR_HELM_VALUES[helmet]||0)+(WAR_CHEST_VALUES[chest==='none'?old:chest]||0)+(WAR_SHIELD_VALUES[shield]||0));
+}
+function canEquipWarItem(p,c,key){
+ const slot=Object.entries(WAR_SLOT_ITEMS).find(([,items])=>items.includes(key))?.[0];
+ if(!slot||!c?.military||c.military.missionId||c.military[slot]===key)return false;
+ const stock=postStock(p,c.military.postId);
+ return !!stock&&localCount(stock,key)>0;
+}
+function equipWarItem(citizenId,key,id=0){
+ const p=G.players[id],c=p?.citizens.find(x=>String(x.id)===String(citizenId));
+ if(!p||!canCountryAct(p,id)||!canEquipWarItem(p,c,key))return false;
+ const slot=Object.entries(WAR_SLOT_ITEMS).find(([,items])=>items.includes(key))[0];
+ const stock=postStock(p,c.military.postId);
+ addLocal(stock,key,-1);
+ const prior=c.military[slot];if(prior&&GOOD_NAMES[prior])addLocal(stock,prior,1);
+ c.military[slot]=key;
+ useAction(p,p.name+' equipped '+c.name+' with '+GOOD_NAMES[key]+'.',{tileId:c.military.postId,kind:'equip'});
+ return true;
+}
+
 function emptyMinerals(){return {...START_MINERALS,coal:0,iron:0};}
 function veinFor(seed,tileId){
  const rng=mulberry32(hash(seed+':mineral-deposit:'+tileId));
@@ -84,7 +195,7 @@ function prepareMineralVeins(tiles,seed,legacy=false){
  }
 }
 function mineralCount(p,key){return Math.max(0,Math.floor(p.minerals?.[key]||0));}
-function gearReadiness(c){return 10+2*(c.military?.training||1)+Math.floor((c.military?.experience||0)/3)+(GEAR[c.military?.gear]?.bonus||0)+(c.military?.shield==='woodShield'?2:0)+(c.military?.weapon?.startsWith('stone')?2:0);}
+function gearReadiness(c){return Math.round(10+2*(c.military?.training||1)+Math.floor((c.military?.experience||0)/3)+(GEAR[c.military?.gear]?.bonus||0)+30*warDefense(c)+warWeaponDamage(c)+warSkill(c)*.10);}
 
 const BUILDINGS={
  farm:{name:'Farm',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>',gold:4,wood:2,iron:0,space:2,rounds:1,upkeep:1,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Workers produce Food and raw Leather · both must be delivered'},
@@ -822,7 +933,7 @@ function autoDispatchOutputs(){
   for(const item of OUTPUTS[kind]||[]){
    const count=localCount(site,item);if(count<1)continue;
    let to=site.routes?.[item]??null;
-   if(p.id!==0&&to===null&&(['woodShield','leatherArmor','ironArmor','steelArmor','goldArmor','diamondArmor'].includes(item)||item.startsWith('stone'))){const post=getMilitaryPosts(p.id)[0];if(post)to=postStock(p,post.id)?.id||'depot';}
+   if(p.id!==0&&to===null&&(['woodShield','leatherArmor','ironArmor','steelArmor','goldArmor','diamondArmor'].includes(item)||WAR_EQUIPMENT[item]||item.startsWith('stone'))){const post=getMilitaryPosts(p.id)[0];if(post)to=postStock(p,post.id)?.id||'depot';}
    if(to===null)to=nearbyStorage(p,t,item)?.id||'depot';
    if(String(to)===String(site.id)||!siteLookup(p.id,to))continue;
    dispatchShipment(p.id,site.id,to,item,Math.min(10,count),true);
@@ -873,7 +984,7 @@ function processSteelworks(){processFactories();}
 function makeCitizen(p,rng,starting=false){
  const n=p.nextCitizenId++;
  return {id:`${p.id}-${n}`,name:FIRST_NAMES[randInt(rng,FIRST_NAMES.length)]+' '+LAST_NAMES[randInt(rng,LAST_NAMES.length)],
- age:starting?18+randInt(rng,48):(rng()<.67?18+randInt(rng,38):randInt(rng,17)),health:45+randInt(rng,56),morale:40+randInt(rng,61),homeId:null,military:null,job:null};
+ age:starting?18+randInt(rng,48):(rng()<.67?18+randInt(rng,38):randInt(rng,17)),health:45+randInt(rng,56),morale:40+randInt(rng,61),skinTone:randInt(rng,5),homeId:null,military:null,job:null};
 }
 function buildUsed(t){return (t.capital?2:0)+(t.buildings||[]).reduce((sum,type)=>sum+(BUILDINGS[type]?.space||0),0)+(G?.projects||[]).filter(j=>j.tileId===t.id&&!j.upgradeSiteId).reduce((sum,j)=>sum+(BUILDINGS[j.type]?.space||0),0);}
 function buildFree(t){return Math.max(0,TERRAIN[t.terrain].slots-buildUsed(t));}
@@ -1123,7 +1234,7 @@ function migrateGameplay(s){
   p.minerals??=emptyMinerals();
   for(const key of [...MINERAL_KEYS,'steel'])p.minerals[key]=Math.max(0,Math.floor(p.minerals[key]||0));
   if(p.ore!==undefined){p.minerals.iron+=Math.max(0,Math.floor(p.ore));delete p.ore;}
-  for(const c of p.citizens||[]){if(c.health==null||c.morale==null){const rng=mulberry32(hash(s.seed+':traits:'+c.id));c.health=45+randInt(rng,56);c.morale=40+randInt(rng,61);}if(c.military){if(s.logisticsVersion!==1&&(!c.military.gear||['basic','leather'].includes(c.military.gear)))c.military.gear=null; c.military.shield??=null;c.military.weapon??=null;}c.job??=null;}
+  for(const c of p.citizens||[]){if(c.health==null||c.morale==null){const rng=mulberry32(hash(s.seed+':traits:'+c.id));c.health=45+randInt(rng,56);c.morale=40+randInt(rng,61);}if(c.military){if(s.logisticsVersion!==1&&(!c.military.gear||['basic','leather'].includes(c.military.gear)))c.military.gear=null; c.military.helmet??=null;c.military.chest??=null;c.military.skill??=warSkill(c);c.military.shield??=null;c.military.weapon??=null;}c.skinTone??=hash(s.seed+':skin:'+c.id)%5;c.job??=null;}
  }
  if(!s.crewVersion){
   s.turnClock??=0;
@@ -1260,7 +1371,7 @@ function startWar(a,b,cause='A war declaration arrived by messenger falcon',call
 }
 function endWar(a,b){
  const w=currentWar(a,b);if(!w)return false;w.status='peace';w.endedClock=G.turnClock||0;
- for(const siege of G.sieges||[])if(['marching','active'].includes(siege.status)
+ for(const siege of G.sieges||[])if(['marching','active','breached','aftermath','counterattack'].includes(siege.status)
   &&warPair(siege.attacker,siege.defender)===warPair(a,b))finishSiege(siege,'ceasefire');
  addLog(`${G.players[a].name} and ${G.players[b].name} signed a ceasefire.`);
  return true;
@@ -1386,7 +1497,7 @@ function militaryTravelPath(owner,from,to){
  const path=[to.id];while(path[0]!==from.id){const p=prev.get(path[0]);if(!p)return null;path.unshift(p);}
  return {path,points:cost.get(to.id)};
 }
-function orderMilitary(to,enemy,postId,qty,kind='patrol',id=0){
+function orderMilitary(to,enemy,postId,qty,kind='patrol',id=0,transport='foot'){
  const p=G.players[id],post=G.tiles.find(t=>t.id===postId),target=G.tiles.find(t=>t.id===to);
  if(!p||!target||!post||!currentWar(id,enemy)||p.logisticsUsed||G.turnIndex!==id)return false;
  if(id===0&&!active())return false;
@@ -1396,7 +1507,10 @@ function orderMilitary(to,enemy,postId,qty,kind='patrol',id=0){
  const soldiers=postGarrison(p,postId).filter(c=>!c.military.missionId).slice(0,Number(qty));
  if(!soldiers.length||soldiers.length!==Number(qty)||soldiers.length>12)return false;
  const route=militaryTravelPath(id,post,target);if(!route)return false;
+ const cartChoice=transport==='caravan'?warCartAtPost(id,post,soldiers.length):null;
+ if(transport==='caravan'&&!cartChoice)return false;
  const mission={id:G.nextOrderId++,owner:id,enemy,originPostId:post.id,targetTileId:target.id,kind,troopIds:soldiers.map(c=>c.id),path:route.path,index:0,stepSpent:0,totalPoints:route.points,startedClock:G.turnClock||0,status:'traveling'};
+ if(cartChoice){const ride=warSeatTroops(id,post,soldiers.length,'patrol-'+mission.id,route.path);if(!ride)return false;Object.assign(mission,ride,{transport:'caravan',totalTravel:Math.ceil((route.points+cartChoice.cost)/4)});}
  G.militaryOrders.push(mission);for(const c of soldiers)c.military.missionId=mission.id;
  p.logisticsUsed=true;addLog(`${p.name} issued confidential military orders during the war phase.`);
  if(id===0){showToast(`Dispatched ${soldiers.length} troops; off-road travel is slower.`);save();render();}
@@ -1414,9 +1528,19 @@ function progressWarOrders(){
   if(m.index>=m.path.length-1){m.status=m.kind==='return'?'returned':'patrolling';continue;}
   const t=G.tiles.find(t=>t.id===m.path[m.index]),next=G.tiles.find(t=>t.id===m.path[m.index+1]);if(!t||!next)continue;
   const need=roadExistsBetween(t,next)?1:(next.owner===m.owner?2:3)+(next.terrain==='mountain'?1:0);
-  m.stepSpent++;if(m.stepSpent>=need){m.index++;m.stepSpent=0;}
+  if(m.transport==='caravan'){
+    let budget=4;
+    while(budget>0&&m.index<m.path.length-1){
+     const from=G.tiles.find(t=>t.id===m.path[m.index]),toward=G.tiles.find(t=>t.id===m.path[m.index+1]);
+     if(!from||!toward)break;
+     const step=roadExistsBetween(from,toward)?1:(toward.owner===m.owner?2:3)+(toward.terrain==='mountain'?1:0);
+     if(step>budget)break;budget-=step;m.index++;
+    }
+   }else{m.stepSpent++;if(m.stepSpent>=need){m.index++;m.stepSpent=0;}}
+   if(m.cartId){const cart=G.players[m.owner]?.caravans.find(c=>c.id===m.cartId);if(cart)cart.currentTileId=m.path[m.index];}
   if(m.index>=m.path.length-1){m.status=m.kind==='return'?'returned':'patrolling';
-   if(m.status==='returned'){const p=G.players[m.owner];for(const c of p.citizens)if(c.military?.missionId===m.id)c.military.missionId=null;}
+   if(m.cartId){warReleaseTransport(G.players[m.owner]?.caravans.find(c=>c.id===m.cartId));m.cartId=null;m.transport='foot';}
+    if(m.status==='returned'){const p=G.players[m.owner];for(const c of p.citizens)if(c.military?.missionId===m.id)c.military.missionId=null;}
    else if(m.owner===0)addLog(`Your ${m.kind==='flank'?'flanking party':'border patrol'} reached its assigned position.`);
   }
  }
@@ -1452,6 +1576,32 @@ function siegeStagingRoute(owner,post,target){
  return friendly.map(t=>({tile:t,route:militaryTravelPath(owner,post,t)}))
   .filter(e=>e.route).sort((a,b)=>a.route.points-b.route.points)[0]||null;
 }
+
+function warCartAtPost(owner,post,qty){
+ if(!post||qty>6)return null;
+ const p=G.players[owner];if(!p)return null;
+ syncCaravans(p);
+ return (p.caravans||[]).filter(c=>!c.shipmentId).map(cart=>{
+  const here=G.tiles.find(t=>t.id===cart.currentTileId);
+  const path=here?ownedPath(owner,here,post):null;
+  return {cart,path,cost:path?pathCost(owner,path):Infinity};
+ }).filter(v=>v.path).sort((a,b)=>a.cost-b.cost)[0]||null;
+}
+function warSeatTroops(owner,post,qty,mission,path){
+ const ready=warCartAtPost(owner,post,qty);if(!ready)return null;
+ const cart=ready.cart;
+ cart.shipmentId='troops:'+mission;cart.troopMissionId=mission;
+ return {cartId:cart.id,ridePath:[...ready.path,...(path||[]).slice(1)],rideCost:ready.cost};
+}
+function warMoveRidingCart(owner,job){
+ if(!job?.cartId||!job.ridePath?.length)return;
+ const cart=G.players[owner]?.caravans.find(c=>c.id===job.cartId);
+ if(!cart)return;
+ const total=Math.max(1,job.totalTravel||1),remaining=Math.max(0,job.marchRemaining??job.remaining??0);
+ const index=Math.min(job.ridePath.length-1,Math.max(0,Math.floor((1-remaining/total)*(job.ridePath.length-1))));
+ cart.currentTileId=job.ridePath[index];
+ if(!remaining)warReleaseTransport(cart);
+}
 function canStartSiege(tileId,postId,owner){
  const p=G.players[owner],target=G.tiles.find(t=>t.id===tileId),
   post=G.tiles.find(t=>t.id===postId);
@@ -1461,19 +1611,22 @@ function canStartSiege(tileId,postId,owner){
  if((G.sieges||[]).some(s=>s.attacker===owner&&['marching','active'].includes(s.status)))return false;
  return !!siegeStagingRoute(owner,post,target);
 }
-function startSiege(tileId,postId,qty,owner=0){
+function startSiege(tileId,postId,qty,owner=0,transport='foot'){
  const p=G.players[owner],target=G.tiles.find(t=>t.id===tileId);
  if(!G||!p||G.turnIndex!==owner||G.finished||owner===0&&!active()||!canStartSiege(tileId,postId,owner))return false;
  const men=postGarrison(p,postId).filter(c=>!c.military.missionId&&c.health>0).slice(0,Number(qty));
  if(!Number.isInteger(Number(qty))||qty<1||qty>12||men.length!==Number(qty))return false;
  const staging=siegeStagingRoute(owner,G.tiles.find(t=>t.id===postId),target);
  if(!staging)return false;
- const march=Math.max(1,Math.ceil(staging.route.points/2));
+ const cartChoice=transport==='caravan'?warCartAtPost(owner,G.tiles.find(t=>t.id===postId),men.length):null;
+ if(transport==='caravan'&&!cartChoice)return false;
+ const march=Math.max(1,Math.ceil((staging.route.points+(cartChoice?.cost||0))/(cartChoice?4:2)));
  const siege={id:G.nextSiegeId++,targetTileId:target.id,stagingTileId:staging.tile.id,originPostId:postId,
   attacker:owner,defender:target.owner,attackerIds:men.map(c=>c.id),defenderIds:[],
   status:'marching',marchRemaining:march,createdClock:G.turnClock||0,startedRound:G.round,
-  roundNumber:0,supply:0,fort:0,morale:0,preparation:0,history:[],reinforcements:[],
+  roundNumber:0,supply:0,fort:0,morale:0,destruction:0,preparation:0,history:[],reinforcements:[],
   attackerStanding:'blockade',defenderStanding:'hold',attackerOrder:null,defenderOrder:null};
+ if(cartChoice){const ride=warSeatTroops(owner,G.tiles.find(t=>t.id===postId),men.length,'siege-'+siege.id,staging.route.path);if(!ride)return false;Object.assign(siege,ride,{totalTravel:march,transport:'caravan'});}
  G.sieges.push(siege);
  for(const c of men)c.military.missionId='siege-a-'+siege.id;
  p.logisticsUsed=true;
@@ -1491,7 +1644,7 @@ function canReinforceSiege(s,postId,owner){
  const dest=side==='attacker'?G.tiles.find(t=>t.id===s.stagingTileId):target;
  return !!dest&&dest.owner===owner&&!!militaryTravelPath(owner,post,dest);
 }
-function reinforceSiege(id,postId,qty,owner=0){
+function reinforceSiege(id,postId,qty,owner=0,transport='foot'){
  const s=(G.sieges||[]).find(s=>s.id===Number(id)),p=G.players[owner];
  if(!G||!s||!p||G.turnIndex!==owner||G.finished||owner===0&&!active()||!canReinforceSiege(s,postId,owner))return false;
  const side=owner===s.attacker?'attacker':'defender',destination=G.tiles.find(t=>t.id===(side==='attacker'?s.stagingTileId:s.targetTileId));
@@ -1500,9 +1653,13 @@ function reinforceSiege(id,postId,qty,owner=0){
  const available=postGarrison(p,postId).filter(c=>c.health>0&&!c.military.missionId);
  const number=Number(qty);
  if(!Number.isInteger(number)||number<1||number>capacity||number>available.length||!route)return false;
- const troops=available.slice(0,number),travel=Math.max(1,Math.ceil(route.points/2));
+ const cartChoice=transport==='caravan'?warCartAtPost(owner,post,number):null;
+ if(transport==='caravan'&&!cartChoice)return false;
+ const troops=available.slice(0,number),travel=Math.max(1,Math.ceil((route.points+(cartChoice?.cost||0))/(cartChoice?4:2)));
  s.reinforcements??=[];
- s.reinforcements.push({owner,side,postId,ids:troops.map(c=>c.id),remaining:travel,createdClock:G.turnClock||0});
+ const reinforcement={owner,side,postId,ids:troops.map(c=>c.id),remaining:travel,createdClock:G.turnClock||0};
+ if(cartChoice){const ride=warSeatTroops(owner,post,number,'reinforcement-'+s.id+'-'+G.turnClock,route.path);if(!ride)return false;Object.assign(reinforcement,ride,{totalTravel:travel,transport:'caravan'});}
+ s.reinforcements.push(reinforcement);
  for(const c of troops)c.military.missionId='siege-r-'+s.id;
  p.logisticsUsed=true;
  addLog(`${p.name} sent ${number} reinforcement${number===1?'':'s'} toward the siege of ${G.tiles.find(t=>t.id===s.targetTileId)?.name||destination.name}. Travel: ${travel} world ticks.`);
@@ -1511,31 +1668,44 @@ function reinforceSiege(id,postId,qty,owner=0){
 }
 function progressSiegeReinforcements(){
  for(const s of G.sieges||[]){
-  if(s.status!=='active')continue;
+  if(!['active','breached','aftermath','counterattack'].includes(s.status))continue;
   s.reinforcements??=[];
   for(const job of [...s.reinforcements]){
    if((G.turnClock||0)<=job.createdClock+1)continue;
-   const p=G.players[job.owner],target=G.tiles.find(t=>t.id===(job.side==='attacker'?s.stagingTileId:s.targetTileId));
-   if(!p||!target||target.owner!==job.owner){
+   const p=G.players[job.owner];
+   const target=G.tiles.find(t=>t.id===(job.side==='attacker'?s.stagingTileId:s.targetTileId));
+   const late=job.side==='defender'&&['breached','aftermath','counterattack'].includes(s.status);
+   if(!p||!target||(!late&&target.owner!==job.owner)){
     for(const c of p?.citizens||[])if(job.ids.includes(c.id)&&c.military?.missionId==='siege-r-'+s.id)c.military.missionId=null;
+    warReleaseTransport(p?.caravans?.find(c=>c.id===job.cartId));
     s.reinforcements=s.reinforcements.filter(r=>r!==job);continue;
    }
-   job.remaining=Math.max(0,job.remaining-1);
+   job.remaining=Math.max(0,job.remaining-1);warMoveRidingCart(job.owner,job);
    if(job.remaining>0)continue;
+   if(late){
+    s.lateDefenderIds??=[];s.lateDefenderPostId=job.postId;
+    for(const cid of job.ids){
+     const c=p.citizens.find(c=>c.id===cid&&c.health>0&&c.military?.missionId==='siege-r-'+s.id);
+     if(c){s.lateDefenderIds.push(cid);c.military.missionId='siege-d-'+s.id;}
+    }
+    s.lateDefenderIds=[...new Set(s.lateDefenderIds)];s.endedRead=false;
+    s.reinforcements=s.reinforcements.filter(r=>r!==job);
+    addLog(p.name+' arrived after '+target.name+' was destroyed. Choose guard, counterattack or retreat.');
+    continue;
+   }
    const roster=job.side==='attacker'?s.attackerIds:s.defenderIds;
    let arrived=0;
    for(const cid of job.ids){
-    const citizen=p.citizens.find(c=>c.id===cid&&c.health>0&&c.military?.missionId==='siege-r-'+s.id);
-    if(!citizen)continue;
-    if(siegeTeam(s,job.side).length>=12){citizen.military.missionId=null;continue;}
-    roster.push(cid);citizen.military.missionId='siege-'+(job.side==='attacker'?'a-':'d-')+s.id;arrived++;
+    const soldier=p.citizens.find(c=>c.id===cid&&c.health>0&&c.military?.missionId==='siege-r-'+s.id);
+    if(!soldier)continue;
+    if(siegeTeam(s,job.side).length>=12){soldier.military.missionId=null;continue;}
+    roster.push(cid);soldier.military.missionId='siege-'+(job.side==='attacker'?'a-':'d-')+s.id;arrived++;
    }
    s.reinforcements=s.reinforcements.filter(r=>r!==job);
-   if(arrived)addLog(`${arrived} ${p.name} reinforcement${arrived===1?'':'s'} arrived at the siege of ${G.tiles.find(t=>t.id===s.targetTileId)?.name||'the frontier'}.`);
+   if(arrived)addLog(arrived+' '+p.name+' reinforcement(s) arrived at '+target.name+'.');
   }
  }
 }
-
 function establishSiege(s){
  const target=G.tiles.find(t=>t.id===s.targetTileId),defender=G.players[s.defender];
  if(!target||target.owner!==s.defender||!currentWar(s.attacker,s.defender)){finishSiege(s,'cancelled');return;}
@@ -1547,7 +1717,7 @@ function establishSiege(s){
  for(const c of chosen)c.military.missionId='siege-d-'+s.id;
  const stores=(target.buildings||[]).reduce((n,kind,i)=>n+(target.buildingMeta?.[i]?.stock?.food||0),0);
  s.status='active';s.activeRound=G.round;s.supply=Math.min(100,40+Math.min(30,stores)+chosen.length*2);
- s.fort=Math.min(100,28+(buildingCount(target,'post')?22:0)+(target.terrain==='mountain'?14:target.terrain==='hills'?8:target.terrain==='forest'?5:0));
+ s.destruction??=0;s.fort=Math.min(100,28+(buildingCount(target,'post')?22:0)+(target.terrain==='mountain'?14:target.terrain==='hills'?8:target.terrain==='forest'?5:0));
  s.morale=Math.round(chosen.length?chosen.reduce((v,c)=>v+(c.morale||40),0)/chosen.length:55);
  addLog(`${G.players[s.attacker].name} surrounded ${target.name}. A siege is underway: ${chosen.length} defenders, ${s.fort} fortification, ${s.supply} supply.`);
 }
@@ -1555,10 +1725,10 @@ function progressSiegeMarches(){
  for(const s of G.sieges||[]){
   if(s.status!=='marching'||(G.turnClock||0)<=s.createdClock+1)continue;
   if(!currentWar(s.attacker,s.defender)||G.tiles.find(t=>t.id===s.targetTileId)?.owner!==s.defender
-   ||G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker||!siegeTeam(s,'attacker').length){
+   ||(!s.stagingNeutral&&G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker)||!siegeTeam(s,'attacker').length){
    finishSiege(s,'cancelled');continue;
   }
-  s.marchRemaining=Math.max(0,s.marchRemaining-1);
+  s.marchRemaining=Math.max(0,s.marchRemaining-1);warMoveRidingCart(s.attacker,s);
   if(!s.marchRemaining)establishSiege(s);
  }
  progressSiegeReinforcements();
@@ -1604,8 +1774,11 @@ function applySiegeInjuries(s,side,amount,roundSeed){
  return {wounded,dead};
 }
 function finishSiege(s,status){
- if(!['marching','active'].includes(s.status))return;
- s.status=status;s.endedRound=G.round;s.attackerOrder=null;s.defenderOrder=null;s.reinforcements=[];
+ if(!['marching','active','breached','aftermath','counterattack'].includes(s.status))return;
+ s.status=status;s.endedRound=G.round;s.attackerOrder=null;s.defenderOrder=null;
+ for(const j of s.reinforcements||[])warReleaseTransport(G.players[j.owner]?.caravans?.find(c=>c.id===j.cartId));
+ warReleaseTransport(G.players[s.attacker]?.caravans?.find(c=>c.id===s.cartId));
+ s.reinforcements=[];
  for(const id of [s.attacker,s.defender]){
   for(const c of G.players[id]?.citizens||[])if(c.military&&['siege-a-'+s.id,'siege-d-'+s.id,'siege-r-'+s.id].includes(c.military.missionId))
    c.military.missionId=null;
@@ -1640,107 +1813,354 @@ function captureSiegeTerritory(s){
  (G.completedScenes??=[]).push({projectId:`siege-${s.id}-${G.turnClock}`,owner:s.attacker,tileId:t.id,kind:'expand'});
  return true;
 }
-function resolveSieges(){
- for(const s of G.sieges||[]){
-  if(s.status!=='active'||s.activeRound>=G.round)continue;
-  const target=G.tiles.find(t=>t.id===s.targetTileId);
-  if(!target||target.owner!==s.defender||!currentWar(s.attacker,s.defender)
-   ||G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker){finishSiege(s,'cancelled');continue;}
-  const attacker=G.players[s.attacker],defender=G.players[s.defender];
-  const aOrder=siegeOrderFor(s,'attacker'),dOrder=siegeOrderFor(s,'defender');
-  s.roundNumber++;
-  const fresh=siegeTeam(s,'attacker'),guards=siegeTeam(s,'defender');
-  if(!fresh.length||aOrder==='withdraw'){finishSiege(s,fresh.length?'withdrawn':'repelled');continue;}
-  const rng=mulberry32(hash(G.seed+':siege-outcome:'+s.id+':'+G.round));
-  const terrain=(target.terrain==='mountain'?1.3:target.terrain==='hills'?1.17:target.terrain==='forest'?1.1:1);
-  let aPower=siegeStrength(s,'attacker'),dPower=siegeStrength(s,'defender')*terrain;
-  const attackersFed=attacker.food>=Math.max(1,Math.ceil(fresh.length/4));
-  if(attackersFed)attacker.food-=Math.max(1,Math.ceil(fresh.length/4));
-  else {aPower*=.65;for(const c of fresh)c.morale=Math.max(0,c.morale-5);}
-  const supplyBefore=s.supply;
-  const blockade=aOrder==='blockade'?9:aOrder==='disrupt'?7:3;
-  s.supply=Math.max(0,s.supply-(4+Math.ceil(guards.length/3)+blockade));
-  if(aOrder==='disrupt')s.supply=Math.max(0,s.supply-6);
-  if(aOrder==='prepare'&&attacker.wood>=1){attacker.wood--;s.preparation=Math.min(4,s.preparation+1);}
-  if(dOrder==='fortify'&&defender.wood>=2){defender.wood-=2;s.fort=Math.min(100,s.fort+9);}
-  if(dOrder==='resupply'){
-   const corridors=neighbors(target).filter(t=>t.owner===s.defender&&t.terrain!=='water');
-   if(corridors.length&&defender.food>=3){
-    const road=corridors.some(t=>roadExistsBetween(t,target));
-    const success=rng()<Math.min(.95,(aOrder==='blockade'?.35:.74)+(road?.13:0)+(defender.caravans?.length?.08:0));
-    defender.food-=3;
-    if(success)s.supply=Math.min(100,s.supply+(defender.caravans?.length?23:16));
+
+function warRemoveFallen(c,owner,s){
+ if(c.health>0)return false;
+ const p=G.players[owner],i=p.citizens.indexOf(c);
+ if(i<0)return false;
+ p.citizens.splice(i,1);
+ p.deathCount=(p.deathCount||0)+1;p.recentDeaths??=[];
+ p.recentDeaths.unshift({name:c.name,age:c.age,round:G.round,cause:'battle',tileId:s.targetTileId});
+ p.recentDeaths.length=Math.min(8,p.recentDeaths.length);
+ reallocateHousing(p);
+ addLog(c.name+' of '+p.name+' was killed in the siege of '+(G.tiles.find(t=>t.id===s.targetTileId)?.name||'the frontier')+'.');
+ return true;
+}
+// One fixed, virtual combat window per WORLD ROUND. No wall-clock timers
+// affect outcomes: asynchronous players always get the same result on return.
+function warFightWindow(s,leftIds,rightIds,leftOwner,rightOwner,seed,leftIntensity=1,rightIntensity=1){
+ const rng=mulberry32(hash(G.seed+':bean-combat:'+s.id+':'+G.round+':'+seed));
+ const rollSide=(sourceIds,targetIds,sourceOwner,targetOwner,intensity)=>{
+  let strikes=0,hits=0,damage=0,losses=0;
+  const source=G.players[sourceOwner],target=G.players[targetOwner];
+  const attack=sourceIds.map(id=>source.citizens.find(c=>c.id===id)).filter(c=>c?.military&&c.health>0);
+  for(const unit of attack){
+   const attempts=Math.floor(warAttackSpeed(unit)*Math.max(0,intensity)*1.3+
+    rng()); // 0-2 attacks for normal fighters; morale changes frequency.
+   for(let k=0;k<attempts;k++){
+    const targets=targetIds.map(id=>target.citizens.find(c=>c.id===id)).filter(c=>c?.military&&c.health>0);
+    if(!targets.length)break;
+    const enemy=targets[Math.floor(rng()*targets.length)];
+    strikes++;
+    const accuracy=Math.min(0.94,Math.max(0.18,0.26+warSkill(unit)*0.0067));
+    if(rng()>accuracy)continue;
+    hits++;
+    const terrainReduction=s.targetTileId&&G.tiles.find(t=>t.id===s.targetTileId)?.terrain==='mountain'&&targetOwner===s.defender?.90:1;
+    const raw=warWeaponDamage(unit)*terrainReduction*(0.85+rng()*.3);
+    const taken=Math.max(1,Math.round(raw*(1-warDefense(enemy))));
+    enemy.health=Math.max(0,enemy.health-taken);
+    enemy.morale=Math.max(0,(enemy.morale??50)-Math.max(1,Math.round(taken/4)));
+    unit.military.experience=(unit.military.experience||0)+1;
+    // Skill improves with participation, never increases damage directly.
+    if(unit.military.skill!=null&&rng()<.11)unit.military.skill=Math.min(100,unit.military.skill+1);
+    damage+=taken;
+    if(warRemoveFallen(enemy,targetOwner,s))losses++;
    }
   }
-  if(dOrder==='rally')s.morale=Math.min(100,s.morale+11);
-  if(dOrder==='counterattack'){
-   const counterAdvantage=dPower/(aPower+15);
-   applySiegeInjuries(s,'attacker',Math.min(3,Math.max(1,Math.round(counterAdvantage*2))),1);
-   s.morale=Math.max(0,s.morale-2);
+  return {strikes,hits,damage,losses};
+ };
+ // Both sides take their attacks based on the strength present at round start.
+ // Interleave sides per round with seed-determined initiative to reduce first-turn bias.
+ const first=rng()<.5?0:1;
+ const out=[null,null];
+ for(const side of [first,1-first]){
+  out[side]=side===0
+   ?rollSide(leftIds,rightIds,leftOwner,rightOwner,leftIntensity)
+   :rollSide(rightIds,leftIds,rightOwner,leftOwner,rightIntensity);
+ }
+ return {attacker:out[0],defender:out[1]};
+}
+function warDestructionHit(s,attackerHits,attackingCount,defendingCount,aOrder,dOrder){
+ if(aOrder!=='assault')return 0;
+ const rng=mulberry32(hash(G.seed+':siege-structures:'+s.id+':'+G.round));
+ const crew=Math.max(1,attackingCount);
+ const defenseless=defendingCount===0?1.4:1;
+ const shelter=Math.min(.45,(s.fort||0)/225);
+ const prep=s.preparation||0;
+ const base=(crew*.85+attackerHits*.6+prep*1.5)*defenseless*(.85+rng()*.3);
+ return Math.max(1,Math.min(18,Math.round(base*(1-shelter)*(dOrder==='hold'?.86:1))));
+}
+function warReleaseTransport(cart){
+ if(!cart)return;
+ if(typeof cart.shipmentId==='string'&&cart.shipmentId.startsWith('troops:'))cart.shipmentId=null;
+ cart.troopMissionId=null;
+}
+function warReturnTroops(ids,owner,fromId,destinationId,label){
+ const p=G.players[owner],from=G.tiles.find(t=>t.id===fromId),dest=G.tiles.find(t=>t.id===destinationId);
+ const roster=ids.map(id=>p.citizens.find(c=>c.id===id)).filter(c=>c?.military&&c.health>0);
+ if(!roster.length)return;
+ const route=from&&dest?militaryTravelPath(owner,from,dest):null;
+ if(!route){for(const c of roster)c.military.missionId=null;return;}
+ const id=G.nextOrderId++;
+ const mission={id,owner,enemy:null,originPostId:destinationId,targetTileId:destinationId,
+  kind:'return',troopIds:roster.map(c=>c.id),path:route.path,index:0,stepSpent:0,
+  totalPoints:route.points,startedClock:G.turnClock||0,status:'returning'};
+ G.militaryOrders.push(mission);
+ for(const c of roster)c.military.missionId=id;
+ addLog(p.name+' ordered '+roster.length+' soldier(s) to '+label+'.');
+}
+function warDestroyTerritory(s){
+ const tile=G.tiles.find(t=>t.id===s.targetTileId);
+ if(!tile||tile.owner!==s.defender||tile.capital)return false;
+ const former=G.players[s.defender],lastBuilding=tile.buildings.length;
+ // Full destruction removes both ownership and functional structures.
+ tile.owner=null;tile.buildings=[];tile.buildingMeta=[];
+ for(const project of (G.projects||[]).filter(p=>p.tileId===tile.id)){
+  for(const id of project.builderIds||[]){const c=former.citizens.find(c=>c.id===id);if(c?.builder)c.builder.projectId=null;}
+ }
+ G.projects=(G.projects||[]).filter(p=>p.tileId!==tile.id);
+ for(const job of [...(G.shipments||[])])if(job.fromTileId===tile.id||job.toTileId===tile.id){
+  const owner=G.players[job.owner],cart=owner?.caravans.find(c=>c.id===job.caravanId);
+  if(cart){cart.shipmentId=null;cart.currentTileId=job.path?.[job.step]||cart.currentTileId;}
+  if(job.kind==='porter'){const c=owner?.citizens.find(c=>c.id===job.porterId);if(c)c.morale=Math.max(0,(c.morale??50)-2);}
+  G.shipments.splice(G.shipments.indexOf(job),1);
+ }
+ for(const c of former.citizens)if(c.military?.postId===tile.id){
+  const fallback=getMilitaryPosts(s.defender).find(t=>t.id!==tile.id);
+  if(fallback)c.military.postId=fallback.id;else c.military.postId=null;
+ }
+ reallocateHousing(former);assignWorkers(former);
+ s.destruction=100;s.status='breached';s.destroyedRound=G.round;
+ s.attackerChoice=null;s.defenderChoice=null;s.endedRead=false;
+ s.lateDefenderIds=[...new Set(s.defenderIds.filter(id=>former.citizens.some(c=>c.id===id&&c.health>0)))];
+ (G.completedScenes??=[]).push({projectId:'ruins-'+s.id+'-'+G.turnClock,owner:s.attacker,tileId:tile.id,kind:'siege'});
+ addLog(tile.name+' is 100% destroyed. Its '+lastBuilding+' structures are gone and the territory is UNCLAIMED. Both armies must choose their next move.');
+ return true;
+}
+function warChooseAfternath(s,kind,targetId,owner=0){
+ if(!s||!['breached','aftermath'].includes(s.status)||!G||G.turnIndex!==owner||G.finished||(owner===0&&!active()))return false;
+ const tile=G.tiles.find(t=>t.id===s.targetTileId),p=G.players[owner];
+ if(!tile||!p)return false;
+ if(owner===s.attacker&&!s.attackerChoice){
+  if(kind==='claim'){
+   if(tile.owner!==null)return false;
+   tile.owner=owner;s.attackerChoice='claim';s.status='aftermath';
+   reallocateHousing(p);discoverContacts();checkWarningViolation(tile,owner);
+   for(const c of siegeTeam(s,'attacker'))c.military.missionId=null;
+   addLog(p.name+' claimed the destroyed territory of '+tile.name+'. Rebuilding is required.');
+  }else if(kind==='retreat'){
+   s.attackerChoice='retreat';s.status='aftermath';
+   warReturnTroops(s.attackerIds,owner,s.stagingTileId,s.originPostId,'retreat to their original military post');
+  }else if(kind==='push'){
+   const next=G.tiles.find(t=>t.id===targetId);
+   if(!next||next.capital||next.terrain==='water'||next.owner!==s.defender||!neighbors(tile).some(n=>n.id===next.id)||!currentWar(owner,next.owner))return false;
+   const troops=siegeTeam(s,'attacker');
+   if(!troops.length)return false;
+   const fresh={id:G.nextSiegeId++,targetTileId:next.id,stagingTileId:tile.id,stagingNeutral:true,
+    originPostId:s.originPostId,attacker:owner,defender:next.owner,
+    attackerIds:troops.map(c=>c.id),defenderIds:[],status:'marching',
+    marchRemaining:1,createdClock:G.turnClock||0,startedRound:G.round,
+    roundNumber:0,supply:0,fort:0,morale:0,destruction:0,preparation:0,
+    history:[],reinforcements:[],attackerStanding:'assault',defenderStanding:'hold',
+    attackerOrder:null,defenderOrder:null};
+   G.sieges.push(fresh);
+   for(const c of troops)c.military.missionId='siege-a-'+fresh.id;
+   s.attackerChoice='push';s.status='aftermath';
+   addLog(p.name+' advanced from the ruins of '+tile.name+' toward '+next.name+' without claiming the ruined land.');
+  }else return false;
+ }else if(owner===s.defender&&s.lateDefenderIds?.length){
+  const troops=s.lateDefenderIds.map(id=>p.citizens.find(c=>c.id===id)).filter(c=>c?.military&&c.health>0);
+  if(!troops.length){s.lateDefenderIds=[];return false;}
+  const border=G.tiles.filter(t=>t.owner===owner&&t.terrain!=='water').sort((a,b)=>distance(a,tile)-distance(b,tile)||a.id.localeCompare(b.id))[0];
+  if(kind==='guard'){
+   if(!border)return false;
+   // Border stand-ground orders go to the closest friendly edge before remaining on patrol.
+   const origin=G.tiles.find(t=>t.id===troops[0].military.postId)||border;
+   const route=militaryTravelPath(owner,tile,border)||{path:[border.id],points:1};
+   const id=G.nextOrderId++;
+   G.militaryOrders.push({id,owner,enemy:s.attacker,originPostId:origin.id,
+    targetTileId:border.id,kind:'patrol',troopIds:troops.map(c=>c.id),path:route.path,
+    index:0,stepSpent:0,totalPoints:route.points,startedClock:G.turnClock||0,status:'traveling'});
+   for(const c of troops)c.military.missionId=id;
+   addLog(p.name+' deployed late reinforcements to guard the border at '+border.name+'.');
+  }else if(kind==='retreat'){
+   const post=getMilitaryPosts(owner).find(t=>t.id===s.lateDefenderPostId)||getMilitaryPosts(owner)[0];
+   warReturnTroops(troops.map(c=>c.id),owner,tile.id,post?.id,'retreat after the territory was lost');
+  }else if(kind==='attack'){
+   if(!border)return false;
+   // Reinforcements mount a counterattack; occupation is contested for multiple world rounds.
+   s.counterattackIds=troops.map(c=>c.id);s.counterRound=0;s.status='counterattack';s.defenderChoice='attack';
+   addLog(p.name+' launched a counterattack to reclaim '+tile.name+'.');
+   for(const c of troops)c.military.missionId='siege-d-'+s.id;
+  }else return false;
+  if(kind!=='attack'){s.lateDefenderIds=[];s.defenderChoice=kind;}
+ }else return false;
+ s.endedRead=false;
+ save();render();if(owner===0)showToast('Post-battle order recorded');
+ return true;
+}
+function warFinalizeAftermath(s){
+ if(s.status!=='aftermath'||!s.attackerChoice||s.lateDefenderIds?.length||s.reinforcements?.length)return;
+ s.status=s.attackerChoice==='claim'?'claimed':s.attackerChoice==='push'?'advanced':'withdrawn';
+ s.endedRound=G.round;s.endedRead=false;
+ for(const c of siegeTeam(s,'attacker'))if(c.military.missionId==='siege-a-'+s.id)c.military.missionId=null;
+}
+function resolveSieges(){
+ for(const s of G.sieges||[]){
+  if(s.status==='aftermath'){warFinalizeAftermath(s);continue;}
+  if(s.status==='counterattack'){
+   if(s.counterRound===G.round)continue;
+   s.counterRound=G.round;
+   const combat=warFightWindow(s,s.attackerChoice==='claim'?s.attackerIds:[],s.counterattackIds,s.attacker,s.defender,'reclaim',0.9,1);
+   const ra=s.attackerChoice==='claim'?siegeTeam(s,'attacker'):[],rd=s.counterattackIds.map(id=>G.players[s.defender].citizens.find(c=>c.id===id)).filter(c=>c?.military&&c.health>0);
+   const tile=G.tiles.find(t=>t.id===s.targetTileId);
+   if(!rd.length){s.status='aftermath';s.lateDefenderIds=[];s.defenderChoice='failed';}
+   else if(!ra.length||s.counterRoundCount>=3){
+    s.counterRoundCount=(s.counterRoundCount||0)+1;
+    if(!ra.length){tile.owner=s.defender;reallocateHousing(G.players[s.defender]);}
+    s.status='aftermath';s.lateDefenderIds=[];s.defenderChoice=!ra.length?'reclaimed':'repelled';
+    if(!ra.length)s.attackerChoice='retreat';
+    for(const c of rd)c.military.missionId=null;
+   }else s.counterRoundCount=(s.counterRoundCount||0)+1;
+   addLog('Counterattack at '+tile.name+': '+combat.attacker.hits+' attacker hits, '+combat.defender.hits+' defender hits.');
+   continue;
   }
-  let fortHit=0;
-  if(aOrder==='assault'){
-   const attackRatio=aPower/(dPower+24);
-   fortHit=Math.max(4,Math.round((15*attackRatio+3+s.preparation*4)*(dOrder==='hold'?.79:dOrder==='counterattack'?1.12:1)*(.9+rng()*.2)));
-   s.fort=Math.max(0,s.fort-fortHit);
-   const targetLoss=Math.min(4,Math.max(1,Math.round((aPower/(dPower+20))*1.8)));
-   applySiegeInjuries(s,'defender',targetLoss,2);
-   const retaliation=Math.min(3,Math.max(0,Math.round(dPower/(aPower+25)*1.5)));
-   applySiegeInjuries(s,'attacker',retaliation,3);
-   s.preparation=0;
+  if(s.status!=='active'||s.activeRound>=G.round)continue;
+  const target=G.tiles.find(t=>t.id===s.targetTileId);
+  if(!target||target.owner!==s.defender||!currentWar(s.attacker,s.defender)||
+   (!s.stagingNeutral&&G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker)){
+   finishSiege(s,'cancelled');continue;
   }
-  if(s.supply<=20){s.morale=Math.max(0,s.morale-(s.supply===0?14:6));for(const c of siegeTeam(s,'defender'))c.morale=Math.max(0,c.morale-(s.supply===0?5:2));}
-  else if(aOrder==='assault')s.morale=Math.max(0,s.morale-5);
-  if(s.supply===0)for(const c of siegeTeam(s,'defender'))if(c.health>0)c.health=Math.max(1,c.health-2);
-  if(aOrder==='assault'||dOrder==='counterattack')for(const side of ['attacker','defender'])
-   for(const c of siegeTeam(s,side))c.military.experience=(c.military.experience||0)+1;
-  // Civilians living inside the surrounded hex face food shortages; individual
-  // morale/health feed into the existing age-aware mortality system.
-  for(const resident of defender.citizens){
-   if(resident.military||resident.homeId!==target.id)continue;
-   resident.morale=Math.max(0,(resident.morale??50)-(s.supply<=20?(s.supply===0?5:3):1));
-   if(s.supply===0)resident.health=Math.max(0,(resident.health??50)-2);
+  s.roundNumber++;s.destruction??=0;
+  const aOrder=siegeOrderFor(s,'attacker'),dOrder=siegeOrderFor(s,'defender');
+  const fresh=siegeTeam(s,'attacker'),guards=siegeTeam(s,'defender');
+  if(!fresh.length||aOrder==='withdraw'){finishSiege(s,fresh.length?'withdrawn':'repelled');continue;}
+  const attacker=G.players[s.attacker],defender=G.players[s.defender];
+  const ration=Math.max(1,Math.ceil(fresh.length/6));
+  const fed=attacker.food>=ration;
+  if(fed)attacker.food-=ration;
+  else for(const c of fresh)c.morale=Math.max(0,(c.morale??50)-4);
+  const supplyBefore=s.supply;
+  const drain=aOrder==='blockade'?7:aOrder==='disrupt'?10:3;
+  s.supply=Math.max(0,s.supply-drain);
+  if(aOrder==='prepare'&&attacker.wood>=1){attacker.wood--;s.preparation=Math.min(3,(s.preparation||0)+1);}
+  if(dOrder==='fortify'&&defender.wood>=2){defender.wood-=2;s.fort=Math.min(100,s.fort+5);s.destruction=Math.max(0,s.destruction-2);}
+  if(dOrder==='resupply'&&defender.food>=3&&neighbors(target).some(t=>t.owner===s.defender)){
+   defender.food-=3;s.supply=Math.min(100,s.supply+15);
   }
-  const before=guards.length+fresh.length,remainingA=siegeTeam(s,'attacker').length,remainingD=siegeTeam(s,'defender').length;
-  const casualties=before-remainingA-remainingD;
-  const summary=`Round ${s.roundNumber}: ${SIEGE_ATTACK_ORDERS[aOrder]} vs ${SIEGE_DEFEND_ORDERS[dOrder]} · supply ${supplyBefore}→${s.supply}, walls −${fortHit}, casualties ${casualties}.`;
-  s.history.unshift({round:G.round,attacker:aOrder,defender:dOrder,supply:s.supply,fort:s.fort,morale:s.morale,summary});
-  s.history=s.history.slice(0,8);
-  addLog(`Siege of ${target.name}: ${summary}`);
-  if(!remainingA){finishSiege(s,'repelled');continue;}
-  const surrendered=dOrder==='surrender'||(s.supply===0&&s.morale<=20)||(s.fort<=0&&(s.morale<33||remainingD===0));
-  if(surrendered){captureSiegeTerritory(s);continue;}
-  if(dOrder==='counterattack'&&remainingD>=remainingA*2&&s.supply>20&&aPower<dPower*.55){
-   finishSiege(s,'repelled');continue;
-  }
+  if(dOrder==='rally')for(const c of guards)c.morale=Math.min(100,(c.morale??50)+5);
+  const leftIntensity=(aOrder==='assault'?1:aOrder==='disrupt'?.40:aOrder==='blockade'?.25:.12)*(fed?1:.65);
+  const rightIntensity=dOrder==='counterattack'?1.1:dOrder==='hold'?.60:dOrder==='fortify'?.25:.4;
+  const clash=warFightWindow(s,s.attackerIds,s.defenderIds,s.attacker,s.defender,'siege',leftIntensity,rightIntensity);
+  const before=s.destruction;
+  const structural=warDestructionHit(s,clash.attacker.hits,fresh.length,siegeTeam(s,'defender').length,aOrder,dOrder);
+  s.destruction=Math.min(100,s.destruction+structural);
+  if(aOrder==='assault')s.preparation=0;
+  if(s.supply<=20)for(const c of siegeTeam(s,'defender'))c.morale=Math.max(0,(c.morale??50)-(s.supply===0?4:2));
+  const casualties=clash.attacker.losses+clash.defender.losses;
+  s.lastCombatRound=G.round;s.lastCombatHits={attacker:clash.attacker.hits,defender:clash.defender.hits};
+  const summary='Round '+s.roundNumber+': '+SIEGE_ATTACK_ORDERS[aOrder]+' vs '+SIEGE_DEFEND_ORDERS[dOrder]+
+   ' · destruction '+before+'→'+s.destruction+'/100 · hits '+clash.attacker.hits+' / '+clash.defender.hits+
+   ' · casualties '+casualties+' · supplies '+supplyBefore+'→'+s.supply+'.';
+  s.history.unshift({round:G.round,attacker:aOrder,defender:dOrder,supply:s.supply,fort:s.fort,
+   destruction:s.destruction,morale:s.morale,summary});
+  s.history=s.history.slice(0,15);
+  addLog('Siege of '+target.name+': '+summary);
+  if(s.destruction===100){warDestroyTerritory(s);continue;}
+  if(!siegeTeam(s,'attacker').length){finishSiege(s,'repelled');continue;}
+  // Even when all defenders are defeated, destruction must reach 100% to take land.
  }
 }
+
+// v0.4.30 bean artwork. This SVG is the actual runtime drawing, not preview art.
+// Material trim and weapon silhouette come exclusively from the soldier's loadout.
+const BEAN_SKINS=['#f2c9a6','#dca781','#bd805b','#8c5941','#593a2c'];
+function beanSkin(c){
+ if(c?.skinTone!=null)return BEAN_SKINS[Math.abs(Number(c.skinTone)||0)%BEAN_SKINS.length];
+ return BEAN_SKINS[hash('skin:'+String(c?.id||'0'))%BEAN_SKINS.length];
+}
+function beanMood(c){
+ const m=c?.morale??50;
+ return m>=70?'M-3 -14Q0 -9 3 -14':m<35?'M-3 -11Q0 -16 3 -11':'M-3 -13H3';
+}
+function beanLod(){return view.w>=680?0:view.w>=330?1:2;}
+function beanPaint(material){
+ const metal={leather:['#986b46','#d6a679'],stone:['#949b9b','#cbd0ce'],
+ iron:['#879aa7','#d1dce0'],steel:['#b6c7d5','#f0fbff'],
+ gold:['#c4d0d8','#e9bc52'],diamond:['#c3d0dd','#60ddeb'],
+ wood:['#ae8356','#e9c28c'],none:['#84969c','#b3c5c4']};
+ return metal[material]||metal.none;
+}
+function beanHelmet(c,lod){
+ const m=c.military||{},item=m.helmet||null;
+ if(!item)return '';
+ const [base,trim]=beanPaint(warMaterial(item));
+ let html='<path d="M-9-28Q-9-42 0-42Q9-42 9-28L8-26Q0-29-8-26Z" fill="'+base+'" stroke="#2a3b47" stroke-width="1.5"/>';
+ if(lod>=1)html+='<path d="M-8-28Q0-32 8-28M0-40V-30" fill="none" stroke="'+trim+'" stroke-width="1.4"/>';
+ if(lod>=2&&['gold','diamond'].includes(warMaterial(item)))html+='<path d="M0-36l2 3-2 3-2-3Z" fill="'+trim+'"/>';
+ return html;
+}
+function beanChest(c,lod){
+ const m=c.military||{},item=m.chest||((m.gear&&GEAR[m.gear])?m.gear:null);
+ if(!item)return '';
+ const mat=warMaterial(item),[base,trim]=beanPaint(mat);
+ const chain=/chain/i.test(item);
+ let html='<path d="M-10-21Q0-24 10-21L11-8Q0 2-11-8Z" fill="'+base+'" stroke="#293a45" stroke-width="1.3"/>';
+ if(lod>=1){
+  if(chain&&lod>=2)for(let y=-19;y<-5;y+=4)for(let x=-8;x<8;x+=5)
+   html+='<path d="M'+x+' '+y+'q2 3 4 0" stroke="'+trim+'" stroke-width=".8" fill="none"/>';
+  else html+='<path d="M0-21V-2M-8-16L8-16" fill="none" stroke="'+trim+'" stroke-width="1.2"/>';
+ }
+ if(lod>=2&&['gold','diamond'].includes(mat))html+='<path d="M0-16l2 2-2 3-2-3Z" fill="'+trim+'"/>';
+ return html;
+}
+function beanWeapon(c,lod){
+ const key=c.military?.weapon;if(!key)return '';
+ const kind=warWeaponClass(key),mat=warMaterial(key),[base,trim]=beanPaint(mat);
+ const blade=mat==='wood'?'#ad7746':base;
+ let shape='';
+ if(kind==='sword')shape='<path d="M-2 3L-3-15L0-22L3-15L2 3Z" fill="'+blade+'" stroke="#33404a" stroke-width="1.1"/>'+
+  '<path d="M-6 4H6" stroke="'+trim+'" stroke-width="2.4"/><path d="M0 4V11" stroke="#775038" stroke-width="2.6"/>';
+ else if(kind==='spear')shape='<path d="M0 11V-14" stroke="#805938" stroke-width="2.5"/>'+
+  '<path d="M-4-13L0-23L4-13L0-9Z" fill="'+blade+'" stroke="#384751" stroke-width="1"/>';
+ else if(kind==='axe')shape='<path d="M0 10V-16" stroke="#86593d" stroke-width="2.8"/>'+
+  '<path d="M0-17L8-22L11-19L10-8L3-5L0-8Z" fill="'+blade+'" stroke="#3a454a" stroke-width="1.2"/>';
+ else shape='<path d="M0 11V-17" stroke="#86593d" stroke-width="2.8"/>'+
+  '<rect x="-8" y="-22" width="16" height="8" rx="1.5" fill="'+blade+'" stroke="#3a454a" stroke-width="1.2"/>';
+ if(lod>=2&&mat!=='wood')shape+='<path d="M0-17V-8" stroke="'+trim+'" stroke-width=".9"/>';
+ return '<g transform="translate(16 -9)"><g class="gs-bean-weapon">'+shape+'</g></g>';
+}
+function beanShield(c,lod){
+ const key=c.military?.shield;if(!key)return '';
+ const mat=warMaterial(key),[base,trim]=beanPaint(mat);
+ let shield='<path d="M0-11L9-8L8 5L0 12L-8 5L-9-8Z" fill="'+base+'" stroke="#243a45" stroke-width="1.7"/>';
+ if(lod>=1)shield+='<path d="M0-7L5-5L4 3L0 7L-4 3L-5-5Z" fill="'+(mat==='wood'?'#997047':'#8ba9b9')+'" stroke="'+trim+'" stroke-width="1.3"/>';
+ if(lod>=2)shield+='<circle r="2.3" fill="'+trim+'" stroke="#50616a" stroke-width=".7"/>';
+ return '<g transform="translate(-17 -7)"><g class="gs-bean-shield">'+shield+'</g></g>';
+}
+function beanPerson(c,owner,kind='soldier',lod=beanLod()){
+ const col=owner?.color||'#7ed0b7',skin=beanSkin(c);
+ const body='<path d="M0-23C-10-23-13-13-13-6Q-14 9 0 10Q14 9 13-6C13-16 10-23 0-23Z" fill="'+col+'" stroke="#29383f" stroke-width="1.8"/>'+
+  (lod>=1?'<path d="M-7-15Q-11-7-7 2" fill="none" stroke="#ffffff" opacity=".38" stroke-width="2"/>':'');
+ let head='<circle cx="0" cy="-28" r="10" fill="'+skin+'" stroke="#27333c" stroke-width="1.8"/>';
+ if(lod>=1)head+='<ellipse cx="-4" cy="-31" rx="2.4" ry="1.2" fill="#fff3d4" opacity=".45"/>'+
+  '<ellipse cx="-3" cy="-28" rx="1" ry="1.6" fill="#24333b"/><ellipse cx="3" cy="-28" rx="1" ry="1.6" fill="#24333b"/>'+
+  '<path d="'+beanMood(c)+'" fill="none" stroke="#5d3d36" stroke-width="1.1" stroke-linecap="round"/>';
+ return '<g class="gs-bean-unit '+(kind==='soldier'?'gs-bean-soldier gs-weapon-'+warWeaponClass(c.military?.weapon):'gs-bean-civilian')+'" style="--gs-hop-duration:'+(kind==='soldier'?(0.50/warMoraleSpeed(c)).toFixed(2):'.40')+'s;--gs-attack-duration:'+(kind==='soldier'?(0.92/warMoraleSpeed(c)).toFixed(2):'.85')+'s">'+
+  '<ellipse cx="0" cy="12" rx="13" ry="3" fill="#15252b" opacity=".24"/>'+
+  '<g class="gs-bean-hopper">'+body+(kind==='soldier'?beanChest(c,lod):'')+
+  head+(kind==='soldier'?beanHelmet(c,lod)+beanShield(c,lod)+beanWeapon(c,lod):'')+'</g></g>';
+}
 function siegeMapVisuals(){
- return (G.sieges||[]).filter(s=>['marching','active'].includes(s.status)&&(s.attacker===0||s.defender===0)).map(s=>{
-  const target=G.tiles.find(t=>t.id===s.targetTileId);
-  if(!target)return '';
-  const outline=pts(hexPoints(target,HEX-1));
-  const anchor=s.status==='marching'?G.tiles.find(t=>t.id===s.stagingTileId)||target:target;
-  const center=sceneCoords(anchor);
-  const emblem=`<g transform="translate(${center.x.toFixed(1)} ${(center.y-34).toFixed(1)})">
-   <path d="M-15 -11L-11 -19H11L15 -11V7H-15Z" fill="#402c2f" stroke="#f2b48d" stroke-width="2"/>
-   <path d="M-10 -19V-25H-5V-19M4 -19V-25H9V-19" fill="#b78b68" stroke="#f2b48d" stroke-width="1.5"/>
-   <path d="M-5 7V-5Q0 -13 5 -5V7" fill="#d17b58"/>
-   ${Array.from({length:Math.min(3,siegeTeam(s,'attacker').length)},(_,i)=>`
-    <g class="gs-siege-soldier" transform="translate(${(i-1)*17} 17)">
-     <g class="gs-siege-soldier-idle" style="--siege-delay:${i*120}ms">
-      <circle cx="0" cy="-6" r="3.5" fill="#efd3aa" stroke="#342f35" stroke-width="1"/>
-      <path d="M-5 -2L5 -2L6 7L-6 7Z" fill="${G.players[s.attacker].color||'#a9bfc2'}" stroke="#13262e" stroke-width="1"/>
-      <path d="M-4 1L-7 -3L-8 2L-5 6Z" fill="#c9b788"/>
-     </g>
-    </g>`).join('')}
-   <text x="0" y="-29" text-anchor="middle" fill="#fff0c8" font-size="9" font-weight="900">${s.status==='marching'?'MARCH':'SIEGE '+s.roundNumber}</text>
-  </g>`;
-  const ring=s.status==='active'? `<g class="gs-siege-border" pointer-events="none"><polygon points="${outline}" fill="none" stroke="#ffab72" stroke-width="5" stroke-dasharray="10 6"/></g>`:'';
-  return ring+billboardSvg(center.x,center.y,emblem,true);
+ return (G.sieges||[]).filter(s=>['marching','active','breached','aftermath','counterattack'].includes(s.status)&&(s.attacker===0||s.defender===0)).map(s=>{
+  const target=G.tiles.find(t=>t.id===s.targetTileId);if(!target)return '';
+  const stage=s.status==='marching'?G.tiles.find(t=>t.id===s.stagingTileId)||target:target;
+  const center=sceneCoords(stage),lod=beanLod(),attacker=G.players[s.attacker],defender=G.players[s.defender];
+  const left=siegeTeam(s,'attacker').slice(0,3),right=siegeTeam(s,'defender').slice(0,3);
+  let figures='';
+  const scale=lod===0?.45:lod===1?.58:.71;
+  const leftStart=-Math.max(0,left.length-1)*11-13;
+  for(let i=0;i<left.length;i++)figures+='<g transform="translate('+(center.x+leftStart+i*11).toFixed(1)+' '+(center.y+9).toFixed(1)+') scale('+scale+')">'+beanPerson(left[i],attacker,'soldier',lod)+'</g>';
+  for(let i=0;i<right.length;i++)figures+='<g transform="translate('+(center.x+19+i*11).toFixed(1)+' '+(center.y+9).toFixed(1)+') scale('+scale+')">'+beanPerson(right[i],defender,'soldier',lod)+'</g>';
+  const status=s.status==='active'?'SIEGE '+s.roundNumber+' · '+(s.destruction||0)+'%':s.status==='marching'?'MARCHING '+s.marchRemaining+'T':s.status==='counterattack'?'RECLAIMING':'DESTROYED 100%';
+  const ring=['breached','aftermath','counterattack'].includes(s.status)?
+   '<polygon class="gs-ruined-hex" points="'+pts(hexPoints(target,HEX-1))+'" fill="#43271c" fill-opacity=".30" stroke="#fcad75" stroke-width="5" stroke-dasharray="7 4"/>':
+   s.status==='active'?'<polygon class="gs-siege-border" points="'+pts(hexPoints(target,HEX-1))+'" fill="none" stroke="#ffab72" stroke-width="4" stroke-dasharray="10 6"/>':'';
+  const label='<g transform="translate('+center.x.toFixed(1)+' '+(center.y-38).toFixed(1)+')"><rect x="-45" y="-14" rx="5" width="90" height="18" fill="#223645" fill-opacity=".95" stroke="#f2c47d" stroke-width="1.5"/><text text-anchor="middle" y="-2" fill="#fff0cb" font-size="8.5" font-weight="bold">'+status+'</text></g>';
+  const fighting=s.lastCombatRound>=G.round-1;
+  return ring+billboardSvg(center.x,center.y,'<g class="gs-bean-army '+(fighting?'gs-bean-fight':'')+'">'+figures+label+'</g>',true);
  }).join('');
 }
-
 function visibleWarOrderMarkers(){
  if(!G||cpuBusy||G.turnIndex!==0)return '';
  return G.militaryOrders.filter(m=>m.owner===0&&m.status!=='returned').map(m=>{
@@ -1760,8 +2180,43 @@ function siegeReinforcementHtml(s){
   <strong>Send reinforcements</strong><small>Dispatch additional real soldiers. They march to the siege over world ticks; at most 12 soldiers per army. Only one military dispatch per turn.</small>
   <label class="gs-war-field">Military Post<select data-siege-reinforce-post>${posts.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} · ${postGarrison(player,t.id).filter(c=>c.health>0&&!c.military.missionId).length} ready</option>`).join('')}</select></label>
   <label class="gs-war-field">Soldiers<select data-siege-reinforce-qty>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}</select></label>
+  <label class="gs-war-field">Transport<select data-siege-reinforce-transport><option value="foot">On foot</option><option value="caravan">Caravan (up to 6 soldiers)</option></select></label>
   <button data-siege-reinforce="${s.id}" ${!active()||player.logisticsUsed?'disabled':''}>Send reinforcement party</button>
  </div>`;
+ return html;
+}
+
+function warAftermathPanelHtml(){
+ if(!G)return '';
+ let html='';
+ for(const siege of G.sieges||[]){
+  if(![siege.attacker,siege.defender].includes(0)||!['breached','aftermath','counterattack'].includes(siege.status))continue;
+  const t=G.tiles.find(t=>t.id===siege.targetTileId);
+  html+='<section class="gs-siege-section gs-aftermath"><div class="gs-siege-heading"><strong>DESTROYED HEX · '+esc(t?.name||'frontier')+'</strong>'+
+   '<small>100% destruction: the hex became unclaimed. Eliminating soldiers alone never captures it.</small></div>';
+  if(siege.status==='counterattack')html+='<p>Late reinforcements are counterattacking through the ruins. Their battle resolves over subsequent normal rounds.</p>';
+  if(siege.attacker===0){
+   if(!siege.attackerChoice){
+    const next=neighbors(t).filter(n=>n.owner===siege.defender&&!n.capital&&n.terrain!=='water');
+    html+='<p><strong>Your next move:</strong> claim the ruins, push into an adjacent enemy hex, or retreat your surviving army.</p>'+
+     '<div class="gs-war-actions"><button data-after-siege="'+siege.id+'" data-choice="claim">Stop & Claim Ruins</button>'+
+     '<button data-after-siege="'+siege.id+'" data-choice="retreat">Retreat to Post</button></div>';
+    if(next.length)html+='<label class="gs-war-field">Next enemy hex<select data-next-hex="'+siege.id+'">'+
+     next.map(n=>'<option value="'+esc(n.id)+'">'+esc(n.name)+'</option>').join('')+'</select></label>'+
+     '<button data-after-siege="'+siege.id+'" data-choice="push">Push Into Next Hex</button>';
+   }else html+='<p>Your army chose '+esc(siege.attackerChoice)+'.'+(siege.reinforcements?.length?' Incoming defenders are still traveling.':'')+'</p>';
+  }
+  if(siege.defender===0){
+   const late=(siege.lateDefenderIds||[]).filter(id=>G.players[0].citizens.some(c=>c.id===id&&c.health>0));
+   if(late.length&&siege.status!=='counterattack'){
+    html+='<p><strong>'+late.length+' defenders reached the ruined territory.</strong> Guard the nearby border, counterattack to reclaim it, or retreat.</p>'+
+     '<div class="gs-war-actions"><button data-after-siege="'+siege.id+'" data-choice="guard">Guard Nearest Border</button>'+
+     '<button data-after-siege="'+siege.id+'" data-choice="attack">Counterattack & Reclaim</button>'+
+     '<button data-after-siege="'+siege.id+'" data-choice="retreat">Retreat to Post</button></div>';
+   }else if(siege.reinforcements?.length)html+='<p>Reinforcements remain en route. Choose their orders on arrival.</p>';
+  }
+  html+='</section>';
+ }
  return html;
 }
 function siegeWarPanelHtml(){
@@ -1775,7 +2230,7 @@ function siegeWarPanelHtml(){
   html+=`<div class="gs-siege-card"><div class="gs-siege-card-head"><strong>${esc(target?.name||'Unknown frontier')}</strong><span>${side==='attacker'?'ATTACKING':'DEFENDING'}</span></div>
    <small>${esc(G.players[siege.attacker].name)} versus ${esc(G.players[siege.defender].name)} · ${siege.status==='marching'?siege.marchRemaining+' travel ticks to arrival': 'Siege round '+(siege.roundNumber+1)+' · '+ours+' of your troops, '+theirs+' opposing'}</small>`;
   if(siege.status==='active'){
-   html+=`<div class="gs-siege-meters">${[['Supplies',siege.supply],['Defenses',siege.fort],['Morale',siege.morale]].map(([label,value])=>`<div><span>${label}</span><b>${value}/100</b><i style="--siege-fill:${value}%"></i></div>`).join('')}</div>
+   html+=`<div class="gs-siege-meters">${[['Destruction',siege.destruction||0],['Fortifications',siege.fort],['Supplies',siege.supply],['Defender Morale',siege.morale]].map(([label,value])=>`<div><span>${label}</span><b>${value}/100</b><i style="--siege-fill:${value}%"></i></div>`).join('')}</div>
     <label class="gs-war-field">Your standing order<select data-siege-order="${siege.id}">${Object.entries(available).map(([k,label])=>`<option value="${k}" ${order===k?'selected':''}>${esc(label)}</option>`).join('')}</select></label>
     <button data-siege-submit="${siege.id}" ${!active()?'disabled':''}>${sent?'Update saved order':'Submit military order'}</button>
     <small class="gs-siege-order-note">${sent?'Order saved for this round.':'Your standing order applies automatically if no order is submitted.'} Enemy orders stay hidden until resolution.</small>`;
@@ -1798,6 +2253,7 @@ function siegeWarPanelHtml(){
     <small>Soldiers march to friendly land next to a hostile non-capital hex. After arrival both countries can issue orders before the first round resolves.</small>
     <label class="gs-war-field">Attack route<select id="siegeCampaign">${routes.slice(0,36).map(r=>`<option value="${esc(r.post.id+'|'+r.target.id)}">${esc(r.post.name)} → ${esc(r.target.name)} (${r.available} ready)</option>`).join('')}</select></label>
     <label class="gs-war-field">Soldiers<select id="siegeQuantity">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===1?'selected':''}>${i+1}</option>`).join('')}</select></label>
+    <label class="gs-war-field">Travel<select id="siegeTransport"><option value="foot">March on foot</option><option value="caravan">Ride caravan (up to 6)</option></select></label>
     <button data-start-siege="1" ${!active()||me.logisticsUsed?'disabled':''}>Send soldiers to siege</button></div>`;
   }else html+='<small class="gs-siege-tip">Siege dispatches require an available military garrison and a friendly hex touching a hostile non-capital territory. One military dispatch per turn.</small>';
  }
@@ -1848,12 +2304,12 @@ function renderWarPanel(){
   }else html+=`<div class="gs-war-actions"><button data-send-peace="${other.id}" ${!canAct()?'disabled':''}>Send Ceasefire Proposal</button></div>`;
   html+='</div>';
  }
- html+=siegeWarPanelHtml();
+ html+=warAftermathPanelHtml()+siegeWarPanelHtml();
  const posts=getMilitaryPosts(0);
  if(wars.length&&posts.length){
   const borderOptions=G.tiles.filter(t=>t.owner===0&&neighbors(t).some(n=>n.owner===null||wars.includes(n.owner)));
   const flankOptions=G.tiles.filter(t=>t.owner===null&&t.terrain!=='water'&&wars.some(w=>G.tiles.some(e=>e.owner===w&&distance(t,e)<=3))).slice(0,45);
-  html+=`<div class="gs-war-order"><strong>Confidential Troop Orders</strong><small>One military logistics order per turn. Patrol owned frontier hexes or flank through neutral land. Roads shorten travel. Enemies cannot view the positions.</small><label class="gs-war-field">Enemy<select id="warEnemy">${wars.map(id=>`<option value="${id}">${esc(G.players[id].name)}</option>`).join('')}</select></label><label class="gs-war-field">Military Post<select id="warPost">${posts.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} (${postGarrison(me,t.id).filter(c=>!c.military.missionId).length} ready)</option>`).join('')}</select></label><label class="gs-war-field">Order<select id="warKind"><option value="patrol">Border patrol</option><option value="flank">Flanking through neutral land</option></select></label><label class="gs-war-field">Destination<select id="warDestination">${borderOptions.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label><label class="gs-war-field">Soldiers<select id="warQuantity">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===1?'selected':''}>${i+1}</option>`).join('')}</select></label><button data-order-war="1" ${!active()||me.logisticsUsed?'disabled':''}>Dispatch Troops</button><div class="gs-war-hidden" data-patrol-options="${esc(JSON.stringify(borderOptions.map(t=>[t.id,t.name])))}" data-flank-options="${esc(JSON.stringify(flankOptions.map(t=>[t.id,t.name])))}"></div></div>`;
+  html+=`<div class="gs-war-order"><strong>Confidential Troop Orders</strong><small>One military logistics order per turn. Patrol owned frontier hexes or flank through neutral land. Roads shorten travel. Enemies cannot view the positions.</small><label class="gs-war-field">Enemy<select id="warEnemy">${wars.map(id=>`<option value="${id}">${esc(G.players[id].name)}</option>`).join('')}</select></label><label class="gs-war-field">Military Post<select id="warPost">${posts.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} (${postGarrison(me,t.id).filter(c=>!c.military.missionId).length} ready)</option>`).join('')}</select></label><label class="gs-war-field">Order<select id="warKind"><option value="patrol">Border patrol</option><option value="flank">Flanking through neutral land</option></select></label><label class="gs-war-field">Destination<select id="warDestination">${borderOptions.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label><label class="gs-war-field">Soldiers<select id="warQuantity">${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i===1?'selected':''}>${i+1}</option>`).join('')}</select></label><label class="gs-war-field">Transport<select id="warTransport"><option value="foot">March on foot</option><option value="caravan">Caravan (max 6 soldiers)</option></select></label><button data-order-war="1" ${!active()||me.logisticsUsed?'disabled':''}>Dispatch Troops</button><div class="gs-war-hidden" data-patrol-options="${esc(JSON.stringify(borderOptions.map(t=>[t.id,t.name])))}" data-flank-options="${esc(JSON.stringify(flankOptions.map(t=>[t.id,t.name])))}"></div></div>`;
  }
  const own=G.militaryOrders.filter(m=>m.owner===0&&m.status!=='returned');
  if(own.length)html+=`<div class="gs-war-order"><strong>Your Military Orders</strong>${own.map(m=>{const tile=G.tiles.find(t=>t.id===m.path[m.index]),target=G.tiles.find(t=>t.id===m.targetTileId);return `<div class="gs-war-unit"><b>${m.troopIds.length} troops · ${m.kind.toUpperCase()}</b><small>${esc(tile?.name||'Traveling')} → ${esc(target?.name||'Unknown')} · ${m.status}</small><button data-recall-war="${m.id}" ${!active()?'disabled':''}>Recall</button></div>`;}).join('')}</div>`;
@@ -2124,10 +2580,10 @@ function presentSiegeInbox(){
  const s=pendingSiegeNotice();if(!s)return false;
  const territory=G.tiles.find(t=>t.id===s.targetTileId);
  const defend=s.defender===0,over=s.status!=='active';
- const heading=over?(s.status==='captured'?'TERRITORY CAPTURED':s.status==='repelled'?'SIEGE REPELLED':'SIEGE ENDED')
+ const heading=over?(s.status==='breached'?'HEX DESTROYED — ORDERS REQUIRED':s.status==='aftermath'?'AFTERMATH: DECISIONS PENDING':s.status==='counterattack'?'COUNTERATTACK UNDERWAY':s.status==='claimed'?'RUINS CLAIMED':s.status==='repelled'?'SIEGE REPELLED':'SIEGE ENDED')
   :defend?'YOUR TERRITORY IS UNDER SIEGE':'SIEGE CAMPAIGN REPORT';
  const last=s.history?.[0]?.summary||'The encirclement has begun. Submit your military order during your turn.';
- const details=over?`Campaign outcome: ${s.status}. ${s.roundNumber} exchange${s.roundNumber===1?'':'s'} resolved.`
+ const details=over?(['breached','aftermath','counterattack'].includes(s.status)?'The hex is destroyed to 100% and unclaimed unless an army claims it. Choose your next order in World Affairs; late defenders also have choices.':`Campaign outcome: ${s.status}. ${s.roundNumber} exchange${s.roundNumber===1?'':'s'} resolved.`)
   :`Round ${s.roundNumber+1} awaits your orders. Defenders have ${s.supply}/100 supplies, ${s.fort}/100 fortifications and ${s.morale}/100 morale.`;
  showModal(`<div class="gs-siege-letter">
   <div class="gs-falcon-kicker">⚔ BATTLE DISPATCH · ROUND ${G.round}</div>
@@ -2268,6 +2724,7 @@ async function playMapScenePlayback(playback){
   }
   if(playback.kind==='build')showToast(`${BUILDINGS[playback.buildingType]?.name||'Building'} completed`);
   if(playback.kind==='work')showToast(`${BUILDINGS[playback.buildingType]?.name||'Building'} construction underway`);
+  else if(playback.kind==='siege')showToast(tile.name+' was destroyed and is now unclaimed');
   else if(playback.kind==='expand')showToast(`${tile.name} claimed`);
   else if(playback.kind==='road')showToast(`Domestic road completed near ${tile.name}`);
  }
@@ -2333,7 +2790,7 @@ function volunteerEachRound(p){
   if(!open.length)break;
   if(rng()>volunteeringChance(c,p))continue;
   const post=open[randInt(rng,open.length)];
-  c.military={postId:post.id,training:1,experience:0,perk:null,gear:null,shield:null,weapon:null};p.food-=1;count++;
+  c.military={postId:post.id,training:1,experience:0,perk:null,gear:null,helmet:null,chest:null,shield:null,weapon:null,skill:29+randInt(rng,23)};p.food-=1;count++;
   addLog(`${c.name} volunteered for ${p.name}'s military at ${post.name}.`);
  }
 }
@@ -2558,7 +3015,7 @@ function doTrain(t,id=0){
  const soldiers=postGarrison(p,t.id).filter(c=>c.military.training<5&&!c.military.missionId).slice(0,3);
  if(!soldiers.length||!hasMoney(p,3)||p.food<1)return false;
  p.gold-=3;p.food-=1;
- for(const c of soldiers){c.military.training++;if(c.military.training>=3&&!c.military.perk)c.military.perk='Disciplined';}
+ for(const c of soldiers){c.military.training++;c.military.skill=Math.min(100,warSkill(c)+8);if(c.military.training>=3&&!c.military.perk)c.military.perk='Disciplined';}
  useAction(p,`${p.name} trained ${soldiers.length} troops at ${t.name}.`,{tileId:t.id,kind:'train'});
  if(id===0)showToast('Training completed');return true;
 }
@@ -2605,7 +3062,11 @@ function finishRound(){
  for(const route of G.tradeRoutes.filter(r=>r.status==='active')){G.players[route.a].gold+=2;G.players[route.b].gold+=2;}
  resolveSieges();expireTreaties();
  addLog(`Round ${G.round} concluded. Population, production and maintenance updated.`);
- if(G.round>=G.maxRounds&&!G.continued){G.finished=true;save();render();showEndGame();return;}
+ if(G.round>=G.maxRounds&&!G.continued){
+  const unfinished=(G.sieges||[]).some(s=>['marching','active','breached','aftermath','counterattack'].includes(s.status));
+  if(unfinished){G.maxRounds+=4;addLog('Ongoing siege campaigns extend the match by four rounds until the fronts are settled.');}
+  else{G.finished=true;save();render();showEndGame();return;}
+ }
  G.round++;beginTurn(0);cpuBusy=false;save();render();showToast(`Round ${G.round} — your turn`);
 }
 
@@ -2706,13 +3167,26 @@ function cpuSecretWarOrder(id){
  const p=G.players[id],enemies=opponentsAtWar(id);
  if(!p||!enemies.length||p.siegePlanningRound===G.round)return;
  p.siegePlanningRound=G.round;
+ for(const s of G.sieges||[])if(['breached','aftermath'].includes(s.status)){
+  if(s.attacker===id&&!s.attackerChoice){
+   const tile=G.tiles.find(t=>t.id===s.targetTileId);
+   const adjacent=tile?neighbors(tile).filter(t=>t.owner===s.defender&&!t.capital&&!activeSiege(t.id)):[];
+   const ready=siegeTeam(s,'attacker').length;
+   const choice=ready<2?'retreat':adjacent.length&&ready>=5?'push':'claim';
+   warChooseAfternath(s,choice,adjacent[0]?.id,id);
+  }else if(s.defender===id&&s.lateDefenderIds?.length){
+   const able=s.lateDefenderIds.filter(cid=>p.citizens.some(c=>c.id===cid&&c.health>0));
+   const choice=able.length>=3?'attack':'guard';
+   if(!warChooseAfternath(s,choice,null,id))warChooseAfternath(s,'retreat',null,id);
+  }
+ }
  // CPU submits independent defensive and attacking orders during its normal
  // turn; no instant moves and no hidden knowledge of the other side's order.
  for(const s of G.sieges||[]){
   if(s.status!=='active'||![s.attacker,s.defender].includes(id))continue;
   const side=s.attacker===id?'attacker':'defender';
   const kind=side==='attacker'
-   ?(s.fort<=28||s.roundNumber%3===2?'assault':s.preparation<1&&p.wood>1?'prepare':'blockade')
+   ?(s.roundNumber%4===3&&s.preparation<2&&p.wood>1?'prepare':'assault')
    :(s.supply<45&&p.food>=3?'resupply':s.fort<42&&p.wood>=2?'fortify':s.morale<45?'rally':s.roundNumber%4===3?'counterattack':'hold');
   setSiegeOrder(s.id,kind,id);
  }
@@ -3008,6 +3482,24 @@ function renderTile(t){
 function renderBuildOptions(t){
  const p=getCountry();el('buildOptions').innerHTML=Object.entries(BUILDINGS).filter(([k,b])=>b.allow.includes(t.terrain)).map(([k,b])=>`<button class="build-option" data-build="${k}" ${!canAct()||!canBuild(p,t,b)?'disabled':''}><span class="build-symbol">${b.icon}</span><span class="build-main"><span class="build-name">${b.name}</span><span class="build-desc" style="display:block">${b.text} · ${b.space} space · ${Math.max(2,b.rounds*2)} work turns + builder travel · −${b.upkeep} Silver Pents upkeep</span></span><span class="build-cost">${buildingCost(p,b)} SP<br>${b.wood} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg> · ${b.iron} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg></span></button>`).join('');
 }
+
+function warEquipmentControls(p,c){
+ const labels={helmet:'Helmet',chest:'Chest / Chain Plate',weapon:'Weapon',shield:'Shield'};
+ const stock=postStock(p,c.military.postId),disable=!canAct()||!!c.military.missionId;
+ let html='<div class="gs-war-loadout"><small>Skill '+warSkill(c)+'/100 · Accuracy '+
+  Math.round(Math.max(.18,Math.min(.94,.26+warSkill(c)*.0067))*100)+'% · Attack speed '+
+  warAttackSpeed(c).toFixed(2)+'/s · Damage mitigation '+Math.round(warDefense(c)*100)+'%</small>';
+ for(const slot of ['helmet','chest','weapon','shield']){
+  const current=c.military[slot],items=WAR_SLOT_ITEMS[slot]||[];
+  html+='<label class="roster-transfer">'+labels[slot]+': <b>'+
+   esc(current?GOOD_NAMES[current]||current:'None')+'</b><select data-equip-war="'+esc(c.id)+'" data-war-slot="'+slot+'" '+(disable?'disabled':'')+'>'+
+   '<option value="">Choose delivered equipment...</option>'+
+   items.map(item=>'<option value="'+item+'" '+(!canEquipWarItem(p,c,item)?'disabled':'')+'>'+
+    esc(GOOD_NAMES[item]||item)+' · '+(stock?localCount(stock,item):0)+' at post</option>').join('')+
+   '</select></label>';
+ }
+ return html+'</div>';
+}
 function renderRoster(){
  const p=getCountry(),posts=getMilitaryPosts(0),troops=p.citizens.filter(c=>!!c.military);
  el('rosterCitizensBtn').classList.toggle('active',rosterTab==='citizens');
@@ -3024,6 +3516,11 @@ function renderRoster(){
    const choices=posts.filter(t=>t.id!==c.military.postId&&postGarrison(p,t.id).length<12);
    return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>Age ${c.age} · Health ${c.health} · Training ${c.military.training}/5 · Armor: ${c.military.gear?GEAR[c.military.gear].name:'Unarmored'} (readiness ${gearReadiness(c)}) · ${c.military.shield?GOOD_NAMES[c.military.shield]:'No Shield'} · ${c.military.weapon?GOOD_NAMES[c.military.weapon]:'No Weapon'} · ${c.military.perk||'No perk'}<br>Stationed: ${esc(post?.name||'Unassigned')} · Experience ${c.military.experience||0}${c.military.missionId?.startsWith('siege-')?' · ⚔ ON SIEGE DUTY':c.military.missionId?' · On military assignment':''}</small>${`<label class="roster-transfer">Equip <select data-equip-soldier="${esc(c.id)}" ${!canAct()||c.military.missionId?'disabled':''}><option value="">Select gear…</option>${GEAR_ORDER.map(tier=>`<option value="${tier}" ${!canEquip(p,c,tier)?'disabled':''}>${GEAR[tier].name} · 1 ${GEAR[tier].name} delivered</option>`).join('')}</select></label>`}${`<label class="roster-transfer">Issue Shield / Stone Weapon <select data-equip-extra="${esc(c.id)}" ${!canAct()||c.military.missionId?'disabled':''}><option value="">Select delivered gear…</option>${['woodShield','stoneAxe','stonePickaxe','stoneSword','stoneClub'].map(item=>`<option value="${item}" ${!postStock(p,c.military.postId)||localCount(postStock(p,c.military.postId),item)<1?'disabled':''}>${GOOD_NAMES[item]} · ${localCount(postStock(p,c.military.postId),item)} at post</option>`).join('')}</select></label>`}${choices.length?`<label class="roster-transfer">Transfer to <select data-move-soldier="${esc(c.id)}" ${!active()||p.logisticsUsed?'disabled':''}><option value="">Choose post…</option>${choices.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label>`:''}</div>`;
   }).join(''):`<p class="empty-note">No troops enlisted yet. Build a Military Post, then eligible adults can volunteer each round. Run a marketing campaign to increase interest.</p>`;
+ }
+ if(rosterTab==='troops'){
+  [...el('rosterList').querySelectorAll('.roster-row')].forEach((row,i)=>{
+   const c=troops[i];if(c)row.insertAdjacentHTML('beforeend',warEquipmentControls(p,c));
+  });
  }
 }
 function renderResearch(){const p=getCountry();el('researchOptions').innerHTML=Object.entries(TECHS).map(([k,t])=>`<button class="build-option" data-tech="${k}" ${!canAct()||p.tech.includes(k)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge?'disabled':''}><span class="build-symbol">${t.icon}</span><span class="build-main"><span class="build-name">${t.name} ${p.tech.includes(k)?'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-check"></use></svg>':''}</span><span class="build-desc" style="display:block">${t.desc}</span></span><span class="build-cost">${t.gold} SP<br>${t.knowledge} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg></span></button>`).join('');}
@@ -3492,32 +3989,39 @@ function wagonViewArtwork(countryColor){
 }
 // A tiny worker visibly pushes two timber logs rather than a covered wagon.
 // These are world-anchored miniature units and participate in ground depth.
+function beanPushCart(lod=beanLod()){
+ const detail=lod>=2;
+ let wheels='';
+ for(const cx of [14,31]){
+  wheels+='<g transform="translate('+cx+' 9)"><g class="gs-bean-wheel">'+
+   '<circle r="4.5" fill="#3b4147" stroke="#d4bc8d" stroke-width="1.3"/>'+
+   '<circle r="2" fill="#8d918c" stroke="#263b46" stroke-width=".5"/>'+
+   (detail?'<path d="M0-3.3V3.3M-3.3 0H3.3" stroke="#ecdbbd" stroke-width=".7"/>':'')+
+   '</g></g>';
+ }
+ return '<g class="gs-bean-pushcart" pointer-events="none">'+
+  '<ellipse cx="23" cy="14" rx="22" ry="3" fill="#1e3239" opacity=".20"/>'+
+  '<path d="M4-8L13-5" fill="none" stroke="#70543b" stroke-width="3.6" stroke-linecap="round"/>'+
+  '<path d="M10-5L35-5L34 7L12 7Z" fill="#b78352" stroke="#3b3a36" stroke-width="1.7"/>'+
+  '<path d="M11-5L15-10L36-10L35-5Z" fill="#daae75" stroke="#5a473a" stroke-width="1.1"/>'+
+  (lod>=1?'<path d="M17-3L17 5M29-3V5" stroke="#916640" stroke-width="1.1"/>':'')+
+  wheels+'</g>';
+}
 function porterVisuals(depthEntries=false){
  const entries=(G.shipments||[]).filter(j=>j.kind==='porter').map(job=>{
-  const owner=G.players[job.owner],ids=job.path||[],a=G.tiles.find(t=>t.id===ids[Math.min(job.step,ids.length-1)]);
-  if(!owner||!a)return null;
+  const p=G.players[job.owner],worker=p?.citizens.find(c=>c.id===job.porterId);
+  const ids=job.path||[],a=G.tiles.find(t=>t.id===ids[Math.min(job.step,ids.length-1)]);
+  if(!p||!worker||!a)return null;
   const b=G.tiles.find(t=>t.id===ids[Math.min(job.step+1,ids.length-1)])||a;
   const duration=a.id===b.id?1:porterTicks(a,b);
   const fraction=a.id===b.id?0:Math.max(0,Math.min(1,(job.stepSpent||0)/duration));
-  const from=coords(a),to=coords(b),point=project(from.x+(to.x-from.x)*fraction,from.y+(to.y-from.y)*fraction);
-  const loaded=job.stage==='delivery'||job.stage==='unloading';
-   const cargoGraphic=job.item==='logs'||job.item==='wood'?
-    '<g class="gs-porter-cargo"><rect x="0" y="-5" width="18" height="5" rx="2" fill="#ae7950" stroke="#493e31" stroke-width="1"/><rect x="0" y="-11" width="18" height="5" rx="2" fill="#bc8656" stroke="#493e31" stroke-width="1"/><ellipse cx="18" cy="-8.5" rx="2" ry="2.5" fill="#dfb687" stroke="#563f2e" stroke-width=".7"/><ellipse cx="18" cy="-2.5" rx="2" ry="2.5" fill="#dfb687" stroke="#563f2e" stroke-width=".7"/></g>':
-    job.item==='food'||job.item==='leather'?
-    '<g class="gs-porter-cargo"><path d="M2 -12Q10 -15 16 -11L18 0Q9 6 0 0Z" fill="#d8b67c" stroke="#61513d" stroke-width="1.2"/><path d="M4 -9Q10 -6 15 -10" fill="none" stroke="#97734c" stroke-width="1.2"/></g>':
-    '<g class="gs-porter-cargo"><path d="M0 -10L14 -12L18 -8V3L4 4L0 0Z" fill="#bf9d6f" stroke="#5f513f" stroke-width="1.2"/><path d="M0 -10L4 -6L18 -8M4 -6V4" fill="none" stroke="#7a6548" stroke-width="1"/></g>';
-   const badge=loaded?cargoGraphic:'';
-  const silhouette=`<g class="gs-porter-unit" transform="translate(${point.x.toFixed(2)} ${point.y.toFixed(2)})" pointer-events="none">
-   <ellipse cx="2" cy="4" rx="16" ry="3" fill="#263c35" opacity=".3"/>
-   <g class="gs-porter-step"><circle cx="-7" cy="-15" r="4" fill="#eed1ac" stroke="#344850" stroke-width="1"/>
-    <path d="M-9 -10L-10 -3L-12 3M-9 -3L-5 3" fill="none" stroke="#344850" stroke-width="2.4" stroke-linecap="round"/>
-    <path d="M-9 -10L-1 -7L1 -3" fill="none" stroke="#eed1ac" stroke-width="2" stroke-linecap="round"/>
-    <path d="M-11 -9L-7 -11L-4 -7L-6 -2L-12 -3Z" fill="${owner.color}" stroke="#344850" stroke-width="1"/>
-    ${badge}
-   </g>
-  </g>`;
-  const html=billboardSvg(point.x,point.y,silhouette);
-  return depthEntries?{x:point.x,y:point.y+4,html}:html;
+  const from=coords(a),to=coords(b);
+  const point=project(from.x+(to.x-from.x)*fraction,from.y+(to.y-from.y)*fraction);
+  const lod=beanLod(),scale=lod===0?.50:lod===1?.62:.72;
+  const artwork='<g class="gs-bean-hauler" transform="translate('+point.x.toFixed(2)+' '+point.y.toFixed(2)+') scale('+scale+')">'+
+   beanPerson(worker,p,'civilian',lod)+beanPushCart(lod)+'</g>';
+  const html=billboardSvg(point.x,point.y,artwork);
+  return depthEntries?{x:point.x,y:point.y+6,html}:html;
  });
  return depthEntries?entries.filter(Boolean):entries.filter(Boolean).join('');
 }
@@ -3658,8 +4162,9 @@ function resetView(){
  renderMap();
 }
 function zoom(f){
- const cx=view.x+view.w/2,cy=view.y+view.h/2;
+ const previous=beanLod(),cx=view.x+view.w/2,cy=view.y+view.h/2;
  setCenter(cx,cy,Math.min(2400,Math.max(140,cameraDesiredWidth*f)));
+ if(G&&beanLod()!==previous)renderMap();
 }
 function moveCamera(tile,targetYaw=cameraYaw,duration=800,targetWidth=460){
  if(!G||!tile)return Promise.resolve();
@@ -3736,9 +4241,10 @@ function bindEvents(){
  el('closeBuildBtn').addEventListener('click',()=>{showBuild=false;render();});
  el('warBody').addEventListener('click',e=>{
   const b=e.target.closest('button');if(!b)return;const panel=el('warBody');
+  if(b.dataset.afterSiege!=null){const id=Number(b.dataset.afterSiege),siege=(G.sieges||[]).find(x=>x.id===id),target=panel.querySelector('[data-next-hex="'+id+'"]')?.value;if(!warChooseAfternath(siege,b.dataset.choice,target,0))showToast("Could not execute post-battle order.");return;}
   if(b.dataset.startSiege!=null){
    const path=panel.querySelector('#siegeCampaign')?.value||'',split=path.indexOf('|');
-   if(split<0||!startSiege(path.slice(split+1),path.slice(0,split),Number(panel.querySelector('#siegeQuantity')?.value||0)))
+   if(split<0||!startSiege(path.slice(split+1),path.slice(0,split),Number(panel.querySelector('#siegeQuantity')?.value||0),0,panel.querySelector('#siegeTransport')?.value||'foot'))
     showToast('Siege unavailable: check available soldiers, owned border and dispatch limit.');
    return;
   }
@@ -3750,7 +4256,7 @@ function bindEvents(){
   if(b.dataset.siegeReinforce!=null){
    const id=Number(b.dataset.siegeReinforce),box=panel.querySelector(`[data-siege-reinforcement-id="${id}"]`);
    const post=box?.querySelector('[data-siege-reinforce-post]')?.value,number=Number(box?.querySelector('[data-siege-reinforce-qty]')?.value||0);
-   if(!reinforceSiege(id,post,number))showToast('Cannot reinforce: check available soldiers, travel route, or 12-troop capacity.');
+   if(!reinforceSiege(id,post,number,0,box?.querySelector('[data-siege-reinforce-transport]')?.value||'foot'))showToast('Cannot reinforce: check available soldiers, travel route, or 12-troop capacity.');
    return;
   }
   if(b.dataset.sendWarning!=null){const to=Number(b.dataset.sendWarning),tile=panel.querySelector(`[data-warning-land="${to}"]`)?.value;sendDiplomaticFalcon(to,'warning',tile);return;}
@@ -3770,7 +4276,7 @@ function bindEvents(){
    return;
   }
   if(b.dataset.peaceAnswer!=null){acceptCeasefire(Number(b.dataset.peaceAnswer),b.dataset.accept==='yes');return;}
-  if(b.dataset.orderWar!=null){orderMilitary(panel.querySelector('#warDestination')?.value,Number(panel.querySelector('#warEnemy')?.value),panel.querySelector('#warPost')?.value,Number(panel.querySelector('#warQuantity')?.value||1),panel.querySelector('#warKind')?.value||'patrol');return;}
+  if(b.dataset.orderWar!=null){orderMilitary(panel.querySelector('#warDestination')?.value,Number(panel.querySelector('#warEnemy')?.value),panel.querySelector('#warPost')?.value,Number(panel.querySelector('#warQuantity')?.value||1),panel.querySelector('#warKind')?.value||'patrol',0,panel.querySelector('#warTransport')?.value||'foot');return;}
   if(b.dataset.recallWar!=null){recallMilitary(Number(b.dataset.recallWar));return;}
  });
  el('warBody').addEventListener('change',e=>{if(e.target.id!=='warKind')return;const panel=el('warBody'),options=panel.querySelector('[data-patrol-options]');if(!options)return;const raw=e.target.value==='flank'?options.dataset.flankOptions:options.dataset.patrolOptions;let list=[];try{list=JSON.parse(raw||'[]');}catch(e){}const select=panel.querySelector('#warDestination');if(select)select.innerHTML=list.map(([id,name])=>`<option value="${esc(id)}">${esc(name)}</option>`).join('');});
@@ -3824,7 +4330,7 @@ function bindEvents(){
  el('hand').addEventListener('click',e=>{const b=e.target.closest('[data-card]');if(b)openCardPreview(Number(b.dataset.card));});
  el('rosterCitizensBtn').addEventListener('click',()=>{rosterTab='citizens';renderRoster();});
  el('rosterTroopsBtn').addEventListener('click',()=>{rosterTab='troops';renderRoster();});
- el('rosterList').addEventListener('change',e=>{const equipment=e.target.closest('[data-equip-soldier]');if(equipment?.value){equipSoldier(equipment.dataset.equipSoldier,equipment.value);return;}const extra=e.target.closest('[data-equip-extra]');if(extra?.value){equipAuxiliary(extra.dataset.equipExtra,extra.value);return;}const select=e.target.closest('[data-move-soldier]');if(select?.value)moveSoldier(select.dataset.moveSoldier,select.value);});
+ el('rosterList').addEventListener('change',e=>{const modern=e.target.closest('[data-equip-war]');if(modern?.value){equipWarItem(modern.dataset.equipWar,modern.value);return;}const equipment=e.target.closest('[data-equip-soldier]');if(equipment?.value){equipSoldier(equipment.dataset.equipSoldier,equipment.value);return;}const extra=e.target.closest('[data-equip-extra]');if(extra?.value){equipAuxiliary(extra.dataset.equipExtra,extra.value);return;}const select=e.target.closest('[data-move-soldier]');if(select?.value)moveSoldier(select.dataset.moveSoldier,select.value);});
  el('mineralBody').addEventListener('click',e=>{const smelt=e.target.closest('[data-smelt-steel]');if(smelt){smeltSteel();return;}const b=e.target.closest('[data-mineral]');if(b)mineralTrade(b.dataset.mineral,b.dataset.direction);});
  el('zoomIn').addEventListener('click',()=>zoom(.78));el('zoomOut').addEventListener('click',()=>zoom(1.28));el('zoomReset').addEventListener('click',resetView);el('focusHomeBtn').addEventListener('click',()=>{if(!cpuBusy)focusHome(false);});el('skipCpuBtn').addEventListener('click',()=>{skipCpuPlayback=true;el('cpuAction').textContent='Finishing remaining turns…';});
  const svg=el('worldMap');
@@ -3893,5 +4399,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={SIEGE_ATTACK_ORDERS,SIEGE_DEFEND_ORDERS,activeSiege,canStartSiege,startSiege,progressSiegeMarches,setSiegeOrder,resolveSieges,finishSiege,captureSiegeTerritory,siegeMapVisuals,siegeWarPanelHtml,siegeReinforcementHtml,canReinforceSiege,reinforceSiege,progressSiegeReinforcements,siegeBlocksDelivery,pendingSiegeNotice,presentSiegeInbox,TREATY_TYPES,activeTreaty,canProposeTreaty,expireTreaties,respondTreatyOffer,resolveTreatyOffer,startWar,counterTradeOffer,refreshCounterEstimate,visibleTerritorialWarnings,threatenedHexBorders,checkWarningViolation,isBusyExpedition,eligibleExpeditionCitizens,progressExpeditions,clearExpedition,fixedFalconBillboard,falconVisuals,diplomaticFalconVisuals,handHaulingAllowed,availablePorter,progressPorterJob,porterTicks,caravanWarehouseStatus,citizenDeathProbability,advanceCitizenHealthAndMortality,tileDepthSprites,sortWorldDepth,unreadFalconDispatches,presentFalconInbox,handleFalconMessageAction,ownedTerritoryOutlines,edgedRoadSegment,wagonRoadTrace,wagonViewArtwork,caravanVisuals,expeditionTrailVisuals,domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
+window.GS_TEST={warSkill,warAttackSpeed,warWeaponDamage,warDefense,warChooseAfternath,warDestroyTerritory,warFightWindow,warCartAtPost,warSeatTroops,beanPerson,beanPushCart,warAftermathPanelHtml,WAR_EQUIPMENT,WAR_SLOT_ITEMS,SIEGE_ATTACK_ORDERS,SIEGE_DEFEND_ORDERS,activeSiege,canStartSiege,startSiege,progressSiegeMarches,setSiegeOrder,resolveSieges,finishSiege,captureSiegeTerritory,siegeMapVisuals,siegeWarPanelHtml,siegeReinforcementHtml,canReinforceSiege,reinforceSiege,progressSiegeReinforcements,siegeBlocksDelivery,pendingSiegeNotice,presentSiegeInbox,TREATY_TYPES,activeTreaty,canProposeTreaty,expireTreaties,respondTreatyOffer,resolveTreatyOffer,startWar,counterTradeOffer,refreshCounterEstimate,visibleTerritorialWarnings,threatenedHexBorders,checkWarningViolation,isBusyExpedition,eligibleExpeditionCitizens,progressExpeditions,clearExpedition,fixedFalconBillboard,falconVisuals,diplomaticFalconVisuals,handHaulingAllowed,availablePorter,progressPorterJob,porterTicks,caravanWarehouseStatus,citizenDeathProbability,advanceCitizenHealthAndMortality,tileDepthSprites,sortWorldDepth,unreadFalconDispatches,presentFalconInbox,handleFalconMessageAction,ownedTerritoryOutlines,edgedRoadSegment,wagonRoadTrace,wagonViewArtwork,caravanVisuals,expeditionTrailVisuals,domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
 })();
