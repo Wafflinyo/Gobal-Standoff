@@ -559,7 +559,7 @@ function storedAt(p,item){
 function nearbyStorage(p,tile,item){
  const stores=[{id:'depot',tile:siteLookup(p.id,'depot')?.tile},...G.tiles.filter(t=>t.owner===p.id).flatMap(t=>t.buildings.map((kind,i)=>kind==='storageWarehouse'?{id:t.buildingMeta?.[i]?.id,tile:t}:null).filter(Boolean))];
  return stores.map(o=>({...o,path:o.tile&&ownedPath(p.id,tile,o.tile)})).filter(o=>o.path&&endpointDeliverySpace(p,o.id)>0)
-  .sort((a,b)=>a.path.length-b.path.length)[0]||null;
+  .sort((a,b)=>pathCost(p.id,a.path)-pathCost(p.id,b.path))[0]||null;
 }
 
 function depotCount(p,item){
@@ -716,7 +716,8 @@ function syncCaravans(p){
  for(const base of warehouses){
   const home=p.caravans.filter(c=>String(c.homeSiteId)===String(base.site.id));
   while(home.length<base.capacity){
-   const index=home.length;
+   let index=home.length;
+   while(p.caravans.some(c=>c.id===p.id+'-cart-'+base.site.id+'-'+index))index++;
    const cart={id:p.id+'-cart-'+base.site.id+'-'+index,owner:p.id,homeSiteId:base.site.id,
     currentTileId:base.tile.id,shipmentId:null,driverId:null};
    p.caravans.push(cart);home.push(cart);
@@ -1784,6 +1785,7 @@ function progressWarOrders(){
  for(const m of G.militaryOrders.filter(m=>['traveling','returning'].includes(m.status))){
   if((G.turnClock||0)<=m.startedClock+1)continue;
   if(m.index>=m.path.length-1){m.status=m.kind==='return'?'returned':'patrolling';continue;}
+  if(m.transport==='caravan'&&!warDriverReady(m.owner,m))continue;
   const t=G.tiles.find(t=>t.id===m.path[m.index]),next=G.tiles.find(t=>t.id===m.path[m.index+1]);if(!t||!next)continue;
   const need=roadExistsBetween(t,next)?1:(next.owner===m.owner?2:3)+(next.terrain==='mountain'?1:0);
   if(m.transport==='caravan'){
@@ -1850,6 +1852,13 @@ function warSeatTroops(owner,post,qty,mission,path){
  const cart=ready.cart;
  cart.shipmentId='troops:'+mission;cart.troopMissionId=mission;
  return {cartId:cart.id,ridePath:[...ready.path,...(path||[]).slice(1)],rideCost:ready.cost};
+}
+function warDriverReady(owner,job){
+ if(!job?.cartId)return true;
+ const p=G.players[owner];if(!p)return false;
+ syncCaravans(p);
+ const cart=p.caravans.find(c=>c.id===job.cartId);
+ return !!cart&&caravanHasDriver(p,cart);
 }
 function warMoveRidingCart(owner,job){
  if(!job?.cartId||!job.ridePath?.length)return;
@@ -1939,6 +1948,7 @@ function progressSiegeReinforcements(){
     warReleaseTransport(p?.caravans?.find(c=>c.id===job.cartId));
     s.reinforcements=s.reinforcements.filter(r=>r!==job);continue;
    }
+   if(job.transport==='caravan'&&!warDriverReady(job.owner,job))continue;
    job.remaining=Math.max(0,job.remaining-1);warMoveRidingCart(job.owner,job);
    if(job.remaining>0)continue;
    if(late){
@@ -1987,7 +1997,8 @@ function progressSiegeMarches(){
    ||(!s.stagingNeutral&&G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker)||!siegeTeam(s,'attacker').length){
    finishSiege(s,'cancelled');continue;
   }
-  s.marchRemaining=Math.max(0,s.marchRemaining-1);warMoveRidingCart(s.attacker,s);
+  if(s.transport==='caravan'&&!warDriverReady(s.attacker,s))continue;
+   s.marchRemaining=Math.max(0,s.marchRemaining-1);warMoveRidingCart(s.attacker,s);
   if(!s.marchRemaining)establishSiege(s);
  }
  progressSiegeReinforcements();
@@ -4690,5 +4701,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={warSkill,warAttackSpeed,warWeaponDamage,warDefense,warChooseAfternath,warDestroyTerritory,warFightWindow,warCartAtPost,warSeatTroops,beanPerson,beanPushCart,warAftermathPanelHtml,WAR_EQUIPMENT,WAR_SLOT_ITEMS,SIEGE_ATTACK_ORDERS,SIEGE_DEFEND_ORDERS,activeSiege,canStartSiege,startSiege,progressSiegeMarches,setSiegeOrder,resolveSieges,finishSiege,captureSiegeTerritory,siegeMapVisuals,siegeWarPanelHtml,siegeReinforcementHtml,canReinforceSiege,reinforceSiege,progressSiegeReinforcements,siegeBlocksDelivery,pendingSiegeNotice,presentSiegeInbox,TREATY_TYPES,activeTreaty,canProposeTreaty,expireTreaties,respondTreatyOffer,resolveTreatyOffer,startWar,counterTradeOffer,refreshCounterEstimate,visibleTerritorialWarnings,threatenedHexBorders,checkWarningViolation,isBusyExpedition,eligibleExpeditionCitizens,progressExpeditions,clearExpedition,fixedFalconBillboard,falconVisuals,diplomaticFalconVisuals,handHaulingAllowed,availablePorter,progressPorterJob,porterTicks,caravanWarehouseStatus,citizenDeathProbability,advanceCitizenHealthAndMortality,tileDepthSprites,sortWorldDepth,unreadFalconDispatches,presentFalconInbox,handleFalconMessageAction,ownedTerritoryOutlines,edgedRoadSegment,wagonRoadTrace,wagonViewArtwork,caravanVisuals,expeditionTrailVisuals,domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setUnloadMode,sourceUnloadMode,unloadWithinHex,optimizedUnloadTask,outputPickupTasks,scheduleAutoCaravan,caravanDriver,caravanHasDriver,setCaravanDriver,syncCaravans,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
+window.GS_TEST={warSkill,warAttackSpeed,warWeaponDamage,warDefense,warChooseAfternath,warDestroyTerritory,warFightWindow,warCartAtPost,warSeatTroops,warDriverReady,beanPerson,beanPushCart,warAftermathPanelHtml,WAR_EQUIPMENT,WAR_SLOT_ITEMS,SIEGE_ATTACK_ORDERS,SIEGE_DEFEND_ORDERS,activeSiege,canStartSiege,startSiege,progressSiegeMarches,setSiegeOrder,resolveSieges,finishSiege,captureSiegeTerritory,siegeMapVisuals,siegeWarPanelHtml,siegeReinforcementHtml,canReinforceSiege,reinforceSiege,progressSiegeReinforcements,siegeBlocksDelivery,pendingSiegeNotice,presentSiegeInbox,TREATY_TYPES,activeTreaty,canProposeTreaty,expireTreaties,respondTreatyOffer,resolveTreatyOffer,startWar,counterTradeOffer,refreshCounterEstimate,visibleTerritorialWarnings,threatenedHexBorders,checkWarningViolation,isBusyExpedition,eligibleExpeditionCitizens,progressExpeditions,clearExpedition,fixedFalconBillboard,falconVisuals,diplomaticFalconVisuals,handHaulingAllowed,availablePorter,progressPorterJob,porterTicks,caravanWarehouseStatus,citizenDeathProbability,advanceCitizenHealthAndMortality,tileDepthSprites,sortWorldDepth,unreadFalconDispatches,presentFalconInbox,handleFalconMessageAction,ownedTerritoryOutlines,edgedRoadSegment,wagonRoadTrace,wagonViewArtwork,caravanVisuals,expeditionTrailVisuals,domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setUnloadMode,sourceUnloadMode,unloadWithinHex,optimizedUnloadTask,outputPickupTasks,scheduleAutoCaravan,caravanDriver,caravanHasDriver,setCaravanDriver,syncCaravans,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
 })();
