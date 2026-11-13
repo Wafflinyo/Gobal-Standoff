@@ -57,6 +57,115 @@ const RECIPES={
 const FACTORY_RECIPES={foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['woodPlanks','woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
 const OUTPUTS={farm:['food','leather'],lumber:['logs'],mine:['stone',...MINERAL_KEYS],foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['wood','woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
 const GOOD_NAMES={food:'Food',logs:'Timber Logs',wood:'Construction Wood',stone:'Stone',leather:'Raw Leather',coal:'Coal',iron:'Iron',copper:'Copper',silver:'Silver',goldOre:'Gold Ore',diamond:'Diamonds',steel:'Steel',woodShield:'Wooden Shield',stoneAxe:'Stone Axe',stonePickaxe:'Stone Pickaxe',stoneSword:'Stone Sword',stoneClub:'Stone Club',leatherArmor:'Leather Armor',ironArmor:'Iron Armor',steelArmor:'Steel Armor',goldArmor:'Gold-Reinforced Steel',diamondArmor:'Diamond-Reinforced Steel'};
+
+// v0.4.30: individually craftable helmets, chest plates, weapons and shields.
+// Existing armor bundles remain readable for saved soldiers; the new slots are independent.
+const WAR_EQUIPMENT={
+ leatherHelmet:['Leather Helmet','leatherFactory',{leather:1},'helmet'],
+ leatherChest:['Leather Chest Plate','leatherFactory',{leather:2},'chest'],
+ woodSword:['Wooden Sword','woodworks',{wood:2},'weapon'],
+ woodBattleAxe:['Wooden Battle Axe','woodworks',{wood:3},'weapon'],
+ woodSpear:['Wooden Spear','woodworks',{wood:2},'weapon'],
+ stoneHelmet:['Stone Helmet','stoneworks',{stone:2},'helmet'],
+ stoneChest:['Stone Chest Plate','stoneworks',{stone:4},'chest'],
+ stoneBattleAxe:['Stone Battle Axe','stoneworks',{stone:3,wood:1},'weapon'],
+ stoneSpear:['Stone Spear','stoneworks',{stone:2,wood:1},'weapon'],
+ stoneSledgehammer:['Stone Sledgehammer','stoneworks',{stone:4,wood:1},'weapon'],
+ ironHelmet:['Iron Helmet','armory',{iron:2},'helmet'],
+ ironChest:['Iron Chest Plate','armory',{iron:3},'chest'],
+ ironChain:['Iron Chain Plate','armory',{iron:2},'chest'],
+ ironSword:['Iron Sword','armory',{iron:2,wood:1},'weapon'],
+ ironBattleAxe:['Iron Battle Axe','armory',{iron:3,wood:1},'weapon'],
+ ironSpear:['Iron Spear','armory',{iron:2,wood:1},'weapon'],
+ ironShield:['Iron Shield','armory',{iron:2,wood:1},'shield'],
+ steelHelmet:['Steel Helmet','armory',{steel:2},'helmet'],
+ steelChest:['Steel Chest Plate','armory',{steel:3},'chest'],
+ steelChain:['Steel Chain Plate','armory',{steel:2},'chest'],
+ steelSword:['Steel Sword','armory',{steel:2,wood:1},'weapon'],
+ steelBattleAxe:['Steel Battle Axe','armory',{steel:3,wood:1},'weapon'],
+ steelSpear:['Steel Spear','armory',{steel:2,wood:1},'weapon'],
+ steelShield:['Steel Shield','armory',{steel:2,wood:1},'shield']
+};
+for(const material of ['gold','diamond']){
+ const prefix=material==='gold'?'Gold-Reinforced Steel':'Diamond-Reinforced Steel';
+ const ingredient=material==='gold'?'goldOre':'diamond';
+ for(const [key,label,qty,slot] of [
+  ['Helmet','Helmet',2,'helmet'],['Chest','Chest Plate',3,'chest'],
+  ['Chain','Chain Plate',2,'chest'],['Sword','Sword',2,'weapon'],
+  ['BattleAxe','Battle Axe',3,'weapon'],['Spear','Spear',2,'weapon'],
+  ['Shield','Shield',2,'shield']]){
+  WAR_EQUIPMENT[material+'Steel'+key]=[prefix+' '+label,'armory',{steel:qty,[ingredient]:1},slot];
+ }
+}
+for(const [key,[label,factory,input]] of Object.entries(WAR_EQUIPMENT)){
+ RECIPES[key]={name:label,input,output:key};
+ FACTORY_RECIPES[factory].push(key);
+ OUTPUTS[factory].push(key);
+ GOOD_NAMES[key]=label;
+}
+const WAR_SLOT_ITEMS={
+ helmet:Object.keys(WAR_EQUIPMENT).filter(k=>WAR_EQUIPMENT[k][3]==='helmet'),
+ chest:Object.keys(WAR_EQUIPMENT).filter(k=>WAR_EQUIPMENT[k][3]==='chest'),
+ weapon:['stoneSword','stoneAxe',...Object.keys(WAR_EQUIPMENT).filter(k=>WAR_EQUIPMENT[k][3]==='weapon')],
+ shield:['woodShield',...Object.keys(WAR_EQUIPMENT).filter(k=>WAR_EQUIPMENT[k][3]==='shield')]
+};
+const WAR_SHIELD_VALUES={wood:0.06,stone:0.09,iron:0.12,steel:0.15,gold:0.17,diamond:0.19};
+const WAR_CHEST_VALUES={leather:0.08,stone:0.11,iron:0.16,steel:0.20,gold:0.22,diamond:0.24};
+const WAR_HELM_VALUES={leather:0.025,stone:0.035,iron:0.045,steel:0.06,gold:0.07,diamond:0.08};
+function warMaterial(item){
+ const key=String(item||'').toLowerCase();
+ if(key.includes('diamond'))return 'diamond';
+ if(key.includes('gold'))return 'gold';
+ if(key.includes('steel'))return 'steel';
+ if(key.includes('iron'))return 'iron';
+ if(key.includes('stone'))return 'stone';
+ if(key.includes('leather'))return 'leather';
+ if(key.includes('wood'))return 'wood';
+ return 'none';
+}
+function warSkill(c){
+ return Math.max(0,Math.min(100,Math.round(Number.isFinite(c.military?.skill)
+  ?c.military.skill:16+(c.military?.training||1)*13+(c.military?.experience||0)*3)));
+}
+function warMoraleSpeed(c){const m=c.morale??50;return m>=70?1.25:m<35?.75:1;}
+function warWeaponClass(key){
+ key=String(key||'').toLowerCase();
+ return key.includes('sledge')||key.includes('club')?'hammer':
+ key.includes('battleaxe')||key.includes('axe')?'axe':
+ key.includes('spear')?'spear':'sword';
+}
+function warAttackSpeed(c){
+ const type=warWeaponClass(c.military?.weapon);
+ return ({sword:1.15,axe:0.82,spear:1.40,hammer:0.58})[type]*warMoraleSpeed(c);
+}
+function warWeaponDamage(c){
+ const mat=warMaterial(c.military?.weapon),kind=warWeaponClass(c.military?.weapon);
+ const base=({sword:2.4,axe:3.2,spear:1.9,hammer:4.2})[kind];
+ return base+({none:0,wood:0,stone:0.5,iron:1,steel:1.4,gold:1.7,diamond:1.9})[mat];
+}
+function warDefense(c){
+ const m=c.military||{},old=m.gear&&GEAR[m.gear]?m.gear:null;
+ const helmet=warMaterial(m.helmet),chest=warMaterial(m.chest)||'none',shield=warMaterial(m.shield);
+ return Math.min(0.58,(WAR_HELM_VALUES[helmet]||0)+(WAR_CHEST_VALUES[chest==='none'?old:chest]||0)+(WAR_SHIELD_VALUES[shield]||0));
+}
+function canEquipWarItem(p,c,key){
+ const slot=Object.entries(WAR_SLOT_ITEMS).find(([,items])=>items.includes(key))?.[0];
+ if(!slot||!c?.military||c.military.missionId||c.military[slot]===key)return false;
+ const stock=postStock(p,c.military.postId);
+ return !!stock&&localCount(stock,key)>0;
+}
+function equipWarItem(citizenId,key,id=0){
+ const p=G.players[id],c=p?.citizens.find(x=>String(x.id)===String(citizenId));
+ if(!p||!canCountryAct(p,id)||!canEquipWarItem(p,c,key))return false;
+ const slot=Object.entries(WAR_SLOT_ITEMS).find(([,items])=>items.includes(key))[0];
+ const stock=postStock(p,c.military.postId);
+ addLocal(stock,key,-1);
+ const prior=c.military[slot];if(prior&&GOOD_NAMES[prior])addLocal(stock,prior,1);
+ c.military[slot]=key;
+ useAction(p,p.name+' equipped '+c.name+' with '+GOOD_NAMES[key]+'.',{tileId:c.military.postId,kind:'equip'});
+ return true;
+}
+
 function emptyMinerals(){return {...START_MINERALS,coal:0,iron:0};}
 function veinFor(seed,tileId){
  const rng=mulberry32(hash(seed+':mineral-deposit:'+tileId));
@@ -822,7 +931,7 @@ function autoDispatchOutputs(){
   for(const item of OUTPUTS[kind]||[]){
    const count=localCount(site,item);if(count<1)continue;
    let to=site.routes?.[item]??null;
-   if(p.id!==0&&to===null&&(['woodShield','leatherArmor','ironArmor','steelArmor','goldArmor','diamondArmor'].includes(item)||item.startsWith('stone'))){const post=getMilitaryPosts(p.id)[0];if(post)to=postStock(p,post.id)?.id||'depot';}
+   if(p.id!==0&&to===null&&(['woodShield','leatherArmor','ironArmor','steelArmor','goldArmor','diamondArmor'].includes(item)||WAR_EQUIPMENT[item]||item.startsWith('stone'))){const post=getMilitaryPosts(p.id)[0];if(post)to=postStock(p,post.id)?.id||'depot';}
    if(to===null)to=nearbyStorage(p,t,item)?.id||'depot';
    if(String(to)===String(site.id)||!siteLookup(p.id,to))continue;
    dispatchShipment(p.id,site.id,to,item,Math.min(10,count),true);
@@ -1123,7 +1232,7 @@ function migrateGameplay(s){
   p.minerals??=emptyMinerals();
   for(const key of [...MINERAL_KEYS,'steel'])p.minerals[key]=Math.max(0,Math.floor(p.minerals[key]||0));
   if(p.ore!==undefined){p.minerals.iron+=Math.max(0,Math.floor(p.ore));delete p.ore;}
-  for(const c of p.citizens||[]){if(c.health==null||c.morale==null){const rng=mulberry32(hash(s.seed+':traits:'+c.id));c.health=45+randInt(rng,56);c.morale=40+randInt(rng,61);}if(c.military){if(s.logisticsVersion!==1&&(!c.military.gear||['basic','leather'].includes(c.military.gear)))c.military.gear=null; c.military.shield??=null;c.military.weapon??=null;}c.job??=null;}
+  for(const c of p.citizens||[]){if(c.health==null||c.morale==null){const rng=mulberry32(hash(s.seed+':traits:'+c.id));c.health=45+randInt(rng,56);c.morale=40+randInt(rng,61);}if(c.military){if(s.logisticsVersion!==1&&(!c.military.gear||['basic','leather'].includes(c.military.gear)))c.military.gear=null; c.military.helmet??=null;c.military.chest??=null;c.military.skill??=warSkill(c);c.military.shield??=null;c.military.weapon??=null;}c.job??=null;}
  }
  if(!s.crewVersion){
   s.turnClock??=0;
@@ -2333,7 +2442,7 @@ function volunteerEachRound(p){
   if(!open.length)break;
   if(rng()>volunteeringChance(c,p))continue;
   const post=open[randInt(rng,open.length)];
-  c.military={postId:post.id,training:1,experience:0,perk:null,gear:null,shield:null,weapon:null};p.food-=1;count++;
+  c.military={postId:post.id,training:1,experience:0,perk:null,gear:null,helmet:null,chest:null,shield:null,weapon:null,skill:29+randInt(rng,23)};p.food-=1;count++;
   addLog(`${c.name} volunteered for ${p.name}'s military at ${post.name}.`);
  }
 }
@@ -2558,7 +2667,7 @@ function doTrain(t,id=0){
  const soldiers=postGarrison(p,t.id).filter(c=>c.military.training<5&&!c.military.missionId).slice(0,3);
  if(!soldiers.length||!hasMoney(p,3)||p.food<1)return false;
  p.gold-=3;p.food-=1;
- for(const c of soldiers){c.military.training++;if(c.military.training>=3&&!c.military.perk)c.military.perk='Disciplined';}
+ for(const c of soldiers){c.military.training++;c.military.skill=Math.min(100,warSkill(c)+8);if(c.military.training>=3&&!c.military.perk)c.military.perk='Disciplined';}
  useAction(p,`${p.name} trained ${soldiers.length} troops at ${t.name}.`,{tileId:t.id,kind:'train'});
  if(id===0)showToast('Training completed');return true;
 }
