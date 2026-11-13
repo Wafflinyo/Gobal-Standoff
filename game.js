@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.26 — trade counteroffer falcons and glowing territorial threat borders. */
+/* Global Standoff 0.4.27 — stable portrait/landscape camera zoom and mobile viewport. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -123,6 +123,47 @@ function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a
 const randInt=(rng,n)=>Math.floor(rng()*n);
 let G=null,selectedColor=0,showBuild=false,showResearch=false,cpuBusy=false,toastTimer=0,suppressClick=false,drag=null,rosterTab="citizens";
 let view={x:-600,y:-490,w:1200,h:980};
+// Desired zoom remains independent of device orientation. Never derive the
+// next target zoom from a landscape-expanded viewBox or portrait will jump.
+let cameraDesiredWidth=1200,viewportLayoutFrame=0,lastViewportLayoutKey='';
+function phoneMapLayout(){
+ return window.matchMedia?.('(pointer: coarse)')?.matches&&Math.min(window.innerWidth,window.innerHeight)<650;
+}
+function phoneLandscapeLayout(){
+ return phoneMapLayout()&&window.matchMedia?.('(orientation: landscape)')?.matches;
+}
+function mobileCameraWidth(phone=420,desktop=540){
+ return phoneMapLayout()?phone:window.innerWidth<600?phone:desktop;
+}
+function fittedCameraWidth(desiredWidth,aspect=mapAspect()){
+ // Keeping map width fixed while the phone is horizontal collapses its
+ // visible vertical span and makes the board seem massively zoomed in.
+ // Expand both axes in landscape, not just the SVG's canvas.
+ return phoneLandscapeLayout()?desiredWidth*Math.max(1,aspect*.94):desiredWidth;
+}
+function reconcileMapViewport(force=false){
+ if(!G||!document.body.classList.contains('gs-playing'))return;
+ const svg=el('worldMap'),rect=svg.getBoundingClientRect();
+ if(rect.width<20||rect.height<20)return;
+ const aspect=rect.width/rect.height,orientation=phoneLandscapeLayout()?'phone-landscape':'regular';
+ const key=`${orientation}:${Math.round(rect.width/8)}:${Math.round(aspect*10)}`;
+ if(!force&&key===lastViewportLayoutKey)return;
+ lastViewportLayoutKey=key;
+ // MoveCamera recomputes from the live aspect on every animation frame.
+ // Do not reset the camera or rebuild hexes halfway through its turn.
+ if(cameraMoveFrame)return;
+ const cx=view.x+view.w/2,cy=view.y+view.h/2,width=fittedCameraWidth(cameraDesiredWidth,aspect);
+ view.w=width;view.h=width/aspect;view.x=cx-width/2;view.y=cy-view.h/2;
+ svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
+}
+function scheduleMapViewportReflow(){
+ if(viewportLayoutFrame)cancelAnimationFrame(viewportLayoutFrame);
+ viewportLayoutFrame=requestAnimationFrame(()=>{
+  viewportLayoutFrame=requestAnimationFrame(()=>{
+   viewportLayoutFrame=0;reconcileMapViewport();
+  });
+ });
+}
 let cpuLastAction=null; // Exact event emitted by a CPU action. No guesses from tile array order.
 let sheetMode=null,previewCardIndex=-1;
 let scenePlayback=null,scenePlaybackSerial=0;
@@ -1662,7 +1703,7 @@ async function playMapScenePlayback(playback){
  try{
   if(!tile||!sceneAlive(playback))return;
   const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  await moveCamera(tile,cameraYaw,reduced?0:cpuBusy?920:450,window.innerWidth<600?350:435);
+  await moveCamera(tile,cameraYaw,reduced?0:cpuBusy?920:450,mobileCameraWidth(350,435));
   if(!sceneAlive(playback))return;
   playback.phase='play';renderMap();
   if(cpuBusy)await cpuPause(reduced?120:playback.kind==='work'?1050:1250,cpuPlaybackToken);
@@ -1783,7 +1824,7 @@ function openCardPreview(index){
 }
 function closeCardPreview(){previewCardIndex=-1;el('cardPreview').classList.add('hidden');el('cardPreview').setAttribute('aria-hidden','true');}
 
-function enterGame(){scenePlayback=null;scenePlaybackSerial++;document.body.classList.add('gs-playing');closeCardPreview();sheetMode=null;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');cpuPlaybackToken++;skipCpuPlayback=false;hideCpuHud();el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();focusHome(true);render();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));setTimeout(presentFalconInbox,300);}
+function enterGame(){scenePlayback=null;scenePlaybackSerial++;document.body.classList.add('gs-playing');lastViewportLayoutKey='';closeCardPreview();sheetMode=null;el('sheetLayer').classList.add('hidden');el('sheetLayer').setAttribute('aria-hidden','true');cpuPlaybackToken++;skipCpuPlayback=false;hideCpuHud();el('lobby').classList.add('hidden');el('game').classList.remove('hidden');el('topMenuBtn').classList.remove('hidden');showBuild=false;showResearch=false;resetView();focusHome(true);render();scheduleMapViewportReflow();requestAnimationFrame(()=>window.scrollTo({top:0,left:0,behavior:'instant'}));setTimeout(presentFalconInbox,300);}
 function newMatch(){cardEffectBusy=false;el('cardEffectLayer')?.classList.add('hidden');scenePlayback=null;scenePlaybackSerial++;document.body.classList.remove('gs-playing');closeCardPreview();closeSheet();cpuPlaybackToken++;cancelAnimationFrame(cameraMoveFrame);hideCpuHud();if(cameraResolve){cameraResolve();cameraResolve=null;}G=null;cpuBusy=false;el('lobby').classList.remove('hidden');el('game').classList.add('hidden');el('topMenuBtn').classList.add('hidden');el('roundBadge').textContent='SOLO TEST';closeModal();renderLobby();}
 function renderLobby(){
  el('colorOptions').innerHTML=COLORS.map((c,i)=>`<button class="color-swatch" style="--swatch:${c}" aria-label="Choose ${['jade','amber','violet','coral'][i]}" aria-pressed="${i===selectedColor}" data-color="${i}"></button>`).join('');
@@ -2044,7 +2085,7 @@ async function runCpuCinematic(token=cpuPlaybackToken){
   actionTileId=null;beginTurn(id);render();showCpuHud(id,`Viewing ${p.name}'s turn`);
   cpuSecretWarOrder(id);
   // A longer, ease-in/ease-out camera sweep introduces the next country.
-  await moveCamera(capital,POV_ANGLES[id],1250,window.innerWidth<600?435:560);
+  await moveCamera(capital,POV_ANGLES[id],1250,mobileCameraWidth(435,560));
   if(token!==cpuPlaybackToken||!G)return;
   await cpuPause(490,token);
   // Play their card as a distinct, visible event before the major actions.
@@ -2071,7 +2112,7 @@ async function runCpuCinematic(token=cpuPlaybackToken){
    const playback=scenePlayback;
    if(playback){await playback.done;}
    else if(changedTile){
-    await moveCamera(changedTile,POV_ANGLES[id],1050,window.innerWidth<600?350:445);
+    await moveCamera(changedTile,POV_ANGLES[id],1050,mobileCameraWidth(350,445));
     if(token!==cpuPlaybackToken||!G)return;
     flashAction(changedTile,action?.kind||'cpu');
     await cpuPause(900,token);
@@ -2091,14 +2132,14 @@ async function runCpuCinematic(token=cpuPlaybackToken){
  cpuBusy=true;render(); // Keep input locked through the return camera move.
  showCpuHud(0,'The next round begins — your move.');
  const home=G.tiles.find(t=>t.owner===0&&t.capital)||G.tiles[0];
- await moveCamera(home,POV_ANGLES[0],1350,window.innerWidth<600?435:565);
+ await moveCamera(home,POV_ANGLES[0],1350,mobileCameraWidth(435,565));
  hideCpuHud();await showCompletedProjects();cpuBusy=false;render();setTimeout(presentFalconInbox,390);
 }
 function endTurn(){
  if(!active())return;
  closeCardPreview();closeSheet();cpuBusy=true;skipCpuPlayback=false;cpuPlaybackToken++;
  const token=cpuPlaybackToken;save();render();
- el('mapWrap').scrollIntoView({behavior:'smooth',block:'center'});
+ if(!document.body.classList.contains('gs-playing'))el('mapWrap').scrollIntoView({behavior:'smooth',block:'center'});
  setTimeout(async()=>{
   try{
    advanceWorldTurn();
@@ -2995,19 +3036,35 @@ function renderMap(){
  syncBoardRotation();
 }
 function mapAspect(){const rect=el('worldMap').getBoundingClientRect();return rect.width>0&&rect.height>0?rect.width/rect.height:1.5;}
-function setCenter(cx,cy,width){const aspect=mapAspect();view.w=width;view.h=width/aspect;view.x=cx-width/2;view.y=cy-view.h/2;el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);}
-function focusHome(immediate=true){if(!G)return;const t=G.tiles.find(t=>t.owner===0&&t.capital)||G.tiles[0];return moveCamera(t,POV_ANGLES[0],immediate?0:750,window.innerWidth<600?420:540);}
-function resetView(){if(!G)return;cameraYaw=POV_ANGLES[0];const projected=G.tiles.map(t=>hexPoints(t,HEX+10)).flat();const xs=projected.map(p=>p.x),ys=projected.map(p=>p.y);
- const minx=Math.min(...xs)-25,maxx=Math.max(...xs)+25,miny=Math.min(...ys)-60,maxy=Math.max(...ys)+60,asp=mapAspect();const w=Math.max(maxx-minx,(maxy-miny)*asp);setCenter((maxx+minx)/2,(maxy+miny)/2,w);renderMap();}
-function zoom(f){const cx=view.x+view.w/2,cy=view.y+view.h/2;setCenter(cx,cy,Math.min(2400,Math.max(210,view.w*f)));}
+function setCenter(cx,cy,width){
+ const aspect=mapAspect();
+ cameraDesiredWidth=width;
+ const fitted=fittedCameraWidth(width,aspect);
+ view.w=fitted;view.h=fitted/aspect;view.x=cx-fitted/2;view.y=cy-view.h/2;
+ el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
+}
+function focusHome(immediate=true){if(!G)return;const t=G.tiles.find(t=>t.owner===0&&t.capital)||G.tiles[0];return moveCamera(t,POV_ANGLES[0],immediate?0:750,mobileCameraWidth(420,540));}
+function resetView(){
+ if(!G)return;
+ cameraYaw=POV_ANGLES[0];
+ const projected=G.tiles.map(t=>hexPoints(t,HEX+10)).flat(),xs=projected.map(p=>p.x),ys=projected.map(p=>p.y);
+ const minx=Math.min(...xs)-25,maxx=Math.max(...xs)+25,miny=Math.min(...ys)-60,maxy=Math.max(...ys)+60,asp=mapAspect();
+ const actual=Math.max(maxx-minx,(maxy-miny)*asp),factor=fittedCameraWidth(1,asp);
+ setCenter((maxx+minx)/2,(maxy+miny)/2,actual/factor);
+ renderMap();
+}
+function zoom(f){
+ const cx=view.x+view.w/2,cy=view.y+view.h/2;
+ setCenter(cx,cy,Math.min(2400,Math.max(140,cameraDesiredWidth*f)));
+}
 function moveCamera(tile,targetYaw=cameraYaw,duration=800,targetWidth=460){
  if(!G||!tile)return Promise.resolve();
  if(cameraMoveFrame)cancelAnimationFrame(cameraMoveFrame);
  if(cameraResolve){const previous=cameraResolve;cameraResolve=null;previous();}
- const from={yaw:cameraYaw,cx:view.x+view.w/2,cy:view.y+view.h/2,width:view.w};
+ const from={yaw:cameraYaw,cx:view.x+view.w/2,cy:view.y+view.h/2,width:cameraDesiredWidth};
  const fromWorld=unprojectScreen(from.cx,from.cy,from.yaw);
  const target=coords(tile),start=performance.now(),token=cpuPlaybackToken;
- const aspect=mapAspect(),reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+ const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
  return new Promise(resolve=>{
   cameraResolve=resolve;
   const done=()=>{cameraMoveFrame=0;if(cameraResolve===resolve)cameraResolve=null;resolve();};
@@ -3019,7 +3076,8 @@ function moveCamera(tile,targetYaw=cameraYaw,duration=800,targetWidth=460){
    syncBoardRotation();
    const worldX=blend(fromWorld.x,target.x,k),worldY=blend(fromWorld.y,target.y,k);
    const center=project(worldX,worldY,cameraYaw);
-   view.w=blend(from.width,targetWidth,k);view.h=view.w/aspect;
+   cameraDesiredWidth=blend(from.width,targetWidth,k);
+   const aspect=mapAspect();view.w=fittedCameraWidth(cameraDesiredWidth,aspect);view.h=view.w/aspect;
    view.x=center.x-view.w/2;view.y=center.y-view.h/2;
    el('worldMap').setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
    if(t<1)cameraMoveFrame=requestAnimationFrame(frame);
@@ -3181,6 +3239,12 @@ function bindEvents(){
  svg.addEventListener('click',e=>handleMapTap(e));
  svg.addEventListener('keydown',e=>{if(scenePlayback)return;if(['Enter',' '].includes(e.key)&&e.target.matches('[data-hex]')){e.preventDefault();G.selectedId=e.target.dataset.hex;showBuild=false;render();save();showSheet('territory');}});
  svg.addEventListener('wheel',e=>{e.preventDefault();zoom(e.deltaY>0?1.12:.89);},{passive:false});
+ // Rotation and Safari browser chrome can fire multiple competing resize
+ // events. Coalesce them into one viewport-only update without rebuilding SVG
+ // world objects, moving the map center or opening/closing the game sheet.
+ window.addEventListener('resize',scheduleMapViewportReflow,{passive:true});
+ window.addEventListener('orientationchange',scheduleMapViewportReflow,{passive:true});
+ window.visualViewport?.addEventListener('resize',scheduleMapViewportReflow,{passive:true});
  el('modalLayer').addEventListener('click',e=>{const b=e.target.closest('[data-modal]');if(b?.dataset.modal?.startsWith('falcon-')){handleFalconMessageAction(b);return;}if(!b){if(e.target===el('modalBackdrop'))closeModal();return;}switch(b.dataset.modal){case'close':closeModal();break;case'new-confirm':confirmNew();break;case'new':try{localStorage.removeItem(SAVE_KEY);localStorage.removeItem(OLD_SAVE_KEY);}catch(e){}newMatch();break;case'continue':G.finished=false;G.continued=true;G.maxRounds=Math.max(G.round+16,G.maxRounds+16);G.round++;beginTurn(0);cpuBusy=false;save();closeModal();render();break;}});
 }
 try{
