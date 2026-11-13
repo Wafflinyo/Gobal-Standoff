@@ -195,6 +195,9 @@ function ensureStartingCrews(world){
   if(!capital.buildings.includes('builderBunk')){capital.buildings.push('builderBunk');capital.buildingMeta??=[];capital.buildingMeta.push({id:world.nextBuildingId++,level:1,autoHire:false,stock:{},routes:{}});}
   p.expeditions??=[{id:`exp-${p.id}-1`,name:'Frontier Expedition',level:1,locationId:capital.id,targetId:null,remaining:0,citizenIds:[],elapsed:0}];
    for(const exp of p.expeditions){
+    // Old saved worlds may contain an expedition already halfway to its goal.
+    // Let that existing journey finish; every new dispatch needs real citizens.
+    if(exp.targetId&&!Array.isArray(exp.citizenIds))exp.legacyInFlight=true;
     if(!Array.isArray(exp.citizenIds))exp.citizenIds=[];
     exp.elapsed??=0;
    }
@@ -261,7 +264,7 @@ function worksite(t,index){return t.buildingMeta?.[index]||null;}
 function workCapacity(type,level){const spaces=BUILDINGS[type]?.jobs||[0,0,0];return spaces[Math.max(0,Math.min(2,level-1))]||0;}
 function worksiteWorkers(p,site){return site?p.citizens.filter(c=>c.job?.siteId===site.id&&!c.military&&c.age>=18):[];}
 function isBusyPorter(c,world=G){return !!world?.shipments?.some(j=>j.kind==='porter'&&j.porterId===c.id);}
-function eligibleWorker(c){return c.age>=18&&!c.military&&!c.builder&&!isBusyExpedition(c)&&c.health>=25;}
+function eligibleWorker(c,world=G){return c.age>=18&&!c.military&&!c.builder&&!isBusyExpedition(c,world)&&c.health>=25;}
 function assignWorkers(p,world=G){
  if(!world)return;
  const owned=world.tiles.filter(t=>t.owner===p.id);
@@ -273,12 +276,12 @@ function assignWorkers(p,world=G){
  const staff=new Map();
  for(const c of p.citizens){
   const site=c.job&&siteById.get(c.job.siteId);
-  if(!site||!eligibleWorker(c)||(staff.get(site.meta.id)||0)>=site.capacity){c.job=null;continue;}
+  if(!site||!eligibleWorker(c,world)||(staff.get(site.meta.id)||0)>=site.capacity){c.job=null;continue;}
   staff.set(site.meta.id,(staff.get(site.meta.id)||0)+1);
  }
  const priority={builderBunk:20,storageWarehouse:18,caravanWarehouse:18,farm:0,lumber:1,mine:2,leatherFactory:3,woodworks:4,stoneworks:5,foundry:6,armory:7,market:8,academy:9,post:10,homes:11};
  sites.sort((a,b)=>(priority[a.kind]??9)-(priority[b.kind]??9));
- const unemployed=p.citizens.filter(c=>eligibleWorker(c)&&!c.job&&!isBusyPorter(c,world)).sort((a,b)=>b.morale-a.morale||b.health-a.health||a.id.localeCompare(b.id));
+ const unemployed=p.citizens.filter(c=>eligibleWorker(c,world)&&!c.job&&!isBusyPorter(c,world)).sort((a,b)=>b.morale-a.morale||b.health-a.health||a.id.localeCompare(b.id));
  for(const site of sites){
   if(!site.meta.autoHire)continue;
   let used=staff.get(site.meta.id)||0;
@@ -1786,18 +1789,30 @@ function useAction(p,text,visual=null){
  if(p.id>0)cpuLastAction={nation:p.id,description:text,tileId:visual?.tileId||null,kind:visual?.kind||'action'};
  addLog(text);showBuild=false;showResearch=false;save();render();
 }
-function doExpand(t,id=0){
+function doExpand(t,id=0,selectedCitizenIds=null){
  const p=G.players[id],crew=idleExpedition(p);
  if(!crew||!canCountryAct(p,id)||!eligibleExpansion(p,t))return false;
+ const eligible=eligibleExpeditionCitizens(p);
+ // Human players choose their party explicitly; CPU nations recruit from the
+ // same unemployed civilian pool and obey exactly the same 1-2 citizen limit.
+ const ids=Array.isArray(selectedCitizenIds)?selectedCitizenIds:
+  (id!==0?eligible.slice(0,2).map(c=>c.id):[]);
+ if(ids.length<1||ids.length>2||new Set(ids).size!==ids.length||
+    !ids.every(chosen=>eligible.some(c=>c.id===chosen))){
+  if(id===0)showToast('Choose 1 or 2 unemployed civilians aged 16+ to explore.');
+  return false;
+ }
  const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;
- // Give expedition dispatch the same zoom + overlay restore as construction.
- // A dispatch is not a claim: ownership still changes only on arrival.
+ // Keep the existing departure zoom, overlay suspension and restore behavior.
  const playback=(id===0||cpuBusy)?startMapScenePlayback(t,'dispatch'):null;
  p.gold-=cost;p.food-=2;p.discountExpand=0;p.expansionsThisTurn=(p.expansionsThisTurn||0)+1;
  const origin=G.tiles.find(v=>v.id===crew.locationId)||G.tiles.find(v=>v.owner===id&&v.capital);
  crew.targetId=t.id;crew.originId=(origin||t).id;crew.remaining=Math.max(1,countryTravelRoute(id,origin||t,t,true)?.turns??Math.ceil(distance(origin||t,t)));crew.travelTotal=crew.remaining;crew.startedClock=G.turnClock||0;
- useAction(p,`${p.name} dispatched an expedition to ${t.name} (${crew.remaining} turn${crew.remaining===1?'':'s'} away).`,{tileId:t.id,kind:'expedition'});
- if(id===0)showToast(`Expedition en route to ${t.name}`);
+ crew.citizenIds=[...ids];crew.elapsed=0;crew.legacyInFlight=false;
+ const names=crew.citizenIds.map(cid=>p.citizens.find(c=>c.id===cid)).filter(Boolean);
+ for(const citizen of names)citizen.morale=Math.max(0,(citizen.morale??50)-1);
+ useAction(p,`${p.name} sent ${names.map(c=>c.name).join(' and ')} on an expedition to ${t.name} (${crew.remaining} turn${crew.remaining===1?'':'s'} away).`,{tileId:t.id,kind:'expedition'});
+ if(id===0)showToast(`${names.length} civilian explorer${names.length===1?'':'s'} en route to ${t.name}`);
  return true;
 }
 function doBuild(t,type,id=0){
