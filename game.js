@@ -1581,7 +1581,7 @@ function startSiege(tileId,postId,qty,owner=0){
  const siege={id:G.nextSiegeId++,targetTileId:target.id,stagingTileId:staging.tile.id,originPostId:postId,
   attacker:owner,defender:target.owner,attackerIds:men.map(c=>c.id),defenderIds:[],
   status:'marching',marchRemaining:march,createdClock:G.turnClock||0,startedRound:G.round,
-  roundNumber:0,supply:0,fort:0,morale:0,preparation:0,history:[],reinforcements:[],
+  roundNumber:0,supply:0,fort:0,morale:0,destruction:0,preparation:0,history:[],reinforcements:[],
   attackerStanding:'blockade',defenderStanding:'hold',attackerOrder:null,defenderOrder:null};
  G.sieges.push(siege);
  for(const c of men)c.military.missionId='siege-a-'+siege.id;
@@ -1656,7 +1656,7 @@ function establishSiege(s){
  for(const c of chosen)c.military.missionId='siege-d-'+s.id;
  const stores=(target.buildings||[]).reduce((n,kind,i)=>n+(target.buildingMeta?.[i]?.stock?.food||0),0);
  s.status='active';s.activeRound=G.round;s.supply=Math.min(100,40+Math.min(30,stores)+chosen.length*2);
- s.fort=Math.min(100,28+(buildingCount(target,'post')?22:0)+(target.terrain==='mountain'?14:target.terrain==='hills'?8:target.terrain==='forest'?5:0));
+ s.destruction??=0;s.fort=Math.min(100,28+(buildingCount(target,'post')?22:0)+(target.terrain==='mountain'?14:target.terrain==='hills'?8:target.terrain==='forest'?5:0));
  s.morale=Math.round(chosen.length?chosen.reduce((v,c)=>v+(c.morale||40),0)/chosen.length:55);
  addLog(`${G.players[s.attacker].name} surrounded ${target.name}. A siege is underway: ${chosen.length} defenders, ${s.fort} fortification, ${s.supply} supply.`);
 }
@@ -1664,7 +1664,7 @@ function progressSiegeMarches(){
  for(const s of G.sieges||[]){
   if(s.status!=='marching'||(G.turnClock||0)<=s.createdClock+1)continue;
   if(!currentWar(s.attacker,s.defender)||G.tiles.find(t=>t.id===s.targetTileId)?.owner!==s.defender
-   ||G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker||!siegeTeam(s,'attacker').length){
+   ||(!s.stagingNeutral&&G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker)||!siegeTeam(s,'attacker').length){
    finishSiege(s,'cancelled');continue;
   }
   s.marchRemaining=Math.max(0,s.marchRemaining-1);
@@ -1713,7 +1713,7 @@ function applySiegeInjuries(s,side,amount,roundSeed){
  return {wounded,dead};
 }
 function finishSiege(s,status){
- if(!['marching','active'].includes(s.status))return;
+ if(!['marching','active','breached','aftermath','counterattack'].includes(s.status))return;
  s.status=status;s.endedRound=G.round;s.attackerOrder=null;s.defenderOrder=null;s.reinforcements=[];
  for(const id of [s.attacker,s.defender]){
   for(const c of G.players[id]?.citizens||[])if(c.military&&['siege-a-'+s.id,'siege-d-'+s.id,'siege-r-'+s.id].includes(c.military.missionId))
@@ -1749,83 +1749,255 @@ function captureSiegeTerritory(s){
  (G.completedScenes??=[]).push({projectId:`siege-${s.id}-${G.turnClock}`,owner:s.attacker,tileId:t.id,kind:'expand'});
  return true;
 }
-function resolveSieges(){
- for(const s of G.sieges||[]){
-  if(s.status!=='active'||s.activeRound>=G.round)continue;
-  const target=G.tiles.find(t=>t.id===s.targetTileId);
-  if(!target||target.owner!==s.defender||!currentWar(s.attacker,s.defender)
-   ||G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker){finishSiege(s,'cancelled');continue;}
-  const attacker=G.players[s.attacker],defender=G.players[s.defender];
-  const aOrder=siegeOrderFor(s,'attacker'),dOrder=siegeOrderFor(s,'defender');
-  s.roundNumber++;
-  const fresh=siegeTeam(s,'attacker'),guards=siegeTeam(s,'defender');
-  if(!fresh.length||aOrder==='withdraw'){finishSiege(s,fresh.length?'withdrawn':'repelled');continue;}
-  const rng=mulberry32(hash(G.seed+':siege-outcome:'+s.id+':'+G.round));
-  const terrain=(target.terrain==='mountain'?1.3:target.terrain==='hills'?1.17:target.terrain==='forest'?1.1:1);
-  let aPower=siegeStrength(s,'attacker'),dPower=siegeStrength(s,'defender')*terrain;
-  const attackersFed=attacker.food>=Math.max(1,Math.ceil(fresh.length/4));
-  if(attackersFed)attacker.food-=Math.max(1,Math.ceil(fresh.length/4));
-  else {aPower*=.65;for(const c of fresh)c.morale=Math.max(0,c.morale-5);}
-  const supplyBefore=s.supply;
-  const blockade=aOrder==='blockade'?9:aOrder==='disrupt'?7:3;
-  s.supply=Math.max(0,s.supply-(4+Math.ceil(guards.length/3)+blockade));
-  if(aOrder==='disrupt')s.supply=Math.max(0,s.supply-6);
-  if(aOrder==='prepare'&&attacker.wood>=1){attacker.wood--;s.preparation=Math.min(4,s.preparation+1);}
-  if(dOrder==='fortify'&&defender.wood>=2){defender.wood-=2;s.fort=Math.min(100,s.fort+9);}
-  if(dOrder==='resupply'){
-   const corridors=neighbors(target).filter(t=>t.owner===s.defender&&t.terrain!=='water');
-   if(corridors.length&&defender.food>=3){
-    const road=corridors.some(t=>roadExistsBetween(t,target));
-    const success=rng()<Math.min(.95,(aOrder==='blockade'?.35:.74)+(road?.13:0)+(defender.caravans?.length?.08:0));
-    defender.food-=3;
-    if(success)s.supply=Math.min(100,s.supply+(defender.caravans?.length?23:16));
+
+function warRemoveFallen(c,owner,s){
+ if(c.health>0)return false;
+ const p=G.players[owner],i=p.citizens.indexOf(c);
+ if(i<0)return false;
+ p.citizens.splice(i,1);
+ p.deathCount=(p.deathCount||0)+1;p.recentDeaths??=[];
+ p.recentDeaths.unshift({name:c.name,age:c.age,round:G.round,cause:'battle',tileId:s.targetTileId});
+ p.recentDeaths.length=Math.min(8,p.recentDeaths.length);
+ reallocateHousing(p);
+ addLog(c.name+' of '+p.name+' was killed in the siege of '+(G.tiles.find(t=>t.id===s.targetTileId)?.name||'the frontier')+'.');
+ return true;
+}
+// One fixed, virtual combat window per WORLD ROUND. No wall-clock timers
+// affect outcomes: asynchronous players always get the same result on return.
+function warFightWindow(s,leftIds,rightIds,leftOwner,rightOwner,seed,leftIntensity=1,rightIntensity=1){
+ const rng=mulberry32(hash(G.seed+':bean-combat:'+s.id+':'+G.round+':'+seed));
+ const rollSide=(sourceIds,targetIds,sourceOwner,targetOwner,intensity)=>{
+  let strikes=0,hits=0,damage=0,losses=0;
+  const source=G.players[sourceOwner],target=G.players[targetOwner];
+  const attack=sourceIds.map(id=>source.citizens.find(c=>c.id===id)).filter(c=>c?.military&&c.health>0);
+  for(const unit of attack){
+   const attempts=Math.floor(warAttackSpeed(unit)*Math.max(0,intensity)*1.3+
+    rng()); // 0-2 attacks for normal fighters; morale changes frequency.
+   for(let k=0;k<attempts;k++){
+    const targets=targetIds.map(id=>target.citizens.find(c=>c.id===id)).filter(c=>c?.military&&c.health>0);
+    if(!targets.length)break;
+    const enemy=targets[Math.floor(rng()*targets.length)];
+    strikes++;
+    const accuracy=Math.min(0.94,Math.max(0.18,0.26+warSkill(unit)*0.0067));
+    if(rng()>accuracy)continue;
+    hits++;
+    const terrainReduction=s.targetTileId&&G.tiles.find(t=>t.id===s.targetTileId)?.terrain==='mountain'&&targetOwner===s.defender?.90:1;
+    const raw=warWeaponDamage(unit)*terrainReduction*(0.85+rng()*.3);
+    const taken=Math.max(1,Math.round(raw*(1-warDefense(enemy))));
+    enemy.health=Math.max(0,enemy.health-taken);
+    enemy.morale=Math.max(0,(enemy.morale??50)-Math.max(1,Math.round(taken/4)));
+    unit.military.experience=(unit.military.experience||0)+1;
+    // Skill improves with participation, never increases damage directly.
+    if(unit.military.skill!=null&&rng()<.11)unit.military.skill=Math.min(100,unit.military.skill+1);
+    damage+=taken;
+    if(warRemoveFallen(enemy,targetOwner,s))losses++;
    }
   }
-  if(dOrder==='rally')s.morale=Math.min(100,s.morale+11);
-  if(dOrder==='counterattack'){
-   const counterAdvantage=dPower/(aPower+15);
-   applySiegeInjuries(s,'attacker',Math.min(3,Math.max(1,Math.round(counterAdvantage*2))),1);
-   s.morale=Math.max(0,s.morale-2);
+  return {strikes,hits,damage,losses};
+ };
+ // Both sides take their attacks based on the strength present at round start.
+ // Interleave sides per round with seed-determined initiative to reduce first-turn bias.
+ const first=rng()<.5?0:1;
+ const out=[null,null];
+ for(const side of [first,1-first]){
+  out[side]=side===0
+   ?rollSide(leftIds,rightIds,leftOwner,rightOwner,leftIntensity)
+   :rollSide(rightIds,leftIds,rightOwner,leftOwner,rightIntensity);
+ }
+ return {attacker:out[0],defender:out[1]};
+}
+function warDestructionHit(s,attackerHits,attackingCount,defendingCount,aOrder,dOrder){
+ if(aOrder!=='assault')return 0;
+ const rng=mulberry32(hash(G.seed+':siege-structures:'+s.id+':'+G.round));
+ const crew=Math.max(1,attackingCount);
+ const defenseless=defendingCount===0?1.4:1;
+ const shelter=Math.min(.45,(s.fort||0)/225);
+ const prep=s.preparation||0;
+ const base=(crew*.85+attackerHits*.6+prep*1.5)*defenseless*(.85+rng()*.3);
+ return Math.max(1,Math.min(18,Math.round(base*(1-shelter)*(dOrder==='hold'?.86:1))));
+}
+function warReleaseTransport(cart){
+ if(!cart)return;
+ if(typeof cart.shipmentId==='string'&&cart.shipmentId.startsWith('troops:'))cart.shipmentId=null;
+ cart.troopMissionId=null;
+}
+function warReturnTroops(ids,owner,fromId,destinationId,label){
+ const p=G.players[owner],from=G.tiles.find(t=>t.id===fromId),dest=G.tiles.find(t=>t.id===destinationId);
+ const roster=ids.map(id=>p.citizens.find(c=>c.id===id)).filter(c=>c?.military&&c.health>0);
+ if(!roster.length)return;
+ const route=from&&dest?militaryTravelPath(owner,from,dest):null;
+ if(!route){for(const c of roster)c.military.missionId=null;return;}
+ const id=G.nextOrderId++;
+ const mission={id,owner,enemy:null,originPostId:destinationId,targetTileId:destinationId,
+  kind:'return',troopIds:roster.map(c=>c.id),path:route.path,index:0,stepSpent:0,
+  totalPoints:route.points,startedClock:G.turnClock||0,status:'returning'};
+ G.militaryOrders.push(mission);
+ for(const c of roster)c.military.missionId=id;
+ addLog(p.name+' ordered '+roster.length+' soldier(s) to '+label+'.');
+}
+function warDestroyTerritory(s){
+ const tile=G.tiles.find(t=>t.id===s.targetTileId);
+ if(!tile||tile.owner!==s.defender||tile.capital)return false;
+ const former=G.players[s.defender],lastBuilding=tile.buildings.length;
+ // Full destruction removes both ownership and functional structures.
+ tile.owner=null;tile.buildings=[];tile.buildingMeta=[];
+ for(const project of (G.projects||[]).filter(p=>p.tileId===tile.id)){
+  for(const id of project.builderIds||[]){const c=former.citizens.find(c=>c.id===id);if(c?.builder)c.builder.projectId=null;}
+ }
+ G.projects=(G.projects||[]).filter(p=>p.tileId!==tile.id);
+ for(const job of [...(G.shipments||[])])if(job.fromTileId===tile.id||job.toTileId===tile.id){
+  const owner=G.players[job.owner],cart=owner?.caravans.find(c=>c.id===job.caravanId);
+  if(cart){cart.shipmentId=null;cart.currentTileId=job.path?.[job.step]||cart.currentTileId;}
+  if(job.kind==='porter'){const c=owner?.citizens.find(c=>c.id===job.porterId);if(c)c.morale=Math.max(0,(c.morale??50)-2);}
+  G.shipments.splice(G.shipments.indexOf(job),1);
+ }
+ for(const c of former.citizens)if(c.military?.postId===tile.id){
+  const fallback=getMilitaryPosts(s.defender).find(t=>t.id!==tile.id);
+  if(fallback)c.military.postId=fallback.id;else c.military.postId=null;
+ }
+ reallocateHousing(former);assignWorkers(former);
+ s.destruction=100;s.status='breached';s.destroyedRound=G.round;
+ s.attackerChoice=null;s.defenderChoice=null;s.endedRead=false;
+ s.lateDefenderIds=[...new Set(s.defenderIds.filter(id=>former.citizens.some(c=>c.id===id&&c.health>0)))];
+ (G.completedScenes??=[]).push({projectId:'ruins-'+s.id+'-'+G.turnClock,owner:s.attacker,tileId:tile.id,kind:'siege'});
+ addLog(tile.name+' is 100% destroyed. Its '+lastBuilding+' structures are gone and the territory is UNCLAIMED. Both armies must choose their next move.');
+ return true;
+}
+function warChooseAfternath(s,kind,targetId,owner=0){
+ if(!s||!['breached','aftermath'].includes(s.status)||!G||G.turnIndex!==owner||G.finished||(owner===0&&!active()))return false;
+ const tile=G.tiles.find(t=>t.id===s.targetTileId),p=G.players[owner];
+ if(!tile||!p)return false;
+ if(owner===s.attacker&&!s.attackerChoice){
+  if(kind==='claim'){
+   if(tile.owner!==null)return false;
+   tile.owner=owner;s.attackerChoice='claim';s.status='aftermath';
+   reallocateHousing(p);discoverContacts();checkWarningViolation(tile,owner);
+   for(const c of siegeTeam(s,'attacker'))c.military.missionId=null;
+   addLog(p.name+' claimed the destroyed territory of '+tile.name+'. Rebuilding is required.');
+  }else if(kind==='retreat'){
+   s.attackerChoice='retreat';s.status='aftermath';
+   warReturnTroops(s.attackerIds,owner,s.stagingTileId,s.originPostId,'retreat to their original military post');
+  }else if(kind==='push'){
+   const next=G.tiles.find(t=>t.id===targetId);
+   if(!next||next.capital||next.terrain==='water'||next.owner!==s.defender||!neighbors(tile).some(n=>n.id===next.id)||!currentWar(owner,next.owner))return false;
+   const troops=siegeTeam(s,'attacker');
+   if(!troops.length)return false;
+   const fresh={id:G.nextSiegeId++,targetTileId:next.id,stagingTileId:tile.id,stagingNeutral:true,
+    originPostId:s.originPostId,attacker:owner,defender:next.owner,
+    attackerIds:troops.map(c=>c.id),defenderIds:[],status:'marching',
+    marchRemaining:1,createdClock:G.turnClock||0,startedRound:G.round,
+    roundNumber:0,supply:0,fort:0,morale:0,destruction:0,preparation:0,
+    history:[],reinforcements:[],attackerStanding:'assault',defenderStanding:'hold',
+    attackerOrder:null,defenderOrder:null};
+   G.sieges.push(fresh);
+   for(const c of troops)c.military.missionId='siege-a-'+fresh.id;
+   s.attackerChoice='push';s.status='aftermath';
+   addLog(p.name+' advanced from the ruins of '+tile.name+' toward '+next.name+' without claiming the ruined land.');
+  }else return false;
+ }else if(owner===s.defender&&s.lateDefenderIds?.length){
+  const troops=s.lateDefenderIds.map(id=>p.citizens.find(c=>c.id===id)).filter(c=>c?.military&&c.health>0);
+  if(!troops.length){s.lateDefenderIds=[];return false;}
+  const border=neighbors(tile).filter(t=>t.owner===owner&&t.terrain!=='water').sort((a,b)=>a.id.localeCompare(b.id))[0];
+  if(kind==='guard'){
+   if(!border)return false;
+   // Border stand-ground orders go to the closest friendly edge before remaining on patrol.
+   const origin=G.tiles.find(t=>t.id===troops[0].military.postId)||border;
+   const route=militaryTravelPath(owner,tile,border)||{path:[border.id],points:1};
+   const id=G.nextOrderId++;
+   G.militaryOrders.push({id,owner,enemy:s.attacker,originPostId:origin.id,
+    targetTileId:border.id,kind:'patrol',troopIds:troops.map(c=>c.id),path:route.path,
+    index:0,stepSpent:0,totalPoints:route.points,startedClock:G.turnClock||0,status:'traveling'});
+   for(const c of troops)c.military.missionId=id;
+   addLog(p.name+' deployed late reinforcements to guard the border at '+border.name+'.');
+  }else if(kind==='retreat'){
+   const post=getMilitaryPosts(owner).find(t=>t.id===s.lateDefenderPostId)||getMilitaryPosts(owner)[0];
+   warReturnTroops(troops.map(c=>c.id),owner,tile.id,post?.id,'retreat after the territory was lost');
+  }else if(kind==='attack'){
+   if(!border)return false;
+   // Reinforcements mount a counterattack; occupation is contested for multiple world rounds.
+   s.counterattackIds=troops.map(c=>c.id);s.counterRound=0;s.status='counterattack';s.defenderChoice='attack';
+   addLog(p.name+' launched a counterattack to reclaim '+tile.name+'.');
+   for(const c of troops)c.military.missionId='siege-d-'+s.id;
+  }else return false;
+  if(kind!=='attack'){s.lateDefenderIds=[];s.defenderChoice=kind;}
+ }else return false;
+ s.endedRead=false;
+ save();render();if(owner===0)showToast('Post-battle order recorded');
+ return true;
+}
+function warFinalizeAftermath(s){
+ if(s.status!=='aftermath'||!s.attackerChoice||s.lateDefenderIds?.length||s.reinforcements?.length)return;
+ s.status=s.attackerChoice==='claim'?'claimed':s.attackerChoice==='push'?'advanced':'withdrawn';
+ s.endedRound=G.round;s.endedRead=false;
+ for(const c of siegeTeam(s,'attacker'))if(c.military.missionId==='siege-a-'+s.id)c.military.missionId=null;
+}
+function resolveSieges(){
+ for(const s of G.sieges||[]){
+  if(s.status==='aftermath'){warFinalizeAftermath(s);continue;}
+  if(s.status==='counterattack'){
+   if(s.counterRound===G.round)continue;
+   s.counterRound=G.round;
+   const combat=warFightWindow(s,s.attackerIds,s.counterattackIds,s.attacker,s.defender,'reclaim',0.9,1);
+   const ra=siegeTeam(s,'attacker'),rd=s.counterattackIds.map(id=>G.players[s.defender].citizens.find(c=>c.id===id)).filter(c=>c?.military&&c.health>0);
+   const tile=G.tiles.find(t=>t.id===s.targetTileId);
+   if(!rd.length){s.status='aftermath';s.lateDefenderIds=[];s.defenderChoice='failed';}
+   else if(!ra.length||s.counterRoundCount>=3){
+    s.counterRoundCount=(s.counterRoundCount||0)+1;
+    if(!ra.length){tile.owner=s.defender;reallocateHousing(G.players[s.defender]);}
+    s.status='aftermath';s.lateDefenderIds=[];s.defenderChoice=!ra.length?'reclaimed':'repelled';
+    for(const c of rd)c.military.missionId=null;
+   }else s.counterRoundCount=(s.counterRoundCount||0)+1;
+   addLog('Counterattack at '+tile.name+': '+combat.attacker.hits+' attacker hits, '+combat.defender.hits+' defender hits.');
+   continue;
   }
-  let fortHit=0;
-  if(aOrder==='assault'){
-   const attackRatio=aPower/(dPower+24);
-   fortHit=Math.max(4,Math.round((15*attackRatio+3+s.preparation*4)*(dOrder==='hold'?.79:dOrder==='counterattack'?1.12:1)*(.9+rng()*.2)));
-   s.fort=Math.max(0,s.fort-fortHit);
-   const targetLoss=Math.min(4,Math.max(1,Math.round((aPower/(dPower+20))*1.8)));
-   applySiegeInjuries(s,'defender',targetLoss,2);
-   const retaliation=Math.min(3,Math.max(0,Math.round(dPower/(aPower+25)*1.5)));
-   applySiegeInjuries(s,'attacker',retaliation,3);
-   s.preparation=0;
+  if(s.status!=='active'||s.activeRound>=G.round)continue;
+  const target=G.tiles.find(t=>t.id===s.targetTileId);
+  if(!target||target.owner!==s.defender||!currentWar(s.attacker,s.defender)||
+   (!s.stagingNeutral&&G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker)){
+   finishSiege(s,'cancelled');continue;
   }
-  if(s.supply<=20){s.morale=Math.max(0,s.morale-(s.supply===0?14:6));for(const c of siegeTeam(s,'defender'))c.morale=Math.max(0,c.morale-(s.supply===0?5:2));}
-  else if(aOrder==='assault')s.morale=Math.max(0,s.morale-5);
-  if(s.supply===0)for(const c of siegeTeam(s,'defender'))if(c.health>0)c.health=Math.max(1,c.health-2);
-  if(aOrder==='assault'||dOrder==='counterattack')for(const side of ['attacker','defender'])
-   for(const c of siegeTeam(s,side))c.military.experience=(c.military.experience||0)+1;
-  // Civilians living inside the surrounded hex face food shortages; individual
-  // morale/health feed into the existing age-aware mortality system.
-  for(const resident of defender.citizens){
-   if(resident.military||resident.homeId!==target.id)continue;
-   resident.morale=Math.max(0,(resident.morale??50)-(s.supply<=20?(s.supply===0?5:3):1));
-   if(s.supply===0)resident.health=Math.max(0,(resident.health??50)-2);
+  s.roundNumber++;s.destruction??=0;
+  const aOrder=siegeOrderFor(s,'attacker'),dOrder=siegeOrderFor(s,'defender');
+  const fresh=siegeTeam(s,'attacker'),guards=siegeTeam(s,'defender');
+  if(!fresh.length||aOrder==='withdraw'){finishSiege(s,fresh.length?'withdrawn':'repelled');continue;}
+  const attacker=G.players[s.attacker],defender=G.players[s.defender];
+  const ration=Math.max(1,Math.ceil(fresh.length/6));
+  const fed=attacker.food>=ration;
+  if(fed)attacker.food-=ration;
+  else for(const c of fresh)c.morale=Math.max(0,(c.morale??50)-4);
+  const supplyBefore=s.supply;
+  const drain=aOrder==='blockade'?7:aOrder==='disrupt'?10:3;
+  s.supply=Math.max(0,s.supply-drain);
+  if(aOrder==='prepare'&&attacker.wood>=1){attacker.wood--;s.preparation=Math.min(3,(s.preparation||0)+1);}
+  if(dOrder==='fortify'&&defender.wood>=2){defender.wood-=2;s.fort=Math.min(100,s.fort+5);s.destruction=Math.max(0,s.destruction-2);}
+  if(dOrder==='resupply'&&defender.food>=3&&neighbors(target).some(t=>t.owner===s.defender)){
+   defender.food-=3;s.supply=Math.min(100,s.supply+15);
   }
-  const before=guards.length+fresh.length,remainingA=siegeTeam(s,'attacker').length,remainingD=siegeTeam(s,'defender').length;
-  const casualties=before-remainingA-remainingD;
-  const summary=`Round ${s.roundNumber}: ${SIEGE_ATTACK_ORDERS[aOrder]} vs ${SIEGE_DEFEND_ORDERS[dOrder]} · supply ${supplyBefore}→${s.supply}, walls −${fortHit}, casualties ${casualties}.`;
-  s.history.unshift({round:G.round,attacker:aOrder,defender:dOrder,supply:s.supply,fort:s.fort,morale:s.morale,summary});
-  s.history=s.history.slice(0,8);
-  addLog(`Siege of ${target.name}: ${summary}`);
-  if(!remainingA){finishSiege(s,'repelled');continue;}
-  const surrendered=dOrder==='surrender'||(s.supply===0&&s.morale<=20)||(s.fort<=0&&(s.morale<33||remainingD===0));
-  if(surrendered){captureSiegeTerritory(s);continue;}
-  if(dOrder==='counterattack'&&remainingD>=remainingA*2&&s.supply>20&&aPower<dPower*.55){
-   finishSiege(s,'repelled');continue;
-  }
+  if(dOrder==='rally')for(const c of guards)c.morale=Math.min(100,(c.morale??50)+5);
+  const leftIntensity=(aOrder==='assault'?1:aOrder==='disrupt'?.40:aOrder==='blockade'?.25:.12)*(fed?1:.65);
+  const rightIntensity=dOrder==='counterattack'?1.1:dOrder==='hold'?.60:dOrder==='fortify'?.25:.4;
+  const clash=warFightWindow(s,s.attackerIds,s.defenderIds,s.attacker,s.defender,'siege',leftIntensity,rightIntensity);
+  const before=s.destruction;
+  const structural=warDestructionHit(s,clash.attacker.hits,fresh.length,siegeTeam(s,'defender').length,aOrder,dOrder);
+  s.destruction=Math.min(100,s.destruction+structural);
+  if(aOrder==='assault')s.preparation=0;
+  if(s.supply<=20)for(const c of siegeTeam(s,'defender'))c.morale=Math.max(0,(c.morale??50)-(s.supply===0?4:2));
+  const casualties=clash.attacker.losses+clash.defender.losses;
+  s.lastCombatRound=G.round;s.lastCombatHits={attacker:clash.attacker.hits,defender:clash.defender.hits};
+  const summary='Round '+s.roundNumber+': '+SIEGE_ATTACK_ORDERS[aOrder]+' vs '+SIEGE_DEFEND_ORDERS[dOrder]+
+   ' · destruction '+before+'→'+s.destruction+'/100 · hits '+clash.attacker.hits+' / '+clash.defender.hits+
+   ' · casualties '+casualties+' · supplies '+supplyBefore+'→'+s.supply+'.';
+  s.history.unshift({round:G.round,attacker:aOrder,defender:dOrder,supply:s.supply,fort:s.fort,
+   destruction:s.destruction,morale:s.morale,summary});
+  s.history=s.history.slice(0,15);
+  addLog('Siege of '+target.name+': '+summary);
+  if(s.destruction===100){warDestroyTerritory(s);continue;}
+  if(!siegeTeam(s,'attacker').length){finishSiege(s,'repelled');continue;}
+  // Even when all defenders are defeated, destruction must reach 100% to take land.
  }
 }
 function siegeMapVisuals(){
- return (G.sieges||[]).filter(s=>['marching','active'].includes(s.status)&&(s.attacker===0||s.defender===0)).map(s=>{
+ return (G.sieges||[]).filter(s=>['marching','active','breached','aftermath','counterattack'].includes(s.status)&&(s.attacker===0||s.defender===0)).map(s=>{
   const target=G.tiles.find(t=>t.id===s.targetTileId);
   if(!target)return '';
   const outline=pts(hexPoints(target,HEX-1));
