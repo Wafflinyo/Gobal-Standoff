@@ -1744,6 +1744,20 @@ function visibleWarOrderMarkers(){
   return `<g class="gs-war-marker" pointer-events="none" transform="translate(${c.x.toFixed(1)} ${c.y.toFixed(1)})"><path d="M0 -22L14 -15L11 0Q0 12 -11 0L-14 -15Z" fill="#1b3542" stroke="#f7df9f" stroke-width="2"/><path d="M0 -17V3M-7 -9H7" stroke="#f7df9f" stroke-width="2"/><path d="M0 -37L6 -25L0 -29L-6 -25Z" fill="#f6a77b" stroke="#122e3d" stroke-width="1.5" transform="rotate(${degrees.toFixed(1)})"/><text y="-25" text-anchor="middle">${n}</text></g>`;
  }).join('');
 }
+function siegeReinforcementHtml(s){
+ const player=G.players[0];
+ const pending=(s.reinforcements||[]).filter(r=>r.owner===0);
+ const posts=getMilitaryPosts(0).filter(t=>canReinforceSiege(s,t.id,0));
+ let html=pending.map(r=>`<small class="gs-siege-pending">${r.ids.length} reinforcement${r.ids.length===1?'':'s'} coming from ${esc(G.tiles.find(t=>t.id===r.postId)?.name||'the garrison')} · ${r.remaining} travel ticks</small>`).join('');
+ if(!posts.length)return html;
+ html+=`<div class="gs-siege-reinforce" data-siege-reinforcement-id="${s.id}">
+  <strong>Send reinforcements</strong><small>Dispatch additional real soldiers. They march to the siege over world ticks; at most 12 soldiers per army. Only one military dispatch per turn.</small>
+  <label class="gs-war-field">Military Post<select data-siege-reinforce-post>${posts.map(t=>`<option value="${esc(t.id)}">${esc(t.name)} · ${postGarrison(player,t.id).filter(c=>c.health>0&&!c.military.missionId).length} ready</option>`).join('')}</select></label>
+  <label class="gs-war-field">Soldiers<select data-siege-reinforce-qty>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}</option>`).join('')}</select></label>
+  <button data-siege-reinforce="${s.id}" ${!active()||player.logisticsUsed?'disabled':''}>Send reinforcement party</button>
+ </div>`;
+ return html;
+}
 function siegeWarPanelHtml(){
  const me=G.players[0],wars=opponentsAtWar(0),posts=getMilitaryPosts(0);
  let html='<section class="gs-siege-section"><div class="gs-siege-heading"><strong>Multi-round Siege Campaigns</strong><small>Choose orders during your normal turn. Both sides resolve after the round, and saved standing orders remain in effect when you are away.</small></div>';
@@ -1760,6 +1774,7 @@ function siegeWarPanelHtml(){
     <button data-siege-submit="${siege.id}" ${!active()?'disabled':''}>${sent?'Update saved order':'Submit military order'}</button>
     <small class="gs-siege-order-note">${sent?'Order saved for this round.':'Your standing order applies automatically if no order is submitted.'} Enemy orders stay hidden until resolution.</small>`;
   }
+  if(siege.status==='active')html+=siegeReinforcementHtml(siege);
   if(siege.history?.length)html+=`<details class="gs-siege-history"><summary>Previous exchanges (${siege.history.length})</summary>${siege.history.slice(0,4).map(h=>`<p>${esc(h.summary)}</p>`).join('')}</details>`;
   html+='</div>';
  }
@@ -3712,6 +3727,12 @@ function bindEvents(){
   if(b.dataset.siegeSubmit!=null){
    const id=Number(b.dataset.siegeSubmit),kind=panel.querySelector(`[data-siege-order="${id}"]`)?.value;
    if(!setSiegeOrder(id,kind))showToast('Could not submit the siege order.');
+   return;
+  }
+  if(b.dataset.siegeReinforce!=null){
+   const id=Number(b.dataset.siegeReinforce),box=panel.querySelector(`[data-siege-reinforcement-id="${id}"]`);
+   const post=box?.querySelector('[data-siege-reinforce-post]')?.value,number=Number(box?.querySelector('[data-siege-reinforce-qty]')?.value||0);
+   if(!reinforceSiege(id,post,number))showToast('Cannot reinforce: check available soldiers, travel route, or 12-troop capacity.');
    return;
   }
   if(b.dataset.sendWarning!=null){const to=Number(b.dataset.sendWarning),tile=panel.querySelector(`[data-warning-land="${to}"]`)?.value;sendDiplomaticFalcon(to,'warning',tile);return;}
