@@ -1278,8 +1278,8 @@ function threatenedHexBorders(){
    </g>`;
  }).join('');
 }
-function sendDiplomaticFalcon(to,kind,tileId=null,id=0,automatic=false,warningId=null){
- const from=G.players[id],other=G.players[to];if(!from||!other||id===to||!['warning','war','peace','retract'].includes(kind))return false;
+function sendDiplomaticFalcon(to,kind,tileId=null,id=0,automatic=false,warningId=null,treatyId=null){
+ const from=G.players[id],other=G.players[to];if(!from||!other||id===to||!['warning','war','peace','retract','treaty','alliance','dissolve'].includes(kind))return false;
  if(!automatic&&!canCountryAct(from,id))return false;
  if(kind==='warning'&&(!tileId||!G.tiles.some(t=>t.id===tileId&&t.terrain!=='water'&&t.owner===null)))return false;
  if(kind==='warning'&&((G.warnings||[]).some(w=>w.from===id&&w.to===to&&w.tileId===tileId&&['active','escalated'].includes(w.status))
@@ -1287,14 +1287,19 @@ function sendDiplomaticFalcon(to,kind,tileId=null,id=0,automatic=false,warningId
  const withdrawn=kind==='retract'?(G.warnings||[]).find(w=>w.id===warningId&&w.from===id&&w.to===to&&['active','escalated'].includes(w.status)&&G.tiles.some(t=>t.id===w.tileId&&t.owner===null)):null;
  if(kind==='retract'&&(!withdrawn||G.diplomaticFalcons.some(f=>f.kind==='retract'&&f.warningId===warningId&&f.status==='flying')))return false;
  if(kind==='retract')tileId=withdrawn.tileId;
+ const dissolving=kind==='dissolve'?(G.treaties||[]).find(t=>t.id===treatyId&&t.key===warPair(id,to)&&t.status==='active'):null;
+ if(kind==='dissolve'&&(!dissolving||G.diplomaticFalcons.some(f=>f.kind==='dissolve'&&f.treatyId===treatyId&&f.status==='flying')))return false;
+ if(['treaty','alliance'].includes(kind)&&!canProposeTreaty(id,to,kind))return false;
+ if(['warning','war'].includes(kind)&&activeTreaty(id,to))return false;
  if(kind==='war'&&currentWar(id,to))return false;
  if(kind==='peace'&&!currentWar(id,to))return false;
  if(!automatic&&!hasMoney(from,1))return false;
  if(!automatic)from.gold-=1;
  const dist=distance(capitalOf(id),capitalOf(to)),trip=Math.max(1,Math.ceil(dist/5));
- const note={id:G.nextDiplomacyId++,kind,from:id,to,tileId,warningId:withdrawn?.id??null,createdClock:G.turnClock||0,travelTotal:trip,remaining:trip,status:'flying',automatic};
+ const note={id:G.nextDiplomacyId++,kind,from:id,to,tileId,warningId:withdrawn?.id??null,treatyId:dissolving?.id??null,
+  agreementType:dissolving?.type??null,createdClock:G.turnClock||0,travelTotal:trip,remaining:trip,status:'flying',automatic};
  G.diplomaticFalcons.push(note);
- if(!automatic)useAction(from,`${from.name} launched a messenger falcon to ${other.capital} carrying a ${kind==='war'?'declaration of war':kind==='peace'?'ceasefire proposal':kind==='retract'?'withdrawal of a territorial warning':'territorial warning'}.`);
+ if(!automatic)useAction(from,`${from.name} launched a messenger falcon to ${other.capital} carrying a ${kind==='war'?'declaration of war':kind==='peace'?'ceasefire proposal':kind==='retract'?'withdrawal of a territorial warning':kind==='dissolve'?'formal termination of a treaty':TREATY_TYPES[kind]?`${treatyLabel(kind)} proposal`:'territorial warning'}.`);
  else addLog(`${from.name} dispatched a falcon after a territorial warning was violated.`);
  if(id===0)showToast(`Falcon dispatched to ${other.capital}`);
  return true;
@@ -1314,7 +1319,7 @@ function progressDiplomaticFalcons(){
  for(const note of G.diplomaticFalcons.filter(x=>x.status==='flying')){
   if((G.turnClock||0)<=note.createdClock+1)continue; // A 1T order never completes on the sender's own turn.
   note.remaining=Math.max(0,note.remaining-1);if(note.remaining)continue;
-  note.status='arrived';const recipient=G.players[note.to];
+  note.status='arrived';note.deliveredClock=G.turnClock||0;const recipient=G.players[note.to];
   const relation=warPair(note.from,note.to);if(!G.contacts.includes(relation))G.contacts.push(relation);
   if(note.kind==='warning'){
    const land=G.tiles.find(t=>t.id===note.tileId),stillNeutral=land?.owner===null;
@@ -1327,6 +1332,21 @@ function progressDiplomaticFalcons(){
    if(warning&&['active','escalated'].includes(warning.status)){
     warning.status='rescinded';warning.rescindedClock=G.turnClock||0;
     addLog(`${G.players[note.from].name} rescinded the territorial warning over ${G.tiles.find(t=>t.id===warning.tileId)?.name||'the disputed territory'}.`);
+   }
+  }else if(note.kind==='dissolve'){
+   const agreement=(G.treaties||[]).find(t=>t.id===note.treatyId&&t.key===warPair(note.from,note.to));
+   if(agreement&&agreement.status==='active'){
+    agreement.status='terminated';agreement.endedClock=G.turnClock||0;
+    addLog(`${G.players[note.from].name} ended the ${treatyLabel(agreement.type)} with ${recipient.name} by Falcon.`);
+   }
+  }else if(note.kind==='treaty'||note.kind==='alliance'){
+   if(note.to===0){
+    note.status='awaiting-reply';
+    addLog(`${G.players[note.from].name} proposed a ${treatyLabel(note.kind)}. Review your Falcon inbox.`);
+   }else{
+    const compatible=canActivateTreaty(note),rng=mulberry32(hash(G.seed+':treaty-decision:'+note.id));
+    const willing=compatible&&rng()>(note.kind==='alliance'?.36:.17);
+    resolveTreatyOffer(note,willing);
    }
   }else if(note.kind==='war'){startWar(note.from,note.to,`War declaration delivered to ${recipient.capital}`);}
   else if(note.kind==='peace'){
@@ -2132,6 +2152,7 @@ function finishRound(){
  for(const p of G.players)extractMinesForRound(p);
  processFactories();autoDispatchOutputs();autoRequestFactoryInputs();
  for(const route of G.tradeRoutes.filter(r=>r.status==='active')){G.players[route.a].gold+=2;G.players[route.b].gold+=2;}
+ expireTreaties();
  addLog(`Round ${G.round} concluded. Population, production and maintenance updated.`);
  if(G.round>=G.maxRounds&&!G.continued){G.finished=true;save();render();showEndGame();return;}
  G.round++;beginTurn(0);cpuBusy=false;save();render();showToast(`Round ${G.round} — your turn`);
