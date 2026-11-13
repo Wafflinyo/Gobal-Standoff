@@ -2164,11 +2164,29 @@ function renderTile(t){
   const extra=isOwn&&idleBuilders(p).length?`<button data-action="add-builder" data-job="${j.id}"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-plus"></use></svg> Assign another builder</button>`:'';
   return `<div class="building-row"><span>${BUILDINGS[j.type].icon} ${BUILDINGS[j.type].name}<small>${j.remaining} work turns left · ${assigned.length} builder${assigned.length===1?'':'s'} (${enRoute} en route) · ${j.upgradeSiteId?'upgrading existing building':BUILDINGS[j.type].space+' space reserved'}</small></span>${extra}</div>`;
  }).join('')+'</div>';}
- if(isOwn){const b=buildersSummary(p),exp=(p.expeditions||[])[0];html+=`<div class="gs-crew-status"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-builder"></use></svg> Builders: ${b.free}/${b.total} available (capacity ${b.capacity}) · <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-compass"></use></svg> Expedition: ${exp?.targetId?'traveling ('+exp.remaining+' turns)':'ready'}</div>`;}
+ if(isOwn){
+   const b=buildersSummary(p),exp=(p.expeditions||[])[0],members=(exp?.citizenIds||[]).map(cid=>p.citizens.find(c=>c.id===cid)?.name).filter(Boolean);
+   html+=`<div class="gs-crew-status"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-builder"></use></svg> Builders: ${b.free}/${b.total} available (capacity ${b.capacity}) · <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-compass"></use></svg> Civilian expedition: ${exp?.targetId?'traveling ('+exp.remaining+' turns · '+(members.length?esc(members.join(' and ')):'previous-version expedition')+')':'ready for 1–2 civilians'}</div>`;
+  }
 
  html+='<div class="tile-actions">';
- if(frontier){const cost=expansionCost(p),afford=hasMoney(p,cost)&&p.food>=2;html+=`<button class="action-btn primary-action" data-action="expand" ${!canAct()||!afford?'disabled':''}>Send expedition <span>${cost} SP + 2 <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg> · travel required</span></button>`;if(!afford)html+='<div class="disabled-help">Not enough Silver Pents or Food to expand.</div>';}
- else if(t.owner===null&&pendingClaim(t.id)){const exp=expeditionForTile(t.id);html+=`<div class="feature-locked"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-compass"></use></svg> ${esc(G.players[exp.owner].name)} expedition approaching · ${exp.remaining} turn${exp.remaining===1?'':'s'} remaining</div>`;}
+  if(frontier){
+   const cost=expansionCost(p),afford=hasMoney(p,cost)&&p.food>=2,available=eligibleExpeditionCitizens(p);
+   const candidates=available.map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · age ${c.age} · morale ${c.morale} · health ${c.health}</option>`).join('');
+   html+=`<div class="gs-expedition-selector"><strong>Choose your expedition's citizens</strong>
+    <small>Send 1 or 2 unemployed civilians aged 16 or older. Soldiers, builders, employees and haulers cannot go. Travel may lower morale and health.</small>
+    <label>First citizen (required)<select data-expedition-citizen="0"><option value="">Choose an eligible citizen…</option>${candidates}</select></label>
+    <label>Second citizen (optional)<select data-expedition-citizen="1"><option value="">No second explorer</option>${candidates}</select></label>
+    <button class="action-btn primary-action" data-action="expand" data-expedition-affordable="${afford?'yes':'no'}" disabled>Send selected citizens <span>${cost} SP + 2 <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg> · travel required</span></button>
+   </div>`;
+   if(!available.length)html+='<div class="disabled-help">No unemployed citizens aged 16+ are available. Release an employee, finish a haul, or wait for more citizens.</div>';
+   if(!afford)html+='<div class="disabled-help">Not enough Silver Pents or Food to expand.</div>';
+  }
+  else if(t.owner===null&&pendingClaim(t.id)){
+   const exp=expeditionForTile(t.id),nation=G.players[exp.owner];
+   const names=(exp.citizenIds||[]).map(cid=>nation.citizens.find(c=>c.id===cid)?.name).filter(Boolean);
+   html+=`<div class="feature-locked"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-compass"></use></svg> ${esc(nation.name)} expedition approaching · ${exp.remaining} turn${exp.remaining===1?'':'s'} remaining${names.length?' · Exploring: '+esc(names.join(' and ')):''}</div>`;
+  }
  else if(t.owner===null&&t.terrain==='water'){html+='<div class="feature-locked"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-water"></use></svg> Lakes cannot currently be claimed or built upon.</div>';}
  else if(t.owner===null){html+='<p class="empty-note">Expand from your own border to reach this territory.</p>';}
  else if(isOwn){
@@ -2203,7 +2221,7 @@ function renderRoster(){
  if(rosterTab==='citizens'){
   el('rosterList').innerHTML=`<p class="gs-citizen-health-note">Poor morale reduces health over time; age, health and morale all influence the chance of death each round. Worker hauling causes fatigue; resting citizens can recover.</p>${(p.recentDeaths||[]).length?'<p class="gs-recent-deaths"><strong>Recent passings:</strong> '+p.recentDeaths.slice(0,3).map(d=>esc(d.name)+' (age '+d.age+', R'+d.round+')').join(' · ')+'</p>':''}<div class="roster-head">Citizen <span>Age · Residence · Role</span></div>`+p.citizens.map(c=>{
    const home=c.homeId?G.tiles.find(t=>t.id===c.homeId)?.name||'Unknown':'Homeless';
-   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>${c.age} years · Health ${c.health}/100 · Morale ${c.morale}/100 · Mortality ${(100*citizenDeathProbability(c)).toFixed(2)}%/round · ${esc(home)}${c.military?' · Soldier':c.builder?' · Builder'+(c.builder.projectId?' (on assignment)':' (available)'):isBusyPorter(c)?' · Hand-hauling '+esc((G.shipments||[]).find(j=>j.kind==='porter'&&j.porterId===c.id)?.item||'resources'):c.job?' · Employed: '+esc((()=>{const t=G.tiles.find(t=>t.id===c.job.tileId),idx=t?.buildingMeta?.findIndex(m=>m.id===c.job.siteId);return idx>=0?BUILDINGS[t.buildings[idx]].name:'Workplace';})()):' · Unemployed'}</small></div>`;
+   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>${c.age} years · Health ${c.health}/100 · Morale ${c.morale}/100 · Mortality ${(100*citizenDeathProbability(c)).toFixed(2)}%/round · ${esc(home)}${c.military?' · Soldier':c.builder?' · Builder'+(c.builder.projectId?' (on assignment)':' (available)'):isBusyExpedition(c)?' · On civilian expedition':isBusyPorter(c)?' · Hand-hauling '+esc((G.shipments||[]).find(j=>j.kind==='porter'&&j.porterId===c.id)?.item||'resources'):c.job?' · Employed: '+esc((()=>{const t=G.tiles.find(t=>t.id===c.job.tileId),idx=t?.buildingMeta?.findIndex(m=>m.id===c.job.siteId);return idx>=0?BUILDINGS[t.buildings[idx]].name:'Workplace';})()):' · Unemployed'}</small></div>`;
   }).join('');
  }else{
   el('rosterList').innerHTML=troops.length?`<p class="roster-instructions">Transfer one soldier between your posts each turn, even after using your main action.</p>`+troops.map(c=>{
@@ -2922,8 +2940,17 @@ function bindEvents(){
   if(e.target.matches('[data-hand-haul-policy]')){getCountry().handHaulingPolicy=e.target.value==='allow'?'allow':'wait';save();render();}
  });
  el('tradeBody').addEventListener('change',e=>{const field=e.target.closest('[data-road-from],[data-road-to],[data-trade-share]');if(field)refreshRouteEstimate(Number(field.dataset.roadFrom||field.dataset.roadTo||field.dataset.tradeShare));});
- el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Shipment dispatched with '+(GOOD_NAMES[item]||item):'No available wagon or log porter, route, or destination storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
- el('territoryDetails').addEventListener('change',e=>{const t=getSelected();if(!t)return;const choice=e.target.closest('[data-hand-haul-policy]');
+ el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':{const picked=[...el('territoryDetails').querySelectorAll('[data-expedition-citizen]')].map(node=>node.value).filter(Boolean);doExpand(t,0,picked);break;}case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Shipment dispatched with '+(GOOD_NAMES[item]||item):'No available wagon or log porter, route, or destination storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
+ el('territoryDetails').addEventListener('change',e=>{
+   if(e.target.matches('[data-expedition-citizen]')){
+    const panel=el('territoryDetails'),first=panel.querySelector('[data-expedition-citizen="0"]'),second=panel.querySelector('[data-expedition-citizen="1"]');
+    if(first&&second&&first.value&&first.value===second.value)second.value='';
+    if(second)for(const option of second.options)option.disabled=!!first?.value&&option.value===first.value;
+    const send=panel.querySelector('[data-action="expand"]');
+    if(send)send.disabled=!canAct()||send.dataset.expeditionAffordable!=='yes'||!first?.value;
+    return;
+   }
+   const t=getSelected();if(!t)return;const choice=e.target.closest('[data-hand-haul-policy]');
   if(choice&&t.owner===0){getCountry().handHaulingPolicy=choice.value==='allow'?'allow':'wait';save();render();return;}
   const r=e.target.closest('[data-route-site]');if(r){setDeliveryRoute(t,Number(r.dataset.routeSite),r.dataset.routeGood,r.value);return;}const recipe=e.target.closest('[data-recipe-site]');if(recipe)setFactoryRecipe(t,Number(recipe.dataset.recipeSite),recipe.value);});
  el('buildOptions').addEventListener('click',e=>{const b=e.target.closest('[data-build]');if(b&&canAct())doBuild(getSelected(),b.dataset.build);});
