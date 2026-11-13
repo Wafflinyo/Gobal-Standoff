@@ -487,7 +487,7 @@ function caravanWarehouses(p){
  return sites;
 }
 function syncCaravans(p){
- p.caravans??=[];const warehouses=caravanWarehouses(p),valid=new Set(warehouses.map(w=>w.site.id));
+ p.caravans??=[];p.handHaulingPolicy??='wait';const warehouses=caravanWarehouses(p),valid=new Set(warehouses.map(w=>w.site.id));
  for(const cart of [...p.caravans])if(!valid.has(cart.homeSiteId)&&!cart.shipmentId)p.caravans.splice(p.caravans.indexOf(cart),1);
  for(const base of warehouses){
   const home=p.caravans.filter(c=>c.homeSiteId===base.site.id);
@@ -655,6 +655,31 @@ function progressShipments(){
   if(!p||!cart){if(p&&job.qty&&['delivery','unloading'].includes(job.stage))addDepot(p,job.item,job.qty);G.shipments.splice(G.shipments.indexOf(job),1);continue;}
   moveCaravanToStage(job,cart,p);
  }
+}
+function caravanWarehouseStatus(p,siteId){
+ const carts=(p.caravans||[]).filter(c=>String(c.homeSiteId)===String(siteId));
+ const names=id=>esc(G.tiles.find(t=>t.id===id)?.name||'Unknown hex');
+ const policy=`<label class="gs-routing-label">Worker transport policy (all warehouses)
+  <select data-hand-haul-policy>
+   <option value="wait" ${p.handHaulingPolicy!=='allow'?'selected':''}>Wait for a caravan when all wagons are busy</option>
+   <option value="allow" ${p.handHaulingPolicy==='allow'?'selected':''}>Allow workers to carry 2 units if wagons are busy</option>
+  </select></label><small class="gs-routing-help">If your nation has no caravans, hand deliveries are allowed automatically. Every walking trip decreases morale.</small>`;
+ const rows=carts.map((cart,i)=>{
+  const job=G.shipments.find(j=>j.id===cart.shipmentId);
+  const where=names(cart.currentTileId);
+  if(!job)return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · Available</strong><small>Located at ${where} · Holding: nothing · Next destination: awaiting assignment</small></div>`;
+  const from=names(job.fromTileId),to=names(job.toTileId);
+  const back=siteLookup(p.id,job.returnSiteId||job.homeSiteId)?.tile?.name||'caravan warehouse';
+  const heading=job.stage==='pickup'?from:job.stage==='return'?esc(back):to;
+  const cargo=job.stage==='delivery'||job.stage==='unloading'?
+   (job.qty>0?`${job.qty} ${esc(GOOD_NAMES[job.item]||job.item)}`:'Empty — unloading'):
+   (job.stage==='pickup'?`Empty (will collect ${job.qty} ${esc(GOOD_NAMES[job.item]||job.item)})`:'Empty — returning');
+  const stage={pickup:'Traveling to pickup',delivery:'Delivering',unloading:'Waiting for unloading space',return:'Returning to warehouse'}[job.stage]||job.stage;
+  return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · ${stage}</strong><small>Current hex: ${where}</small><small>Heading to: ${heading}</small><small>Holding: ${cargo}</small><small>Route: ${from} → ${to} · ${Math.max(0,job.remaining||0)}T left in current leg</small></div>`;
+ }).join('');
+ return `<div class="gs-caravan-tracker"><strong>Wagons based at this warehouse · ${carts.filter(c=>!c.shipmentId).length}/${carts.length} available</strong>
+  ${rows||'<small>No wagons assigned here yet. New ones appear when construction completes.</small>'}
+  ${policy}</div>`;
 }
 function shippingDashboard(){
  const p=getCountry(),jobs=G.shipments.filter(j=>j.owner===0),carts=p.caravans||[];
@@ -956,7 +981,7 @@ function migrateGameplay(s){
  // Barren legacy mines keep extracting Stone; never manufacture Iron veins merely to preserve an old mine.
  for(const p of s.players){
   if(p.materials!==undefined){const old=Math.max(0,p.materials);p.wood=(p.wood||0)+Math.ceil(old*.6);p.ore=(p.ore||0)+Math.floor(old*.4);delete p.materials;}
-  p.wood??=10;p.marketingUntil??=0;p.warehouse??={};p.caravans??=[];p.caravanPolicy??='nearest';
+  p.wood??=10;p.marketingUntil??=0;p.warehouse??={};p.caravans??=[];p.caravanPolicy??='nearest';p.handHaulingPolicy??='wait';
   if(!Number.isFinite(p.gold))p.gold=0;
   p.gold=Math.max(-CREDIT_LIMIT_SP,p.gold);
   p.minerals??=emptyMinerals();
@@ -2018,6 +2043,7 @@ function renderTile(t){
   if(storageLimit>0)html+=`<div class="gs-storage-gauge"><b>Storage:</b> ${stored}/${storageLimit} units${stored>=storageLimit?' · FULL — production halted until collected':''}<div class="gs-storage-track"><span style="width:${Math.min(100,100*stored/storageLimit)}%"></span></div><small>Higher building levels increase storage capacity.</small></div>`;
   const outgoing=G.shipments.filter(job=>job.owner===p.id&&job.from===meta.id);
   html+=`<div class="gs-site-inventory"><small><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>On the road: ${outgoing.slice(0,4).map(job=>`${job.qty} ${GOOD_NAMES[job.item]||job.item} (${job.remaining}T)`).join(' · ')}`:''}</small></div>`;
+  if(isOwn&&type==='caravanWarehouse')html+=caravanWarehouseStatus(p,meta.id);
   if(isOwn&&type==='storageWarehouse'&&stockList.length){
    const targets=routingTargets(p,meta.id);
    html+=`<div class="gs-storage-actions"><strong>Ship stored goods by wagon or worker (when allowed)</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship up to 10</button></div>`).join('')}</div>`;
@@ -2787,10 +2813,15 @@ function bindEvents(){
  el('tradeBody').addEventListener('click',e=>{const propose=e.target.closest('[data-trade-propose]');if(propose){const to=Number(propose.dataset.tradePropose);const panel=el('tradeBody');const select=panel.querySelector(`[data-trade-share="${to}"]`);
   const from=panel.querySelector(`[data-road-from="${to}"]`)?.value,dest=panel.querySelector(`[data-road-to="${to}"]`)?.value;
   proposeTradeRoute(to,Number(select?.value||50),0,from,dest);return;}const ans=e.target.closest('[data-trade-answer]');if(ans)respondTradeOffer(Number(ans.dataset.tradeAnswer),ans.dataset.accept==='yes');});
- el('economySummary').addEventListener('change',e=>{if(e.target.matches('[data-caravan-policy]')){getCountry().caravanPolicy=e.target.value;save();render();}});
+ el('economySummary').addEventListener('change',e=>{
+  if(e.target.matches('[data-caravan-policy]')){getCountry().caravanPolicy=e.target.value;save();render();}
+  if(e.target.matches('[data-hand-haul-policy]')){getCountry().handHaulingPolicy=e.target.value==='allow'?'allow':'wait';save();render();}
+ });
  el('tradeBody').addEventListener('change',e=>{const field=e.target.closest('[data-road-from],[data-road-to],[data-trade-share]');if(field)refreshRouteEstimate(Number(field.dataset.roadFrom||field.dataset.roadTo||field.dataset.tradeShare));});
  el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Shipment dispatched with '+(GOOD_NAMES[item]||item):'No available wagon or log porter, route, or destination storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
- el('territoryDetails').addEventListener('change',e=>{const t=getSelected();if(!t)return;const r=e.target.closest('[data-route-site]');if(r){setDeliveryRoute(t,Number(r.dataset.routeSite),r.dataset.routeGood,r.value);return;}const recipe=e.target.closest('[data-recipe-site]');if(recipe)setFactoryRecipe(t,Number(recipe.dataset.recipeSite),recipe.value);});
+ el('territoryDetails').addEventListener('change',e=>{const t=getSelected();if(!t)return;const choice=e.target.closest('[data-hand-haul-policy]');
+  if(choice&&t.owner===0){getCountry().handHaulingPolicy=choice.value==='allow'?'allow':'wait';save();render();return;}
+  const r=e.target.closest('[data-route-site]');if(r){setDeliveryRoute(t,Number(r.dataset.routeSite),r.dataset.routeGood,r.value);return;}const recipe=e.target.closest('[data-recipe-site]');if(recipe)setFactoryRecipe(t,Number(recipe.dataset.recipeSite),recipe.value);});
  el('buildOptions').addEventListener('click',e=>{const b=e.target.closest('[data-build]');if(b&&canAct())doBuild(getSelected(),b.dataset.build);});
  el('researchOptions').addEventListener('click',e=>{const b=e.target.closest('[data-tech]');if(b&&canAct())doResearch(b.dataset.tech);});
  el('hand').addEventListener('click',e=>{const b=e.target.closest('[data-card]');if(b)openCardPreview(Number(b.dataset.card));});
