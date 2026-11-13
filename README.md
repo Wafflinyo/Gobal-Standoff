@@ -1,4 +1,39 @@
-# Global Standoff — Prototype 0.4.28
+# Global Standoff — Prototype 0.4.29
+
+## Version 0.4.29 — persistent multi-round siege battle system
+
+**Playable in the current CPU prototype; server-side asynchronous multiplayer remains a future feature.** Battles now play out over multiple normal country turns, never through a real-time battle timer. Each soldier has a persistent identity, age, health, morale, equipment, training, and combat experience.
+
+### Starting a siege
+- A country must be in the **war phase** with the target's owner, control a hex adjacent to the enemy target, and have **1–12 unassigned, living soldiers** at an owned Military Post. In **World Affairs → Falcon Diplomacy & War Room → Multi-Round Siege Campaigns**, select the originating post and enemy border hex, then choose the number of soldiers.
+- An attacking party marches to a neighboring friendly staging hex along a reachable military route, advancing on world travel ticks. The enemy hex does **not** change ownership just because an army arrived. The expedition occupies the country's military dispatch allowance for that turn.
+- The first siege exchange waits until a later round so the defender has an opportunity to choose its response.
+- **Capital hexes cannot be annexed in this first version**; they need a separate surrender/capitulation mechanic before capital sieges are enabled.
+
+### Tactical orders
+- Attacker orders: **Maintain blockade**, **Assault defenses**, **Sabotage supplies**, **Prepare equipment**, **Withdraw safely**.
+- Defender orders: **Hold the walls**, **Strengthen defenses**, **Break the blockade and resupply**, **Rally the garrison**, **Launch a counterattack**, **Offer surrender**.
+- Each side submits orders on **its own normal country turn**. The selected order is saved as a standing order, so the game can resolve later rounds with that order even if no new selection is made. The other side's order is hidden until resolution. CPU countries choose their own orders.
+- **Exactly one siege exchange per completed game round**, recorded in persistent history with the commands, defender supplies, walls, morale and casualties.
+
+### Economy, casualties and reinforcements
+- Army size, soldier health/morale, training, veteran experience, armor and weapons affect combat strength. Forest, hills and mountains favor defenders; preparing equipment helps later assaults.
+- Attacking armies consume real national Food per round. Defender supplies decline through encirclement; defensive resupply spends 3 Food and depends on the presence of friendly neighboring territory. Road connections and available caravans improve the chance and quantity of delivery. Fortifying costs 2 construction Wood; preparing attack equipment costs 1 Wood.
+- Active **blockade/sabotage orders stop new shipments** into the besieged hex. Previously loaded caravans and worker porters wait with their cargo rather than teleporting supplies through enemy lines. They resume when the blockage ends.
+- Named military citizens suffer individual health/morale reductions and may be killed. Battle deaths count toward the nation's death history; wounded survivors and fighters gain experience. Soldiers on siege duty do not passively recover health and morale and cannot be trained, transferred, or equipped remotely.
+- Besieged civilian residents also lose morale, and a severe shortage can lower health; the already-existing age/health/morale mortality system determines longer-term deaths.
+- Attacker and defender can each dispatch **traveling reinforcements** from a Military Post using the normal military logistics allowance, capped at 12 soldiers per side. Troops join the siege only when they actually arrive. CPU countries can reinforce depleted formations too.
+
+### Battle outcomes and visuals
+- Defenders may surrender voluntarily, or their collapsing supplies, morale, walls and garrison may force capitulation. A captured non-capital hex changes owner **only after the siege is won**. Its buildings remain, construction in progress is cancelled, housing/workforce is recalculated, and surviving soldiers stationed at a lost post retreat to another friendly post or demobilize.
+- Attackers can withdraw, defenders can break the siege with a counterattack, and a Falcon-brokered ceasefire stops the campaign and releases military assignments.
+- The 2.5D map shows siege borders and screen-facing miniature marching soldiers. Territory details identify the siege and link to the War Room. World Affairs displays military orders, active supplies/defenses/morale, marching and reinforcement times, and past exchanges.
+- **Battle dispatch popups** appear when the player returns to their turn: on the start of encirclement, after a resolved exchange, and when the siege ends. The notification can open the War Room immediately. These and battle histories are saved and work when resuming older matches.
+- Existing saves automatically receive empty `sieges` and `nextSiegeId` fields without resetting the world.
+
+### Deliberate limitations
+- Capital annexation, prisoners/ransoms, full 3D tactical scenes, and true internet-based asynchronous multiplayer are **not** in v0.4.29. This is the playable siege foundation on which those features can be built.
+
 
 ## Version 0.4.28 — treaties and alliances by diplomatic Falcon
 
