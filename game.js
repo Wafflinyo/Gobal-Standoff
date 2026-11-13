@@ -88,12 +88,12 @@ function gearReadiness(c){return 10+2*(c.military?.training||1)+Math.floor((c.mi
 
 const BUILDINGS={
  farm:{name:'Farm',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>',gold:4,wood:2,iron:0,space:2,rounds:1,upkeep:1,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Workers produce Food and raw Leather · both must be delivered'},
- lumber:{name:'Lumber Camp',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-forest"></use></svg>',gold:4,wood:1,iron:0,space:2,rounds:2,upkeep:1,jobs:[2,4,6],production:{},allow:['forest'],text:'Workers harvest Timber Logs · ship logs to Woodworks'},
+ lumber:{name:'Lumber Camp',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-forest"></use></svg>',gold:4,wood:1,iron:0,space:2,rounds:2,upkeep:1,jobs:[2,4,6],production:{},allow:['forest'],text:'Workers harvest Timber Logs. Send them straight to storage or process them at Woodworks.'},
  mine:{name:'Mine',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-mine"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['mountain'],text:'Produces Stone on EVERY mountain plus any mineral veins'},
  homes:{name:'Homes',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-homes"></use></svg>',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces · no workers required · occupied family homes earn Silver Pents'},
  market:{name:'Marketplace',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-market"></use></svg>',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'Silver Pents income scales with worker staffing and morale'},
  academy:{name:'Academy',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-book"></use></svg>',gold:8,wood:2,iron:2,space:2,rounds:3,upkeep:2,jobs:[2,3,4],production:{knowledge:3},allow:['plains','forest','hills','desert','mountain'],text:'Research output requires staffed teachers'},
- caravanWarehouse:{name:'Caravan Warehouse',icon:'▣',gold:8,wood:5,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert'],text:'Houses 1 / 2 / 3 caravans by level; shipments require an available wagon'},
+ caravanWarehouse:{name:'Caravan Warehouse',icon:'▣',gold:8,wood:5,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert'],text:'Houses 1 / 2 / 3 fast wagons. Without one, a worker can slowly push 2 Timber Logs per trip.'},
  storageWarehouse:{name:'Storage Warehouse',icon:'▤',gold:7,wood:4,iron:0,space:2,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Holds 40 / 80 / 140 goods at levels 1 / 2 / 3. Nearby factories can collect supplies here.'},
  builderBunk:{name:'Builders’ Bunk',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-builder"></use></svg>',gold:8,wood:3,iron:0,space:1,rounds:2,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Houses 1 / 2 / 3 active builders by level. Builders travel before working'},
  post:{name:'Military Post',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-shield"></use></svg>',gold:8,wood:2,iron:2,space:2,rounds:2,upkeep:2,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Administrative staff support recruitment and the 12-troop garrison'},
@@ -255,7 +255,8 @@ function workforceSummary(p){
  return {employed,available,wages:employed};
 }
 function workQuality(p,site,type){
- const level=site?.level||1,workers=worksiteWorkers(p,site),slots=workCapacity(type,level);
+ const busyPorters=new Set((G?.shipments||[]).filter(j=>j.owner===p.id&&j.kind==='porter').map(j=>j.porterId));
+ const level=site?.level||1,workers=worksiteWorkers(p,site).filter(c=>!busyPorters.has(c.id)),slots=workCapacity(type,level);
  const morale=workers.length?workers.reduce((sum,c)=>sum+c.morale,0)/workers.length:0;
  const ratio=slots?workers.length/slots:0;
  const efficiency=workers.length?Math.max(.35,Math.min(1.35,.50+morale/110)):0;
@@ -453,6 +454,24 @@ function domesticRoadVisuals(){
  }
  return `<g class="gs-domestic-road" pointer-events="none">${visuals.join('')}</g>`;
 }
+// Manual hand transport: 2 logs; each hex needs 8 world ticks unpaved or
+// 6 with roads, roughly 2 rounds for one hex on an unpaved route, each way.
+const PORTER_CAPACITY=2,PORTER_UNPAVED_TICKS=8,PORTER_PAVED_TICKS=6;
+function porterTicks(a,b){return domesticMoveCost(a,b)===1?PORTER_PAVED_TICKS:PORTER_UNPAVED_TICKS;}
+function availablePorter(owner,source){
+ const p=G.players[owner];if(!p)return null;
+ const occupied=new Set(G.shipments.filter(j=>j.kind==='porter'&&j.owner===owner).map(j=>j.porterId));
+ const workforce=p.citizens.filter(c=>c.age>=18&&!c.military&&!c.builder&&!occupied.has(c.id));
+ return workforce.find(c=>c.job?.siteId===source.site?.id)||workforce.find(c=>!c.job)||workforce[0]||null;
+}
+function porterRemaining(job){
+ let ticks=0;
+ for(let i=job.step;i<(job.path?.length||0)-1;i++){
+  const a=G.tiles.find(t=>t.id===job.path[i]),b=G.tiles.find(t=>t.id===job.path[i+1]);
+  if(a&&b)ticks+=porterTicks(a,b);
+ }
+ return Math.max(0,ticks-(job.stepSpent||0));
+}
 // Caravans are physical, limited units housed in Caravan Warehouses, not invisible timers.
 function caravanWarehouses(p){
  const sites=[];
@@ -487,8 +506,19 @@ function dispatchShipment(owner,from,to,item,qty,auto=false){
  const qtyFit=Math.min(10,amount,freeSource,endpointDeliverySpace(p,to));
  if(qtyFit<1)return false;
  const delivery=ownedPath(owner,src.tile,dst.tile);if(!delivery)return false;
- const available=availableCaravan(owner,src.tile);if(!available)return false;
+ const available=availableCaravan(owner,src.tile);
+ const porter=!available&&item==='logs'?availablePorter(owner,src):null;
+ if(!available&&!porter)return false;
  const id=G.nextShipmentId++;
+ if(porter){
+  const carrying=Math.min(PORTER_CAPACITY,qtyFit);
+  const job={id,kind:'porter',owner,from,to,item,qty:carrying,stage:'pickup',
+   porterId:porter.id,caravanId:null,path:[src.tile.id],step:0,stepSpent:0,
+   fromTileId:src.tile.id,toTileId:dst.tile.id,startedClock:G.turnClock||0,remaining:1};
+  G.shipments.push(job);
+  if(!auto)addLog(`${porter.name} started carrying ${carrying} logs from ${src.tile.name} to ${dst.tile.name}.`);
+  return true;
+ }
  const job={id,owner,from,to,item,qty:qtyFit,stage:'pickup',path:available.path,step:0,
   fromTileId:src.tile.id,toTileId:dst.tile.id,homeSiteId:available.cart.homeSiteId,caravanId:available.cart.id,
   startedClock:G.turnClock||0,remaining:Math.ceil((pathCost(owner,available.path)+pathCost(owner,delivery))/2)+2};
@@ -554,20 +584,73 @@ function moveCaravanToStage(job,cart,p){
  }
  finishCaravanJob(job,cart,p);
 }
+function progressPorterJob(job,p){
+ const worker=p.citizens.find(c=>c.id===job.porterId);
+ if(!worker){
+  if(job.qty>0&&['delivery','unloading'].includes(job.stage)){
+   const site=siteLookup(p.id,job.from);
+   if(site?.site)addLocal(site.site,job.item,job.qty);else addDepot(p,job.item,job.qty);
+  }
+  G.shipments=G.shipments.filter(j=>j!==job);return;
+ }
+ const path=job.path||[];
+ if(job.step<path.length-1){
+  const a=G.tiles.find(t=>t.id===path[job.step]),b=G.tiles.find(t=>t.id===path[job.step+1]);
+  if(!a||!b||a.owner!==p.id||b.owner!==p.id){
+   if(job.qty>0&&job.stage!=='pickup')addDepot(p,job.item,job.qty);
+   G.shipments=G.shipments.filter(j=>j!==job);return;
+  }
+  job.stepSpent=(job.stepSpent||0)+1;
+  if(job.stepSpent>=porterTicks(a,b)){job.step++;job.stepSpent=0;}
+  job.remaining=porterRemaining(job);return;
+ }
+ if(job.stage==='pickup'){
+  const amount=Math.min(PORTER_CAPACITY,job.qty,endpointCount(p,job.from,job.item));
+  const from=siteLookup(p.id,job.from),to=siteLookup(p.id,job.to);
+  const route=from?.tile&&to?.tile&&ownedPath(p.id,from.tile,to.tile);
+  if(!amount||!route){G.shipments=G.shipments.filter(j=>j!==job);return;}
+  endpointAdd(p,job.from,job.item,-amount);
+  job.qty=amount;job.stage='delivery';job.path=route;job.step=0;job.stepSpent=0;job.remaining=porterRemaining(job)+1;
+  return;
+ }
+ if(['delivery','unloading'].includes(job.stage)){
+  let target=siteLookup(p.id,job.to);
+  if(!target){
+   const here=G.tiles.find(t=>t.id===path[path.length-1]),capital=siteLookup(p.id,'depot');
+   const fallback=here&&capital?.tile&&ownedPath(p.id,here,capital.tile);
+   if(!fallback){addDepot(p,job.item,job.qty);G.shipments=G.shipments.filter(j=>j!==job);return;}
+   job.to='depot';job.toTileId=capital.tile.id;job.path=fallback;job.step=0;job.stepSpent=0;job.stage='delivery';
+   job.remaining=porterRemaining(job)+1;return;
+  }
+  const unloaded=endpointAdd(p,job.to,job.item,job.qty);
+  job.qty-=unloaded;
+  if(job.qty>0){job.stage='unloading';job.remaining=0;return;}
+  if(p.id===0&&unloaded)addLog(`${worker.name} hand-delivered ${unloaded} Timber Logs to ${target.tile.name}.`);
+  const from=siteLookup(p.id,job.from),returnRoute=from?.tile&&ownedPath(p.id,target.tile,from.tile);
+  if(!returnRoute){G.shipments=G.shipments.filter(j=>j!==job);return;}
+  job.stage='return';job.path=returnRoute;job.step=0;job.stepSpent=0;job.remaining=porterRemaining(job);return;
+ }
+ if(job.stage==='return')G.shipments=G.shipments.filter(j=>j!==job);
+}
 function progressShipments(){
  for(const job of [...G.shipments]){
-  const p=G.players[job.owner],cart=p?.caravans?.find(c=>c.id===job.caravanId);
-  if(!p||!cart){if(p&&job.qty&&['delivery','unloading'].includes(job.stage))addDepot(p,job.item,job.qty);G.shipments.splice(G.shipments.indexOf(job),1);continue;}
+  const p=G.players[job.owner];
   if((G.turnClock||0)<=(job.startedClock??-2)+1)continue;
+  if(job.kind==='porter'){
+   if(!p){G.shipments=G.shipments.filter(j=>j!==job);continue;}
+   progressPorterJob(job,p);continue;
+  }
+  const cart=p?.caravans?.find(c=>c.id===job.caravanId);
+  if(!p||!cart){if(p&&job.qty&&['delivery','unloading'].includes(job.stage))addDepot(p,job.item,job.qty);G.shipments.splice(G.shipments.indexOf(job),1);continue;}
   moveCaravanToStage(job,cart,p);
  }
 }
 function shippingDashboard(){
  const p=getCountry(),jobs=G.shipments.filter(j=>j.owner===0),carts=p.caravans||[];
  return `<div class="gs-shipping-summary"><b>Caravan logistics · ${carts.filter(c=>!c.shipmentId).length}/${carts.length} wagons available</b>
-  <small>Each completed Caravan Warehouse supplies 1 wagon (Level 2: 2, Level 3: 3). Each wagon carries up to 10 units per trip. Factory routes dispatch automatically when cargo, a reachable destination and a free wagon are available; trips take turns: warehouse → pickup → delivery → warehouse.</small>
+  <small>A wagon carries 10 units, but even with no wagons, one worker can push 2 Timber Logs to storage. Hand transport takes 8 world turns per unpaved hex (6 on roads) each way; the worker must return. Lumber Camps send logs directly to storage. Woodworks is only needed when manufacturing finished Wood.</small>
   <label class="gs-routing-label">After delivery <select data-caravan-policy><option value="nearest" ${p.caravanPolicy==='nearest'?'selected':''}>Closest warehouse</option><option value="home" ${p.caravanPolicy==='home'?'selected':''}>Original warehouse</option><option value="stay" ${p.caravanPolicy==='stay'?'selected':''}>Stay if destination has space</option></select></label>
-  ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.qty} ${GOOD_NAMES[j.item]||j.item} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
+  ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.kind==='porter'?'Worker pushing':'Wagon carrying'} ${j.qty} ${GOOD_NAMES[j.item]||j.item} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
 }
 function runAgricultureAndForestry(){
  for(const p of G.players)for(const t of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<t.buildings.length;i++){
@@ -1914,7 +1997,7 @@ function renderTile(t){
   html+=`<div class="gs-site-inventory"><small><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>On the road: ${outgoing.slice(0,4).map(job=>`${job.qty} ${GOOD_NAMES[job.item]||job.item} (${job.remaining}T)`).join(' · ')}`:''}</small></div>`;
   if(isOwn&&type==='storageWarehouse'&&stockList.length){
    const targets=routingTargets(p,meta.id);
-   html+=`<div class="gs-storage-actions"><strong>Send stored goods with an available caravan</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship up to 10</button></div>`).join('')}</div>`;
+   html+=`<div class="gs-storage-actions"><strong>Send stored goods by wagon, or slowly push logs by hand</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship up to 10</button></div>`).join('')}</div>`;
   }
   if(isOwn&&FACTORY_RECIPES[type])html+=`<label class="gs-routing-label">Manufacture <select data-recipe-site="${i}">${FACTORY_RECIPES[type].map(recipe=>`<option value="${recipe}" ${meta.recipe===recipe?'selected':''}>${RECIPES[recipe].name}</option>`).join('')}</select></label>`;
   if(isOwn&&OUTPUTS[type]?.length){const targets=routingTargets(p,meta.id);
@@ -2655,7 +2738,7 @@ function bindEvents(){
   proposeTradeRoute(to,Number(select?.value||50),0,from,dest);return;}const ans=e.target.closest('[data-trade-answer]');if(ans)respondTradeOffer(Number(ans.dataset.tradeAnswer),ans.dataset.accept==='yes');});
  el('economySummary').addEventListener('change',e=>{if(e.target.matches('[data-caravan-policy]')){getCountry().caravanPolicy=e.target.value;save();render();}});
  el('tradeBody').addEventListener('change',e=>{const field=e.target.closest('[data-road-from],[data-road-to],[data-trade-share]');if(field)refreshRouteEstimate(Number(field.dataset.roadFrom||field.dataset.roadTo||field.dataset.tradeShare));});
- el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Caravan dispatched with '+(GOOD_NAMES[item]||item):'No free caravan, open road or receiving storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
+ el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'expand':doExpand(t);break;case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Shipment dispatched with '+(GOOD_NAMES[item]||item):'No available wagon or log porter, route, or destination storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
  el('territoryDetails').addEventListener('change',e=>{const t=getSelected();if(!t)return;const r=e.target.closest('[data-route-site]');if(r){setDeliveryRoute(t,Number(r.dataset.routeSite),r.dataset.routeGood,r.value);return;}const recipe=e.target.closest('[data-recipe-site]');if(recipe)setFactoryRecipe(t,Number(recipe.dataset.recipeSite),recipe.value);});
  el('buildOptions').addEventListener('click',e=>{const b=e.target.closest('[data-build]');if(b&&canAct())doBuild(getSelected(),b.dataset.build);});
  el('researchOptions').addEventListener('click',e=>{const b=e.target.closest('[data-tech]');if(b&&canAct())doResearch(b.dataset.tech);});
