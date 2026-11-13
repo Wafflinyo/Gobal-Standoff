@@ -2459,7 +2459,7 @@ function extractMinesForRound(p){
 
 function canEquip(p,c,tier){
  const cfg=GEAR[tier],old=GEAR_ORDER.indexOf(c?.military?.gear);
- if(!cfg||!c?.military||GEAR_ORDER.indexOf(tier)<=old)return false;
+ if(!cfg||!c?.military||c.military.missionId||GEAR_ORDER.indexOf(tier)<=old)return false;
  const post=postStock(p,c.military.postId);return !!post&&localCount(post,cfg.item)>=1;
 }
 function equipSoldier(citizenId,tier,id=0){
@@ -2473,7 +2473,7 @@ function equipSoldier(citizenId,tier,id=0){
 }
 function equipAuxiliary(citizenId,item,id=0){
  const p=G.players[id],c=p.citizens.find(c=>c.id===citizenId);
- if(!canCountryAct(p,id)||!c?.military||!['woodShield','stoneAxe','stonePickaxe','stoneSword','stoneClub'].includes(item))return false;
+ if(!canCountryAct(p,id)||!c?.military||c.military.missionId||!['woodShield','stoneAxe','stonePickaxe','stoneSword','stoneClub'].includes(item))return false;
  const stock=postStock(p,c.military.postId),field=item==='woodShield'?'shield':'weapon';
  if(!stock||localCount(stock,item)<1||c.military[field]===item)return false;
  addLocal(stock,item,-1);if(c.military[field])addLocal(stock,c.military[field],1);
@@ -2555,7 +2555,7 @@ function doSell(t,idx=0,id=0){
 function doRecruit(t,id=0){return doMarketing(t,id);}
 function doTrain(t,id=0){
  const p=G.players[id];if(!canCountryAct(p,id)||!allowed(p,t)||!buildingCount(t,'post'))return false;
- const soldiers=postGarrison(p,t.id).filter(c=>c.military.training<5).slice(0,3);
+ const soldiers=postGarrison(p,t.id).filter(c=>c.military.training<5&&!c.military.missionId).slice(0,3);
  if(!soldiers.length||!hasMoney(p,3)||p.food<1)return false;
  p.gold-=3;p.food-=1;
  for(const c of soldiers){c.military.training++;if(c.military.training>=3&&!c.military.perk)c.military.perk='Disciplined';}
@@ -3016,13 +3016,13 @@ function renderRoster(){
  if(rosterTab==='citizens'){
   el('rosterList').innerHTML=`<p class="gs-citizen-health-note">Poor morale reduces health over time; age, health and morale all influence the chance of death each round. Worker hauling causes fatigue; resting citizens can recover.</p>${(p.recentDeaths||[]).length?'<p class="gs-recent-deaths"><strong>Recent passings:</strong> '+p.recentDeaths.slice(0,3).map(d=>esc(d.name)+' (age '+d.age+', R'+d.round+')').join(' · ')+'</p>':''}<div class="roster-head">Citizen <span>Age · Residence · Role</span></div>`+p.citizens.map(c=>{
    const home=c.homeId?G.tiles.find(t=>t.id===c.homeId)?.name||'Unknown':'Homeless';
-   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>${c.age} years · Health ${c.health}/100 · Morale ${c.morale}/100 · Mortality ${(100*citizenDeathProbability(c)).toFixed(2)}%/round · ${esc(home)}${c.military?' · Soldier':c.builder?' · Builder'+(c.builder.projectId?' (on assignment)':' (available)'):isBusyExpedition(c)?' · On civilian expedition':isBusyPorter(c)?' · Hand-hauling '+esc((G.shipments||[]).find(j=>j.kind==='porter'&&j.porterId===c.id)?.item||'resources'):c.job?' · Employed: '+esc((()=>{const t=G.tiles.find(t=>t.id===c.job.tileId),idx=t?.buildingMeta?.findIndex(m=>m.id===c.job.siteId);return idx>=0?BUILDINGS[t.buildings[idx]].name:'Workplace';})()):' · Unemployed'}</small></div>`;
+   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>${c.age} years · Health ${c.health}/100 · Morale ${c.morale}/100 · Mortality ${(100*citizenDeathProbability(c)).toFixed(2)}%/round · ${esc(home)}${c.military?' · Soldier'+(c.military.missionId?.startsWith('siege-')?' (on siege deployment)':''):c.builder?' · Builder'+(c.builder.projectId?' (on assignment)':' (available)'):isBusyExpedition(c)?' · On civilian expedition':isBusyPorter(c)?' · Hand-hauling '+esc((G.shipments||[]).find(j=>j.kind==='porter'&&j.porterId===c.id)?.item||'resources'):c.job?' · Employed: '+esc((()=>{const t=G.tiles.find(t=>t.id===c.job.tileId),idx=t?.buildingMeta?.findIndex(m=>m.id===c.job.siteId);return idx>=0?BUILDINGS[t.buildings[idx]].name:'Workplace';})()):' · Unemployed'}</small></div>`;
   }).join('');
  }else{
   el('rosterList').innerHTML=troops.length?`<p class="roster-instructions">Transfer one soldier between your posts each turn, even after using your main action.</p>`+troops.map(c=>{
    const post=G.tiles.find(t=>t.id===c.military.postId);
    const choices=posts.filter(t=>t.id!==c.military.postId&&postGarrison(p,t.id).length<12);
-   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>Age ${c.age} · Health ${c.health} · Training ${c.military.training}/5 · Armor: ${c.military.gear?GEAR[c.military.gear].name:'Unarmored'} (readiness ${gearReadiness(c)}) · ${c.military.shield?GOOD_NAMES[c.military.shield]:'No Shield'} · ${c.military.weapon?GOOD_NAMES[c.military.weapon]:'No Weapon'} · ${c.military.perk||'No perk'}<br>Stationed: ${esc(post?.name||'Unassigned')}</small>${`<label class="roster-transfer">Equip <select data-equip-soldier="${esc(c.id)}" ${!canAct()?'disabled':''}><option value="">Select gear…</option>${GEAR_ORDER.map(tier=>`<option value="${tier}" ${!canEquip(p,c,tier)?'disabled':''}>${GEAR[tier].name} · 1 ${GEAR[tier].name} delivered</option>`).join('')}</select></label>`}${`<label class="roster-transfer">Issue Shield / Stone Weapon <select data-equip-extra="${esc(c.id)}" ${!canAct()?'disabled':''}><option value="">Select delivered gear…</option>${['woodShield','stoneAxe','stonePickaxe','stoneSword','stoneClub'].map(item=>`<option value="${item}" ${!postStock(p,c.military.postId)||localCount(postStock(p,c.military.postId),item)<1?'disabled':''}>${GOOD_NAMES[item]} · ${localCount(postStock(p,c.military.postId),item)} at post</option>`).join('')}</select></label>`}${choices.length?`<label class="roster-transfer">Transfer to <select data-move-soldier="${esc(c.id)}" ${!active()||p.logisticsUsed?'disabled':''}><option value="">Choose post…</option>${choices.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label>`:''}</div>`;
+   return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>Age ${c.age} · Health ${c.health} · Training ${c.military.training}/5 · Armor: ${c.military.gear?GEAR[c.military.gear].name:'Unarmored'} (readiness ${gearReadiness(c)}) · ${c.military.shield?GOOD_NAMES[c.military.shield]:'No Shield'} · ${c.military.weapon?GOOD_NAMES[c.military.weapon]:'No Weapon'} · ${c.military.perk||'No perk'}<br>Stationed: ${esc(post?.name||'Unassigned')} · Experience ${c.military.experience||0}${c.military.missionId?.startsWith('siege-')?' · ⚔ ON SIEGE DUTY':c.military.missionId?' · On military assignment':''}</small>${`<label class="roster-transfer">Equip <select data-equip-soldier="${esc(c.id)}" ${!canAct()||c.military.missionId?'disabled':''}><option value="">Select gear…</option>${GEAR_ORDER.map(tier=>`<option value="${tier}" ${!canEquip(p,c,tier)?'disabled':''}>${GEAR[tier].name} · 1 ${GEAR[tier].name} delivered</option>`).join('')}</select></label>`}${`<label class="roster-transfer">Issue Shield / Stone Weapon <select data-equip-extra="${esc(c.id)}" ${!canAct()||c.military.missionId?'disabled':''}><option value="">Select delivered gear…</option>${['woodShield','stoneAxe','stonePickaxe','stoneSword','stoneClub'].map(item=>`<option value="${item}" ${!postStock(p,c.military.postId)||localCount(postStock(p,c.military.postId),item)<1?'disabled':''}>${GOOD_NAMES[item]} · ${localCount(postStock(p,c.military.postId),item)} at post</option>`).join('')}</select></label>`}${choices.length?`<label class="roster-transfer">Transfer to <select data-move-soldier="${esc(c.id)}" ${!active()||p.logisticsUsed?'disabled':''}><option value="">Choose post…</option>${choices.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label>`:''}</div>`;
   }).join(''):`<p class="empty-note">No troops enlisted yet. Build a Military Post, then eligible adults can volunteer each round. Run a marketing campaign to increase interest.</p>`;
  }
 }
