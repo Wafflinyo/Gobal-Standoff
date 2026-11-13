@@ -2711,6 +2711,18 @@ function cpuSecretWarOrder(id){
   setSiegeOrder(s.id,kind,id);
  }
  if(p.logisticsUsed)return;
+ // Reinforce thin attacking or defending lines before launching another
+ // mission; choices are still submitted on the CPU country's own turn.
+ for(const siege of G.sieges||[]){
+  if(siege.status!=='active'||![siege.attacker,siege.defender].includes(id))continue;
+  const side=siege.attacker===id?'attacker':'defender',ready=siegeTeam(siege,side).length;
+  if(ready>=4)continue;
+  for(const post of getMilitaryPosts(id)){
+   if(!canReinforceSiege(siege,post.id,id))continue;
+   const available=postGarrison(p,post.id).filter(c=>c.health>0&&!c.military.missionId).length;
+   if(available&&reinforceSiege(siege.id,post.id,Math.min(4-ready,available),id))return;
+  }
+ }
  const readyPosts=getMilitaryPosts(id).filter(t=>postGarrison(p,t.id).some(c=>c.health>0&&!c.military?.missionId));
  if(!readyPosts.length)return;
  const enemyTargets=G.tiles.filter(t=>enemies.includes(t.owner)&&!t.capital&&
