@@ -2108,7 +2108,7 @@ function beanWeapon(c,lod){
  else shape='<path d="M0 11V-17" stroke="#86593d" stroke-width="2.8"/>'+
   '<rect x="-8" y="-22" width="16" height="8" rx="1.5" fill="'+blade+'" stroke="#3a454a" stroke-width="1.2"/>';
  if(lod>=2&&mat!=='wood')shape+='<path d="M0-17V-8" stroke="'+trim+'" stroke-width=".9"/>';
- return '<g class="gs-bean-weapon" transform="translate(16 -9)">'+shape+'</g>';
+ return '<g transform="translate(16 -9)"><g class="gs-bean-weapon">'+shape+'</g></g>';
 }
 function beanShield(c,lod){
  const key=c.military?.shield;if(!key)return '';
