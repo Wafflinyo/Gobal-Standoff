@@ -685,3 +685,25 @@ body.gs-playing .map-wrap{isolation:isolate}
  .preview-actions button{padding:8px;font-size:10px;min-height:35px}
  .toast{bottom:max(6px,env(safe-area-inset-bottom));font-size:10px;padding:8px 12px}
 }
+
+
+/* v0.4.28 — signed treaty and alliance states inside Falcon diplomacy. */
+.gs-treaty-state{display:inline-block;border-radius:6px;padding:3px 6px;background:#205c61;color:#b5f1dd;font-size:9px;line-height:1.6;font-weight:900;letter-spacing:.02em}
+.gs-treaty-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:10px;border:1px solid #699c9188;border-radius:10px;background:#173b3fc9}
+.gs-treaty-actions small{grid-column:1/-1;line-height:1.5;color:#cfdfd8}
+.gs-treaty-actions button,.gs-treaty-current button{
+ min-width:0;min-height:39px;white-space:normal;text-align:center;
+ border-radius:8px;padding:8px 9px;font-size:11px;font-weight:850;
+ border:1px solid #92b9a7;background:#22534e;color:#e3f2dc
+}
+.gs-treaty-actions button:disabled,.gs-treaty-current button:disabled{opacity:.42}
+.gs-treaty-current{display:grid;gap:7px;margin:9px 0;border:1px solid #80b3a999;border-radius:10px;background:#183e43;padding:10px}
+.gs-treaty-current>strong{color:#c5edcb}
+.gs-treaty-current small{font-weight:600;font-size:11px;line-height:1.55}
+.gs-treaty-current button{justify-self:start;background:#35424a;color:#f3d6b8;border-color:#ad9a83}
+@media(max-width:390px){.gs-treaty-actions{grid-template-columns:1fr}}
+@media(orientation:landscape) and (max-height:650px) and (pointer:coarse){
+ .gs-treaty-actions{grid-template-columns:repeat(2,minmax(0,1fr));padding:7px}
+ .gs-treaty-actions button,.gs-treaty-current button{min-height:36px;font-size:10px;padding:7px}
+ .gs-treaty-current{padding:8px}
+}
