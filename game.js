@@ -982,7 +982,7 @@ function processSteelworks(){processFactories();}
 function makeCitizen(p,rng,starting=false){
  const n=p.nextCitizenId++;
  return {id:`${p.id}-${n}`,name:FIRST_NAMES[randInt(rng,FIRST_NAMES.length)]+' '+LAST_NAMES[randInt(rng,LAST_NAMES.length)],
- age:starting?18+randInt(rng,48):(rng()<.67?18+randInt(rng,38):randInt(rng,17)),health:45+randInt(rng,56),morale:40+randInt(rng,61),homeId:null,military:null,job:null};
+ age:starting?18+randInt(rng,48):(rng()<.67?18+randInt(rng,38):randInt(rng,17)),health:45+randInt(rng,56),morale:40+randInt(rng,61),skinTone:randInt(rng,5),homeId:null,military:null,job:null};
 }
 function buildUsed(t){return (t.capital?2:0)+(t.buildings||[]).reduce((sum,type)=>sum+(BUILDINGS[type]?.space||0),0)+(G?.projects||[]).filter(j=>j.tileId===t.id&&!j.upgradeSiteId).reduce((sum,j)=>sum+(BUILDINGS[j.type]?.space||0),0);}
 function buildFree(t){return Math.max(0,TERRAIN[t.terrain].slots-buildUsed(t));}
@@ -1232,7 +1232,7 @@ function migrateGameplay(s){
   p.minerals??=emptyMinerals();
   for(const key of [...MINERAL_KEYS,'steel'])p.minerals[key]=Math.max(0,Math.floor(p.minerals[key]||0));
   if(p.ore!==undefined){p.minerals.iron+=Math.max(0,Math.floor(p.ore));delete p.ore;}
-  for(const c of p.citizens||[]){if(c.health==null||c.morale==null){const rng=mulberry32(hash(s.seed+':traits:'+c.id));c.health=45+randInt(rng,56);c.morale=40+randInt(rng,61);}if(c.military){if(s.logisticsVersion!==1&&(!c.military.gear||['basic','leather'].includes(c.military.gear)))c.military.gear=null; c.military.helmet??=null;c.military.chest??=null;c.military.skill??=warSkill(c);c.military.shield??=null;c.military.weapon??=null;}c.job??=null;}
+  for(const c of p.citizens||[]){if(c.health==null||c.morale==null){const rng=mulberry32(hash(s.seed+':traits:'+c.id));c.health=45+randInt(rng,56);c.morale=40+randInt(rng,61);}if(c.military){if(s.logisticsVersion!==1&&(!c.military.gear||['basic','leather'].includes(c.military.gear)))c.military.gear=null; c.military.helmet??=null;c.military.chest??=null;c.military.skill??=warSkill(c);c.military.shield??=null;c.military.weapon??=null;}c.skinTone??=hash(s.seed+':skin:'+c.id)%5;c.job??=null;}
  }
  if(!s.crewVersion){
   s.turnClock??=0;
@@ -3467,6 +3467,24 @@ function renderTile(t){
 function renderBuildOptions(t){
  const p=getCountry();el('buildOptions').innerHTML=Object.entries(BUILDINGS).filter(([k,b])=>b.allow.includes(t.terrain)).map(([k,b])=>`<button class="build-option" data-build="${k}" ${!canAct()||!canBuild(p,t,b)?'disabled':''}><span class="build-symbol">${b.icon}</span><span class="build-main"><span class="build-name">${b.name}</span><span class="build-desc" style="display:block">${b.text} · ${b.space} space · ${Math.max(2,b.rounds*2)} work turns + builder travel · −${b.upkeep} Silver Pents upkeep</span></span><span class="build-cost">${buildingCost(p,b)} SP<br>${b.wood} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg> · ${b.iron} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg></span></button>`).join('');
 }
+
+function warEquipmentControls(p,c){
+ const labels={helmet:'Helmet',chest:'Chest / Chain Plate',weapon:'Weapon',shield:'Shield'};
+ const stock=postStock(p,c.military.postId),disable=!canAct()||!!c.military.missionId;
+ let html='<div class="gs-war-loadout"><small>Skill '+warSkill(c)+'/100 · Accuracy '+
+  Math.round(Math.max(.18,Math.min(.94,.26+warSkill(c)*.0067))*100)+'% · Attack speed '+
+  warAttackSpeed(c).toFixed(2)+'/s · Damage mitigation '+Math.round(warDefense(c)*100)+'%</small>';
+ for(const slot of ['helmet','chest','weapon','shield']){
+  const current=c.military[slot],items=WAR_SLOT_ITEMS[slot]||[];
+  html+='<label class="roster-transfer">'+labels[slot]+': <b>'+
+   esc(current?GOOD_NAMES[current]||current:'None')+'</b><select data-equip-war="'+esc(c.id)+'" data-war-slot="'+slot+'" '+(disable?'disabled':'')+'>'+
+   '<option value="">Choose delivered equipment...</option>'+
+   items.map(item=>'<option value="'+item+'" '+(!canEquipWarItem(p,c,item)?'disabled':'')+'>'+
+    esc(GOOD_NAMES[item]||item)+' · '+(stock?localCount(stock,item):0)+' at post</option>').join('')+
+   '</select></label>';
+ }
+ return html+'</div>';
+}
 function renderRoster(){
  const p=getCountry(),posts=getMilitaryPosts(0),troops=p.citizens.filter(c=>!!c.military);
  el('rosterCitizensBtn').classList.toggle('active',rosterTab==='citizens');
@@ -3483,6 +3501,11 @@ function renderRoster(){
    const choices=posts.filter(t=>t.id!==c.military.postId&&postGarrison(p,t.id).length<12);
    return `<div class="roster-row"><strong>${esc(c.name)}</strong><small>Age ${c.age} · Health ${c.health} · Training ${c.military.training}/5 · Armor: ${c.military.gear?GEAR[c.military.gear].name:'Unarmored'} (readiness ${gearReadiness(c)}) · ${c.military.shield?GOOD_NAMES[c.military.shield]:'No Shield'} · ${c.military.weapon?GOOD_NAMES[c.military.weapon]:'No Weapon'} · ${c.military.perk||'No perk'}<br>Stationed: ${esc(post?.name||'Unassigned')} · Experience ${c.military.experience||0}${c.military.missionId?.startsWith('siege-')?' · ⚔ ON SIEGE DUTY':c.military.missionId?' · On military assignment':''}</small>${`<label class="roster-transfer">Equip <select data-equip-soldier="${esc(c.id)}" ${!canAct()||c.military.missionId?'disabled':''}><option value="">Select gear…</option>${GEAR_ORDER.map(tier=>`<option value="${tier}" ${!canEquip(p,c,tier)?'disabled':''}>${GEAR[tier].name} · 1 ${GEAR[tier].name} delivered</option>`).join('')}</select></label>`}${`<label class="roster-transfer">Issue Shield / Stone Weapon <select data-equip-extra="${esc(c.id)}" ${!canAct()||c.military.missionId?'disabled':''}><option value="">Select delivered gear…</option>${['woodShield','stoneAxe','stonePickaxe','stoneSword','stoneClub'].map(item=>`<option value="${item}" ${!postStock(p,c.military.postId)||localCount(postStock(p,c.military.postId),item)<1?'disabled':''}>${GOOD_NAMES[item]} · ${localCount(postStock(p,c.military.postId),item)} at post</option>`).join('')}</select></label>`}${choices.length?`<label class="roster-transfer">Transfer to <select data-move-soldier="${esc(c.id)}" ${!active()||p.logisticsUsed?'disabled':''}><option value="">Choose post…</option>${choices.map(t=>`<option value="${esc(t.id)}">${esc(t.name)}</option>`).join('')}</select></label>`:''}</div>`;
   }).join(''):`<p class="empty-note">No troops enlisted yet. Build a Military Post, then eligible adults can volunteer each round. Run a marketing campaign to increase interest.</p>`;
+ }
+ if(rosterTab==='troops'){
+  [...el('rosterList').querySelectorAll('.roster-row')].forEach((row,i)=>{
+   const c=troops[i];if(c)row.insertAdjacentHTML('beforeend',warEquipmentControls(p,c));
+  });
  }
 }
 function renderResearch(){const p=getCountry();el('researchOptions').innerHTML=Object.entries(TECHS).map(([k,t])=>`<button class="build-option" data-tech="${k}" ${!canAct()||p.tech.includes(k)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge?'disabled':''}><span class="build-symbol">${t.icon}</span><span class="build-main"><span class="build-name">${t.name} ${p.tech.includes(k)?'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-check"></use></svg>':''}</span><span class="build-desc" style="display:block">${t.desc}</span></span><span class="build-cost">${t.gold} SP<br>${t.knowledge} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg></span></button>`).join('');}
@@ -4291,7 +4314,7 @@ function bindEvents(){
  el('hand').addEventListener('click',e=>{const b=e.target.closest('[data-card]');if(b)openCardPreview(Number(b.dataset.card));});
  el('rosterCitizensBtn').addEventListener('click',()=>{rosterTab='citizens';renderRoster();});
  el('rosterTroopsBtn').addEventListener('click',()=>{rosterTab='troops';renderRoster();});
- el('rosterList').addEventListener('change',e=>{const equipment=e.target.closest('[data-equip-soldier]');if(equipment?.value){equipSoldier(equipment.dataset.equipSoldier,equipment.value);return;}const extra=e.target.closest('[data-equip-extra]');if(extra?.value){equipAuxiliary(extra.dataset.equipExtra,extra.value);return;}const select=e.target.closest('[data-move-soldier]');if(select?.value)moveSoldier(select.dataset.moveSoldier,select.value);});
+ el('rosterList').addEventListener('change',e=>{const modern=e.target.closest('[data-equip-war]');if(modern?.value){equipWarItem(modern.dataset.equipWar,modern.value);return;}const equipment=e.target.closest('[data-equip-soldier]');if(equipment?.value){equipSoldier(equipment.dataset.equipSoldier,equipment.value);return;}const extra=e.target.closest('[data-equip-extra]');if(extra?.value){equipAuxiliary(extra.dataset.equipExtra,extra.value);return;}const select=e.target.closest('[data-move-soldier]');if(select?.value)moveSoldier(select.dataset.moveSoldier,select.value);});
  el('mineralBody').addEventListener('click',e=>{const smelt=e.target.closest('[data-smelt-steel]');if(smelt){smeltSteel();return;}const b=e.target.closest('[data-mineral]');if(b)mineralTrade(b.dataset.mineral,b.dataset.direction);});
  el('zoomIn').addEventListener('click',()=>zoom(.78));el('zoomOut').addEventListener('click',()=>zoom(1.28));el('zoomReset').addEventListener('click',resetView);el('focusHomeBtn').addEventListener('click',()=>{if(!cpuBusy)focusHome(false);});el('skipCpuBtn').addEventListener('click',()=>{skipCpuPlayback=true;el('cpuAction').textContent='Finishing remaining turns…';});
  const svg=el('worldMap');
