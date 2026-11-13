@@ -770,3 +770,40 @@ body.gs-playing .map-wrap{isolation:isolate}
  .gs-siege-reinforce{gap:6px;padding:8px}
  .gs-siege-reinforce>button{padding:8px}
 }
+
+
+/* v0.4.30: real 2.5D map beans; lightweight animations share the live SVG. */
+.gs-bean-unit{pointer-events:none;overflow:visible}
+.gs-bean-hopper{transform-box:fill-box;transform-origin:center bottom;animation:gs-bean-hop var(--gs-hop-duration,.46s) cubic-bezier(.39,.01,.61,1) infinite}
+.gs-bean-civilian .gs-bean-hopper{animation-duration:.40s}
+@keyframes gs-bean-hop{
+ 0%,100%{transform:translateY(0) scale(1,1)}
+ 42%{transform:translateY(-4px) scale(.98,1.02)}
+ 84%{transform:translateY(0) scale(1.03,.98)}
+}
+.gs-bean-pushcart{transform-box:fill-box;transform-origin:center bottom;animation:gs-bean-cart-rattle .43s ease-in-out infinite}
+@keyframes gs-bean-cart-rattle{0%,100%{transform:translateY(0)}60%{transform:translateY(-.55px)}}
+.gs-bean-wheel{transform-box:fill-box;transform-origin:center center;animation:gs-bean-wheel-roll .42s linear infinite}
+@keyframes gs-bean-wheel-roll{to{transform:rotate(360deg)}}
+.gs-bean-shield{transform-box:fill-box;transform-origin:center center;animation:gs-bean-shield-bob .5s ease-in-out infinite alternate}
+@keyframes gs-bean-shield-bob{to{transform:translateY(-1px)}}
+.gs-bean-fight .gs-bean-weapon{transform-box:fill-box;transform-origin:center bottom;animation:gs-bean-attack .85s ease-in-out 1 both}
+.gs-bean-fight .gs-bean-hopper{animation:gs-bean-assault .85s ease-in-out 1 both}
+@keyframes gs-bean-attack{
+ 0%,100%{transform:rotate(0)}
+ 18%{transform:rotate(-34deg)}
+ 48%{transform:rotate(58deg)}
+ 62%{transform:rotate(24deg)}
+}
+@keyframes gs-bean-assault{
+ 0%,100%{transform:translateX(0) translateY(0)}
+ 18%{transform:translateX(-1px) translateY(-2px)}
+ 48%{transform:translateX(5px) translateY(-5px)}
+ 68%{transform:translateX(1px) translateY(0)}
+}
+.gs-ruined-hex{animation:gs-breach-glow 1.6s ease-in-out infinite alternate}
+@keyframes gs-breach-glow{to{stroke:#ffdc9e;stroke-width:6;stroke-opacity:.7}}
+.gs-aftermath{border-color:#d89e70!important}
+@media(prefers-reduced-motion:reduce){
+ .gs-bean-hopper,.gs-bean-pushcart,.gs-bean-wheel,.gs-bean-shield,.gs-bean-fight .gs-bean-weapon,.gs-ruined-hex{animation:none!important}
+}
