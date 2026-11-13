@@ -1,4 +1,12 @@
-# Global Standoff — Prototype 0.4.21
+# Global Standoff — Prototype 0.4.22
+
+## Version 0.4.22 — hand-hauled logs and inclusive building upkeep
+
+- Lumber Camps send Timber Logs directly to the nearest reachable Storage Warehouse or capital, with a selectable destination. Woodworks is not required for storage; it is used only to turn logs into Construction Wood or Wooden Shields.
+- When no reachable wagon is idle, an available adult civilian can transport exactly **2 Timber Logs** by hand. Each unpaved hex border takes **8 world turns** (6 with a paved road), including the return trip after unloading. A one-hex round trip therefore requires about 18 transport ticks including pickup and unloading. Workers cannot simultaneously produce goods, take another log shipment, join the military, or be reassigned during delivery.
+- Hand transport jobs reserve their inventory before pickup, only remove it from the origin when loaded, transfer it at arrival, and keep the worker occupied until home. Full destination warehouses block unloading. Tiny depth-sorted worker-and-logs graphics display the trip on the map; shipment details show mode, cargo, stage and remaining time.
+- All buildings use **one operating cost per round**: the greater of base maintenance or the cost of its workers. Worker wages are part of building upkeep, not an extra additive charge. Builder Bunk operating budgets cover their assigned builders, with only uncovered surplus builders charged separately.
+- Nation & Economy and territory building descriptions display inclusive operating costs; existing saves, construction prices, mining outputs, travel rules and the 10-unit caravan carrying limit remain intact.
 
 ## Version 0.4.21 — factory caravan delivery routing clarification and fix
 
