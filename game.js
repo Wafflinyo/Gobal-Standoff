@@ -241,6 +241,14 @@ function progressExpeditions(){
     const rng=mulberry32(hash(G.seed+':expedition-health:'+crew.id+':'+crew.startedClock+':'+crew.elapsed+':'+citizen.id));
     if(rng()<Math.min(.85,odds))citizen.health=Math.max(0,(citizen.health??50)-1);
    }
+   // Check again AFTER applying travel fatigue, including on the arrival tick.
+   // Zero-health participants cannot establish a claim by themselves.
+   crew.citizenIds=crew.citizenIds.filter(id=>p.citizens.some(c=>c.id===id&&(c.health??0)>0));
+   if(!crew.citizenIds.length){
+    const destination=G.tiles.find(t=>t.id===crew.targetId);
+    addLog(`${p.name}'s expedition to ${destination?.name||'the frontier'} was abandoned after its crew became incapacitated.`);
+    clearExpedition(crew);continue;
+   }
   }
   crew.remaining=Math.max(0,crew.remaining-1);
   if(crew.remaining>0)continue;
@@ -860,7 +868,7 @@ function advanceCitizenHealthAndMortality(p){
   if(morale<15)health-=2;
   else if(morale<35)health-=1;
   else if(morale<45&&G.round%2===0)health-=1;
-  else if(morale>=65&&p.food>0&&p.gold>=0)health++;
+  else if(!hauling&&morale>=65&&p.food>0&&p.gold>=0)health++;
   if(citizen.age>=70&&G.round%4===0)health--;
   citizen.health=Math.max(0,Math.min(100,health));
   if(!hauling&&p.food>0&&p.gold>=0&&citizen.morale<95){
