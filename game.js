@@ -595,6 +595,9 @@ function availableCaravan(owner,pickup){
 }
 function dispatchShipment(owner,from,to,item,qty,auto=false){
  const p=G.players[owner],src=siteLookup(owner,from),dst=siteLookup(owner,to),amount=Math.floor(qty);
+ // A siege blockade can physically prevent new deliveries into the surrounded
+ // tile. Already loaded wagons wait with their cargo until the blockade lifts.
+ if(dst?.tile&&siegeBlocksDelivery({owner,toTileId:dst.tile.id,stage:'delivery'}))return false;
  if(!p||!src?.tile||!dst?.tile||String(from)===String(to)||amount<1)return false;
  const reservedFrom=G.shipments.filter(j=>j.owner===owner&&String(j.from)===String(from)&&j.item===item&&j.stage==='pickup').reduce((n,j)=>n+j.qty,0);
  const freeSource=Math.max(0,endpointCount(p,from,item)-reservedFrom);
@@ -734,6 +737,10 @@ function progressPorterJob(job,p){
 function progressShipments(){
  for(const job of [...G.shipments]){
   const p=G.players[job.owner];
+  if(siegeBlocksDelivery(job)&&['delivery','unloading'].includes(job.stage)){
+   job.blockedBySiege=true;continue;
+  }
+  job.blockedBySiege=false;
   if((G.turnClock||0)<=(job.startedClock??-2)+1)continue;
   if(job.kind==='porter'){
    if(!p){G.shipments=G.shipments.filter(j=>j!==job);continue;}
@@ -1429,6 +1436,12 @@ const SIEGE_DEFEND_ORDERS={
  rally:'Rally the garrison',counterattack:'Launch a counterattack',surrender:'Offer surrender'
 };
 function activeSiege(tileId){return (G.sieges||[]).find(s=>s.targetTileId===tileId&&['marching','active'].includes(s.status));}
+function siegeBlocksDelivery(job){
+ if(!G||!job?.toTileId||!['delivery','unloading'].includes(job.stage))return false;
+ const siege=activeSiege(job.toTileId);
+ return !!siege&&siege.status==='active'&&siege.defender===job.owner
+  &&['blockade','disrupt'].includes(siegeOrderFor(siege,'attacker'));
+}
 function siegeTeam(s,side){
  const id=side==='attacker'?s.attacker:s.defender,p=G.players[id];
  const ids=side==='attacker'?s.attackerIds:s.defenderIds;
@@ -1486,7 +1499,8 @@ function establishSiege(s){
 function progressSiegeMarches(){
  for(const s of G.sieges||[]){
   if(s.status!=='marching'||(G.turnClock||0)<=s.createdClock+1)continue;
-  if(!currentWar(s.attacker,s.defender)||G.tiles.find(t=>t.id===s.targetTileId)?.owner!==s.defender||!siegeTeam(s,'attacker').length){
+  if(!currentWar(s.attacker,s.defender)||G.tiles.find(t=>t.id===s.targetTileId)?.owner!==s.defender
+   ||G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker||!siegeTeam(s,'attacker').length){
    finishSiege(s,'cancelled');continue;
   }
   s.marchRemaining=Math.max(0,s.marchRemaining-1);
@@ -1570,7 +1584,8 @@ function resolveSieges(){
  for(const s of G.sieges||[]){
   if(s.status!=='active'||s.activeRound>=G.round)continue;
   const target=G.tiles.find(t=>t.id===s.targetTileId);
-  if(!target||target.owner!==s.defender||!currentWar(s.attacker,s.defender)){finishSiege(s,'cancelled');continue;}
+  if(!target||target.owner!==s.defender||!currentWar(s.attacker,s.defender)
+   ||G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker){finishSiege(s,'cancelled');continue;}
   const attacker=G.players[s.attacker],defender=G.players[s.defender];
   const aOrder=siegeOrderFor(s,'attacker'),dOrder=siegeOrderFor(s,'defender');
   s.roundNumber++;
@@ -1589,9 +1604,10 @@ function resolveSieges(){
   if(aOrder==='prepare'&&attacker.wood>=1){attacker.wood--;s.preparation=Math.min(4,s.preparation+1);}
   if(dOrder==='fortify'&&defender.wood>=2){defender.wood-=2;s.fort=Math.min(100,s.fort+9);}
   if(dOrder==='resupply'){
-   const corridor=neighbors(target).some(t=>t.owner===s.defender&&t.terrain!=='water');
-   if(corridor&&defender.food>=3){
-    const success=rng()<(aOrder==='blockade'?.42:.83);
+   const corridors=neighbors(target).filter(t=>t.owner===s.defender&&t.terrain!=='water');
+   if(corridors.length&&defender.food>=3){
+    const road=corridors.some(t=>roadExistsBetween(t,target));
+    const success=rng()<Math.min(.95,(aOrder==='blockade'?.35:.74)+(road?.13:0)+(defender.caravans?.length?.08:0));
     defender.food-=3;
     if(success)s.supply=Math.min(100,s.supply+(defender.caravans?.length?23:16));
    }
@@ -1616,6 +1632,13 @@ function resolveSieges(){
   if(s.supply<=20){s.morale=Math.max(0,s.morale-(s.supply===0?14:6));for(const c of siegeTeam(s,'defender'))c.morale=Math.max(0,c.morale-(s.supply===0?5:2));}
   else if(aOrder==='assault')s.morale=Math.max(0,s.morale-5);
   if(s.supply===0)for(const c of siegeTeam(s,'defender'))if(c.health>0)c.health=Math.max(1,c.health-2);
+  // Civilians living inside the surrounded hex face food shortages; individual
+  // morale/health feed into the existing age-aware mortality system.
+  for(const resident of defender.citizens){
+   if(resident.military||resident.homeId!==target.id)continue;
+   resident.morale=Math.max(0,(resident.morale??50)-(s.supply<=20?(s.supply===0?5:3):1));
+   if(s.supply===0)resident.health=Math.max(0,(resident.health??50)-2);
+  }
   const before=guards.length+fresh.length,remainingA=siegeTeam(s,'attacker').length,remainingD=siegeTeam(s,'defender').length;
   const casualties=before-remainingA-remainingD;
   const summary=`Round ${s.roundNumber}: ${SIEGE_ATTACK_ORDERS[aOrder]} vs ${SIEGE_DEFEND_ORDERS[dOrder]} · supply ${supplyBefore}→${s.supply}, walls −${fortHit}, casualties ${casualties}.`;
