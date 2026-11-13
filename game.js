@@ -2010,7 +2010,7 @@ const WORLD_SCENE_YAW=POV_ANGLES[0];
 const smooth=t=>t*t*(3-2*t);
 const blend=(a,b,t)=>a+(b-a)*t;
 let cameraYaw=POV_ANGLES[0],cameraMoveFrame=0,cameraResolve=null,cpuPlaybackToken=0,skipCpuPlayback=false,actionTileId=null,actionKind='';
-let boardBaseYaw=WORLD_SCENE_YAW,boardBillboards=[],boardWorldStructures=[],boardFootprints=[],boardWagons=[],lastWorldDepthYaw=NaN;
+let boardBaseYaw=WORLD_SCENE_YAW,boardBillboards=[],boardWorldStructures=[],boardFootprints=[],boardWagons=[],boardTerrainFaces=[],lastTerrainExtrusionYaw=NaN,lastWorldDepthYaw=NaN;
 const wagonMotionSeen=new Set();
 function billboardSvg(x,y,contents){return `<g data-gs-billboard="1" data-anchor-x="${x.toFixed(2)}" data-anchor-y="${y.toFixed(2)}">${contents}</g>`;}
 // Facades stay attached to the world, rather than being repainted to face
@@ -2020,12 +2020,40 @@ function physicalTileOffset(tile,dx,dy){
  const origin=coords(tile),offset=unprojectScreen(dx,dy,WORLD_SCENE_YAW);
  return project(origin.x+offset.x,origin.y+offset.y);
 }
+// The hex top turns with the world, but its thickness always extrudes down
+// on screen. Invert the camera transform for the vertical thickness and
+// reselect the front-facing walls continuously, without replacing any nodes.
+function hexExtrusionGeometry(top,center,height,delta){
+ const co=Math.cos(delta),sn=Math.sin(delta);
+ const vx=sn/VIEW_TILT*height,vy=co*height;
+ const bottom=top.map(p=>({x:p.x+vx,y:p.y+vy}));
+ const sides=['',''];
+ for(let i=0;i<6;i++){
+  const a=top[i],b=top[(i+1)%6],lowA=bottom[i],lowB=bottom[(i+1)%6];
+  const facing=VIEW_TILT*sn*((a.x+b.x)/2-center.x)+co*((a.y+b.y)/2-center.y);
+  if(facing<=.0001)continue;
+  sides[i%2]+=`M${a.x.toFixed(2)} ${a.y.toFixed(2)}L${b.x.toFixed(2)} ${b.y.toFixed(2)}L${lowB.x.toFixed(2)} ${lowB.y.toFixed(2)}L${lowA.x.toFixed(2)} ${lowA.y.toFixed(2)}Z`;
+ }
+ return {bottom:pts(bottom),sides};
+}
+function updateTerrainExtrusions(){
+ const delta=cameraYaw-WORLD_SCENE_YAW;
+ for(const plane of boardTerrainFaces){
+  const geo=hexExtrusionGeometry(plane.top,plane.center,plane.height,delta);
+  plane.shadow.setAttribute('points',geo.bottom);
+  plane.side0.setAttribute('d',geo.sides[0]);
+  plane.side1.setAttribute('d',geo.sides[1]);
+ }
+}
 // The plane rotates in camera yaw. These screen-facing sprites counter-rotate
 // around their original anchor; flags, houses and labels always remain upright.
 function syncBoardRotation(){
  const map=el('mapContent');if(!map)return;
  const d=cameraYaw-boardBaseYaw,co=Math.cos(d),sn=Math.sin(d),b=VIEW_TILT*sn,c=-sn/VIEW_TILT;
  map.setAttribute('transform',`matrix(${co.toFixed(7)} ${b.toFixed(7)} ${c.toFixed(7)} ${co.toFixed(7)} 0 0)`);
+ if(!Number.isFinite(lastTerrainExtrusionYaw)||Math.abs(cameraYaw-lastTerrainExtrusionYaw)>.0001){
+  updateTerrainExtrusions();lastTerrainExtrusionYaw=cameraYaw;
+ }
  const ib=-b,ic=-c;
  for(const {node,x,y} of boardBillboards){
   const px=co*x+c*y,py=b*x+co*y;
@@ -2044,7 +2072,7 @@ function syncBoardRotation(){
  // Static structures retain their world orientation and are foreshortened
  // continuously as the camera turns, without changing positions at the end.
  const yawRelative=cameraYaw-WORLD_SCENE_YAW;
- const facade=Math.cos(yawRelative),profile=Math.max(.50,Math.abs(facade));
+ const facade=Math.cos(yawRelative),profile=.84+.16*Math.abs(facade);
  for(const {node,x,y} of boardWorldStructures){
   const shear=Math.sin(yawRelative)*.10;
   node.setAttribute('transform',`translate(${x.toFixed(2)} ${y.toFixed(2)}) matrix(${profile.toFixed(5)} 0 ${shear.toFixed(5)} 1 0 0) translate(${(-x).toFixed(2)} ${(-y).toFixed(2)})`);
@@ -2074,6 +2102,13 @@ function sortWorldDepth(){
  const depth=node=>VIEW_TILT*si*Number(node.dataset.depthX)+co*Number(node.dataset.depthY);
  nodes.sort((a,b)=>{const dy=depth(a)-depth(b);return Math.abs(dy)>.02?dy:Number(a.dataset.depthOrder)-Number(b.dataset.depthOrder);});
  if(nodes.some((n,i)=>n!==parent.children[i]))parent.replaceChildren(...nodes);
+ // The front row of raised tiles must occlude the back row at any camera yaw.
+ const ground=el('gsWorldTerrain');
+ if(ground){
+  const tiles=Array.from(ground.children);
+  tiles.sort((a,b)=>{const d=depth(a)-depth(b);return Math.abs(d)>.02?d:Number(a.dataset.depthOrder)-Number(b.dataset.depthOrder);});
+  if(tiles.some((node,i)=>node!==ground.children[i]))ground.replaceChildren(...tiles);
+ }
 }
 function unprojectScreen(x,y,yaw){const co=Math.cos(yaw),sn=Math.sin(yaw),fy=y/VIEW_TILT;return {x:x*co+fy*sn,y:-x*sn+fy*co};}
 
@@ -2458,25 +2493,21 @@ function renderMap(){
  cameraYaw=WORLD_SCENE_YAW;
  const svg=el('worldMap');svg.setAttribute('viewBox',`${view.x} ${view.y} ${view.w} ${view.h}`);
  const sorted=G.tiles.map(t=>({t,c:sceneCoords(t)})).sort((a,b)=>a.c.y-b.c.y||a.c.x-b.c.x);
- const bases=[],decorations=[],depthItems=[];
+ const bases=[],decorations=[],depthItems=[],terrainGeometry=[];
  for(const {t,c:{x,y}} of sorted){
   const claiming=scenePlayback?.tileId===t.id&&scenePlayback.kind==='expand';
   const owner=(t.owner===null||(claiming&&scenePlayback.phase==='prepare'))?null:G.players[t.owner],selected=!cpuBusy&&t.id===G.selectedId;
   const top=hexPoints(t,HEX-1),center=sceneCoords(t);
   const extrude=t.terrain==='water'?7:(t.terrain==='mountain'?14:11);
-  const lower=top.map(p=>({x:p.x,y:p.y+extrude}));
+  const relief=hexExtrusionGeometry(top,center,extrude,0);
+  terrainGeometry.push({top,center,height:extrude});
   const fill=t.terrain==='water'?'#478aa8':TERRAIN[t.terrain].color;
   const border=owner?owner.color:'#627267';
-  const faces=top.map((p,i)=>{const n=(i+1)%6;
-   // Render the lower front wall of the miniature hex instead of flipping a fixed wall
-   // when the viewing angle changes between countries.
-   const front=(p.y+top[n].y)/2>center.y-.3;
-   return front?`<polygon class="gs-hex-side" points="${pts([p,top[n],lower[n],lower[i]])}" fill="${t.terrain==='water'?'#295773':i%2?'#685b47':'#776752'}" stroke="#283d3f" stroke-width=".7"/>`:'';
-  }).join('');
   const inset=top.map(p=>({x:center.x+(p.x-center.x)*.92,y:center.y+(p.y-center.y)*.92}));
-  bases.push(`<g class="tile-base" pointer-events="none">
-   <polygon points="${pts(lower)}" fill="#172d30" opacity=".52" transform="translate(1 2)"/>
-   ${faces}
+  bases.push(`<g class="tile-base gs-hex-3d" data-depth-x="${center.x.toFixed(2)}" data-depth-y="${center.y.toFixed(2)}" data-depth-order="${terrainGeometry.length}" pointer-events="none">
+   <polygon class="gs-hex-under" points="${relief.bottom}" fill="#172d30" opacity=".52"/>
+   <path class="gs-hex-side gs-hex-side-0" d="${relief.sides[0]}" fill="${t.terrain==='water'?'#295773':'#776752'}" stroke="#283d3f" stroke-width=".7"/>
+   <path class="gs-hex-side gs-hex-side-1" d="${relief.sides[1]}" fill="${t.terrain==='water'?'#295773':'#685b47'}" stroke="#283d3f" stroke-width=".7"/>
    <polygon points="${pts(top)}" fill="${fill}" stroke="#364d4a" stroke-width="2.7"/>
    <polygon points="${pts(inset)}" fill="${fill}" stroke="${t.terrain==='water'?'#8fc8da':'#e8dcad'}" stroke-opacity=".38" stroke-width="1.4"/>
    <path d="M${top[0].x.toFixed(1)} ${top[0].y.toFixed(1)}L${top[1].x.toFixed(1)} ${top[1].y.toFixed(1)}L${top[2].x.toFixed(1)} ${top[2].y.toFixed(1)}" stroke="#f8efc8" opacity=".3" stroke-width="2" fill="none"/>
@@ -2508,9 +2539,16 @@ function renderMap(){
  const movementOverlays=falconVisuals()+diplomaticFalconVisuals()+expeditionTrailVisuals()+visibleWarOrderMarkers();
  const upperLabels=constructionHudLabels()+roadHudLabels();
  // Ground-sorted scenery and wagons. Territory taps and labels remain foreground.
- el('mapContent').innerHTML=`<g class="world-terrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="gs-national-borders" pointer-events="none">${ownerOutlines}</g><g id="gsWorldDepth" class="gs-world-depth" pointer-events="none">${objects}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g><g class="gs-map-frontlabels" pointer-events="none">${upperLabels}</g>`;
+ el('mapContent').innerHTML=`<g class="world-terrain" id="gsWorldTerrain">${bases.join('')}</g><g pointer-events="none">${waterways}${tradeLines}</g><g class="gs-national-borders" pointer-events="none">${ownerOutlines}</g><g id="gsWorldDepth" class="gs-world-depth" pointer-events="none">${objects}</g><g class="world-features">${decorations.join('')}</g><g class="gs-moving-overlays" pointer-events="none">${movementOverlays}</g><g class="gs-map-frontlabels" pointer-events="none">${upperLabels}</g>`;
  lastWorldDepthYaw=NaN;
+ lastTerrainExtrusionYaw=NaN;
  boardBaseYaw=WORLD_SCENE_YAW;
+ boardTerrainFaces=[...el('mapContent').querySelectorAll('.gs-hex-3d')].map((node,i)=>({
+  ...terrainGeometry[i],
+  shadow:node.querySelector('.gs-hex-under'),
+  side0:node.querySelector('.gs-hex-side-0'),
+  side1:node.querySelector('.gs-hex-side-1')
+ }));
  boardBillboards=[...el('mapContent').querySelectorAll('[data-gs-billboard]')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY)}));
  boardWorldStructures=[...el('mapContent').querySelectorAll('[data-gs-world-structure]')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY)}));
  boardFootprints=[...el('mapContent').querySelectorAll('.gs-expedition-footprints')].map(node=>({node,x:Number(node.dataset.anchorX),y:Number(node.dataset.anchorY),dx:Number(node.dataset.dirX),dy:Number(node.dataset.dirY),baseHeading:Number(node.dataset.baseHeading)}));
