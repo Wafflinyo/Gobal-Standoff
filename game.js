@@ -943,30 +943,173 @@ function processFactories(){
   }
  }
 }
+// Each producer decides when to unload its goods, independently of caravan
+// availability. Legacy sites default to waiting until full.
+function sourceUnloadMode(site){return ['full','continuous','once'].includes(site?.unloadMode)?site.unloadMode:'full';}
+function sourceReserved(p,site,item){
+ return G.shipments.filter(j=>j.owner===p.id&&String(j.from)===String(site.id)&&j.item===item&&j.stage==='pickup')
+  .reduce((sum,j)=>sum+j.qty,0);
+}
+function outputAvailable(p,site,item){return Math.max(0,localCount(site,item)-sourceReserved(p,site,item));}
+function unloadAllowance(p,kind,site,item){
+ const available=outputAvailable(p,site,item),mode=sourceUnloadMode(site);
+ if(mode==='once')return Math.min(available,Math.max(0,site.unloadOncePending?.[item]||0));
+ if(mode==='full'&&stockUsed(site)<siteStorageCapacity(kind,site.level))return 0;
+ return available;
+}
+function markUnloadBooked(site,item,quantity){
+ if(sourceUnloadMode(site)!=='once'||quantity<=0)return;
+ site.unloadOncePending??={};
+ site.unloadOncePending[item]=Math.max(0,(site.unloadOncePending[item]||0)-quantity);
+ if(!Object.values(site.unloadOncePending).some(n=>n>0)){
+  site.unloadMode='full';site.unloadOncePending={};
+ }
+}
+function localStorageEndpoints(p,tile,sourceId){
+ const local=tile.buildings.flatMap((kind,i)=>kind==='storageWarehouse'
+  &&String(tile.buildingMeta?.[i]?.id)!==String(sourceId)?[tile.buildingMeta[i].id]:[]);
+ if(tile.capital)local.push('depot');
+ return local.filter(id=>endpointDeliverySpace(p,id)>0);
+}
+function unloadWithinHex(p,tile,kind,site){
+ for(const item of OUTPUTS[kind]||[]){
+  let remaining=unloadAllowance(p,kind,site,item);
+  if(remaining<1)continue;
+  for(const target of localStorageEndpoints(p,tile,site.id)){
+   const fit=Math.min(remaining,endpointDeliverySpace(p,target));
+   if(fit<1)continue;
+   const moved=endpointAdd(p,target,item,fit);
+   if(!moved)continue;
+   addLocal(site,item,-moved);markUnloadBooked(site,item,moved);
+   remaining-=moved;if(remaining<=0)break;
+  }
+ }
+}
+function outgoingDestination(p,tile,site,item){
+ const configured=site.routes?.[item];
+ let destination=configured;
+ if(destination==null&&p.id!==0&&(
+  ['woodShield','leatherArmor','ironArmor','steelArmor','goldArmor','diamondArmor'].includes(item)
+  ||WAR_EQUIPMENT[item]||item.startsWith('stone'))){
+  const post=getMilitaryPosts(p.id)[0];
+  if(post)destination=postStock(p,post.id)?.id||'depot';
+ }
+ if(destination==null)destination=nearbyStorage(p,tile,item)?.id??'depot';
+ const dest=siteLookup(p.id,destination);
+ if(!dest?.tile||String(destination)===String(site.id)||endpointDeliverySpace(p,destination)<1)return null;
+ if(siegeBlocksDelivery({owner:p.id,toTileId:dest.tile.id,stage:'delivery'}))return null;
+ const route=countryTravelRoute(p.id,tile,dest.tile);
+ return route?{id:destination,tile:dest.tile,route}:null;
+}
+function outputPickupTasks(p){
+ const tasks=[];
+ for(const tile of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<tile.buildings.length;i++){
+  const kind=tile.buildings[i],site=tile.buildingMeta?.[i];if(!site||!OUTPUTS[kind])continue;
+  for(const item of OUTPUTS[kind]){
+   const available=unloadAllowance(p,kind,site,item);if(available<1)continue;
+   const target=outgoingDestination(p,tile,site,item);if(!target||target.tile.id===tile.id)continue;
+   const qty=Math.min(10,available,endpointDeliverySpace(p,target.id));
+   if(qty>0)tasks.push({from:site.id,to:target.id,item,qty,source:tile,dest:target.tile,leg:target.route.cost});
+  }
+ }
+ return tasks;
+}
+// Exact dynamic-programming route ordering for a bounded set of ready jobs.
+// Each task includes both its mandatory pickup and its delivery; the wagon
+// chooses its next task based on the total travel cost of the complete loop.
+function optimizedUnloadTask(p,cart){
+ const start=G.tiles.find(t=>t.id===cart.currentTileId);if(!start)return null;
+ let tasks=outputPickupTasks(p);if(!tasks.length)return null;
+ const cache=new Map(),travel=(a,b)=>{
+  if(!a||!b)return Infinity;
+  if(a.id===b.id)return 0;
+  const key=a.id+'>'+b.id;
+  if(!cache.has(key))cache.set(key,countryTravelRoute(p.id,a,b)?.cost??Infinity);
+  return cache.get(key);
+ };
+ tasks=tasks.filter(task=>Number.isFinite(travel(start,task.source)));
+ if(!tasks.length)return null;
+ // A ten-stop planning window keeps touch devices responsive in large worlds.
+ if(tasks.length>10)tasks=tasks.sort((a,b)=>{
+  const sa=siteLookup(p.id,a.from)?.site,sb=siteLookup(p.id,b.from)?.site;
+  return (sa?.lastUnloadClock||0)-(sb?.lastUnloadClock||0)
+    ||travel(start,a.source)+a.leg-travel(start,b.source)-b.leg;
+ }).slice(0,10);
+ const n=tasks.length,count=1<<n,dp=Array.from({length:count},()=>Array(n).fill(Infinity));
+ const first=Array.from({length:count},()=>Array(n).fill(-1));
+ for(let i=0;i<n;i++){dp[1<<i][i]=travel(start,tasks[i].source)+tasks[i].leg;first[1<<i][i]=i;}
+ for(let mask=1;mask<count;mask++)for(let i=0;i<n;i++){
+  if(!(mask&(1<<i))||!Number.isFinite(dp[mask][i]))continue;
+  for(let j=0;j<n;j++){
+   if(mask&(1<<j))continue;
+   const next=mask|(1<<j),cost=dp[mask][i]+travel(tasks[i].dest,tasks[j].source)+tasks[j].leg;
+   if(cost<dp[next][j]){dp[next][j]=cost;first[next][j]=first[mask][i];}
+  }
+ }
+ let winner=-1,best=Infinity;
+ for(let i=0;i<n;i++)if(dp[count-1][i]<best){winner=i;best=dp[count-1][i];}
+ // If a subset is isolated by territory changes, choose the best reachable
+ // nearest task; do not leave an otherwise functional cart idle.
+ if(winner<0)return tasks.sort((a,b)=>travel(start,a.source)+a.leg-travel(start,b.source)-b.leg)[0]||null;
+ return tasks[first[count-1][winner]];
+}
+function scheduleAutoCaravan(p,cart){
+ if(!p||!cart||cart.shipmentId||!caravanHasDriver(p,cart))return false;
+ const task=optimizedUnloadTask(p,cart);if(!task)return false;
+ if(!dispatchShipment(p.id,task.from,task.to,task.item,task.qty,true,cart))return false;
+ const site=siteLookup(p.id,task.from)?.site;
+ if(site){
+  markUnloadBooked(site,task.item,G.shipments[G.shipments.length-1]?.qty||0);
+  site.lastUnloadClock=G.turnClock||0;
+ }
+ return true;
+}
 function autoDispatchOutputs(){
- for(const p of G.players)for(const t of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<t.buildings.length;i++){
-  const kind=t.buildings[i],site=worksite(t,i);
-  for(const item of OUTPUTS[kind]||[]){
-   const count=localCount(site,item);if(count<1)continue;
-   let to=site.routes?.[item]??null;
-   if(p.id!==0&&to===null&&(['woodShield','leatherArmor','ironArmor','steelArmor','goldArmor','diamondArmor'].includes(item)||WAR_EQUIPMENT[item]||item.startsWith('stone'))){const post=getMilitaryPosts(p.id)[0];if(post)to=postStock(p,post.id)?.id||'depot';}
-   if(to===null)to=nearbyStorage(p,t,item)?.id||'depot';
-   if(String(to)===String(site.id)||!siteLookup(p.id,to))continue;
-   dispatchShipment(p.id,site.id,to,item,Math.min(10,count),true);
+ // Same-hex unloading requires no caravan, porter or road movement.
+ for(const p of G.players)for(const tile of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<tile.buildings.length;i++){
+  const kind=tile.buildings[i],site=tile.buildingMeta?.[i];
+  if(site&&OUTPUTS[kind])unloadWithinHex(p,tile,kind,site);
+ }
+ for(const p of G.players){
+  syncCaravans(p);
+  for(const cart of p.caravans.filter(c=>!c.shipmentId))scheduleAutoCaravan(p,cart);
+  // Preserve hand delivery for nations without wagons or those that explicitly
+  // allow porters when all staffed wagons are occupied.
+  if(!handHaulingAllowed(p))continue;
+  for(const task of outputPickupTasks(p)){
+   if(availableCaravan(p.id,task.source))continue;
+   const before=G.shipments.length;
+   if(dispatchShipment(p.id,task.from,task.to,task.item,task.qty,true)&&G.shipments.length>before){
+    const job=G.shipments[G.shipments.length-1],site=siteLookup(p.id,task.from)?.site;
+    if(job.kind==='porter'&&site){markUnloadBooked(site,task.item,job.qty);site.lastUnloadClock=G.turnClock||0;}
+   }
   }
  }
 }
 function autoRequestFactoryInputs(){
- for(const p of G.players)for(const t of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<t.buildings.length;i++){
-  const kind=t.buildings[i],site=worksite(t,i),rec=RECIPES[site?.recipe];
-  if(!FACTORY_RECIPES[kind]||!rec)continue;
-  for(const [item,amount] of Object.entries(rec.input)){
-   const queued=G.shipments.filter(j=>j.owner===p.id&&j.to===site.id&&j.item===item).reduce((n,j)=>n+j.qty,0);
-   const needed=Math.max(0,amount*(site.level||1)*2-localCount(site,item)-queued);
-   const free=Math.max(0,endpointDeliverySpace(p,site.id));
-   if(needed>0&&free>0){
-    const sources=storedAt(p,item).map(source=>({...source,path:ownedPath(p.id,source.tile,t)})).filter(o=>o.path&&String(o.id)!==String(site.id)).sort((a,b)=>a.path.length-b.path.length);
-    for(const source of sources){if(dispatchShipment(p.id,source.id,site.id,item,Math.min(10,needed,free,source.count),true))break;}
+ for(const p of G.players)for(const tile of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<tile.buildings.length;i++){
+  const kind=tile.buildings[i],site=worksite(tile,i),recipe=RECIPES[site?.recipe];
+  if(!FACTORY_RECIPES[kind]||!recipe)continue;
+  for(const [item,amount] of Object.entries(recipe.input)){
+   const queued=G.shipments.filter(j=>j.owner===p.id&&String(j.to)===String(site.id)&&j.item===item)
+    .reduce((sum,j)=>sum+j.qty,0);
+   let needed=Math.max(0,amount*(site.level||1)*2-localCount(site,item)-queued);
+   let free=endpointDeliverySpace(p,site.id);
+   if(needed<=0||free<=0)continue;
+   const sources=storedAt(p,item).map(entry=>({...entry,route:countryTravelRoute(p.id,entry.tile,tile)}))
+    .filter(entry=>entry.route&&String(entry.id)!==String(site.id))
+    .sort((a,b)=>a.route.cost-b.route.cost);
+   // Shared-hex stores can feed their neighboring factory immediately.
+   for(const source of sources.filter(entry=>entry.tile.id===tile.id)){
+    const qty=Math.min(needed,free,endpointCount(p,source.id,item));
+    if(qty<1)continue;
+    const moved=endpointAdd(p,site.id,item,qty);
+    if(moved){endpointAdd(p,source.id,item,-moved);needed-=moved;free-=moved;}
+    if(needed<=0||free<=0)break;
+   }
+   if(needed<=0||free<=0)continue;
+   for(const source of sources.filter(entry=>entry.tile.id!==tile.id)){
+    if(dispatchShipment(p.id,source.id,site.id,item,Math.min(10,needed,free,source.count),true))break;
    }
   }
  }
@@ -986,6 +1129,21 @@ function setDeliveryRoute(tile,index,item,destination){
  site.routes??={};
  if(automatic)delete site.routes[item];
  else site.routes[item]=destination==='depot'?'depot':Number(destination);
+ save();render();return true;
+}
+function setUnloadMode(tile,index,mode){
+ if(!active()||tile?.owner!==0||!['full','continuous','once'].includes(mode))return false;
+ const site=worksite(tile,index),kind=tile.buildings[index];
+ if(!site||!OUTPUTS[kind])return false;
+ site.unloadMode=mode;site.unloadOncePending={};
+ if(mode==='once'){
+  for(const item of OUTPUTS[kind]){
+   const available=outputAvailable(getCountry(),site,item);
+   if(available>0)site.unloadOncePending[item]=available;
+  }
+  if(!Object.keys(site.unloadOncePending).length)site.unloadMode='full';
+ }
+ if(mode==='once'||mode==='continuous')autoDispatchOutputs();
  save();render();return true;
 }
 function setFactoryRecipe(tile,index,name){
@@ -3068,7 +3226,7 @@ function finishRound(){
  }
  progressShipments();runAgricultureAndForestry();
  for(const p of G.players)extractMinesForRound(p);
- processFactories();autoDispatchOutputs();autoRequestFactoryInputs();
+ autoDispatchOutputs();autoRequestFactoryInputs();processFactories();autoDispatchOutputs();autoRequestFactoryInputs();
  for(const route of G.tradeRoutes.filter(r=>r.status==='active')){G.players[route.a].gold+=2;G.players[route.b].gold+=2;}
  resolveSieges();expireTreaties();
  addLog(`Round ${G.round} concluded. Population, production and maintenance updated.`);
@@ -3418,7 +3576,14 @@ function renderTile(t){
    html+=`<div class="gs-storage-actions"><strong>Ship stored goods by wagon or worker (when allowed)</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship (10 wagon / 2 worker)</button></div>`).join('')}</div>`;
   }
   if(isOwn&&FACTORY_RECIPES[type])html+=`<label class="gs-routing-label">Manufacture <select data-recipe-site="${i}">${FACTORY_RECIPES[type].map(recipe=>`<option value="${recipe}" ${meta.recipe===recipe?'selected':''}>${RECIPES[recipe].name}</option>`).join('')}</select></label>`;
-  if(isOwn&&OUTPUTS[type]?.length){const targets=routingTargets(p,meta.id);
+  if(isOwn&&OUTPUTS[type]?.length){
+    const mode=sourceUnloadMode(meta),pending=Object.values(meta.unloadOncePending||{}).reduce((sum,n)=>sum+Math.max(0,n||0),0);
+    html+=`<label class="gs-routing-label">Unloading schedule <select data-unload-site="${i}">
+     <option value="full" ${mode==='full'?'selected':''}>Unload when full</option>
+     <option value="continuous" ${mode==='continuous'?'selected':''}>Continuously unload</option>
+     <option value="once" ${mode==='once'?'selected':''}>Unload once</option>
+    </select></label><small class="gs-routing-help">${mode==='once'?('One-time unload: '+pending+' units remaining, then returns to Unload when full'):mode==='continuous'?'Unloads available production as soon as transport is available':'Keeps goods on-site until this building is full'}. Same-hex storage transfers instantly without a caravan.</small>`;
+    const targets=routingTargets(p,meta.id);
    // Recipe identifiers (e.g. woodPlanks) aren't the cargo keys (wood).
    // Only cargo keys can be dispatched or assigned a delivery route.
    const current=FACTORY_RECIPES[type]?[RECIPES[meta.recipe]?.output].filter(Boolean):OUTPUTS[type].filter(item=>type!=='mine'||item==='stone'||(t.vein?.kind===item)||(t.coalVein?.kind===item));
@@ -4334,7 +4499,8 @@ function bindEvents(){
    }
    const t=getSelected();if(!t)return;const choice=e.target.closest('[data-hand-haul-policy]');
   if(choice&&t.owner===0){getCountry().handHaulingPolicy=choice.value==='allow'?'allow':'wait';save();render();return;}
-  const r=e.target.closest('[data-route-site]');if(r){setDeliveryRoute(t,Number(r.dataset.routeSite),r.dataset.routeGood,r.value);return;}const recipe=e.target.closest('[data-recipe-site]');if(recipe)setFactoryRecipe(t,Number(recipe.dataset.recipeSite),recipe.value);});
+  const r=e.target.closest('[data-route-site]');if(r){setDeliveryRoute(t,Number(r.dataset.routeSite),r.dataset.routeGood,r.value);return;}const recipe=e.target.closest('[data-recipe-site]');if(recipe){setFactoryRecipe(t,Number(recipe.dataset.recipeSite),recipe.value);return;}
+   const unload=e.target.closest('[data-unload-site]');if(unload)setUnloadMode(t,Number(unload.dataset.unloadSite),unload.value);});
  el('buildOptions').addEventListener('click',e=>{const b=e.target.closest('[data-build]');if(b&&canAct())doBuild(getSelected(),b.dataset.build);});
  el('researchOptions').addEventListener('click',e=>{const b=e.target.closest('[data-tech]');if(b&&canAct())doResearch(b.dataset.tech);});
  el('hand').addEventListener('click',e=>{const b=e.target.closest('[data-card]');if(b)openCardPreview(Number(b.dataset.card));});
@@ -4438,5 +4604,5 @@ try{
    notice.classList.remove('hidden');}
 }
 // Debug-only hook for automated smoke testing; does not modify the game's rules.
-window.GS_TEST={warSkill,warAttackSpeed,warWeaponDamage,warDefense,warChooseAfternath,warDestroyTerritory,warFightWindow,warCartAtPost,warSeatTroops,beanPerson,beanPushCart,warAftermathPanelHtml,WAR_EQUIPMENT,WAR_SLOT_ITEMS,SIEGE_ATTACK_ORDERS,SIEGE_DEFEND_ORDERS,activeSiege,canStartSiege,startSiege,progressSiegeMarches,setSiegeOrder,resolveSieges,finishSiege,captureSiegeTerritory,siegeMapVisuals,siegeWarPanelHtml,siegeReinforcementHtml,canReinforceSiege,reinforceSiege,progressSiegeReinforcements,siegeBlocksDelivery,pendingSiegeNotice,presentSiegeInbox,TREATY_TYPES,activeTreaty,canProposeTreaty,expireTreaties,respondTreatyOffer,resolveTreatyOffer,startWar,counterTradeOffer,refreshCounterEstimate,visibleTerritorialWarnings,threatenedHexBorders,checkWarningViolation,isBusyExpedition,eligibleExpeditionCitizens,progressExpeditions,clearExpedition,fixedFalconBillboard,falconVisuals,diplomaticFalconVisuals,handHaulingAllowed,availablePorter,progressPorterJob,porterTicks,caravanWarehouseStatus,citizenDeathProbability,advanceCitizenHealthAndMortality,tileDepthSprites,sortWorldDepth,unreadFalconDispatches,presentFalconInbox,handleFalconMessageAction,ownedTerritoryOutlines,edgedRoadSegment,wagonRoadTrace,wagonViewArtwork,caravanVisuals,expeditionTrailVisuals,domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
+window.GS_TEST={warSkill,warAttackSpeed,warWeaponDamage,warDefense,warChooseAfternath,warDestroyTerritory,warFightWindow,warCartAtPost,warSeatTroops,beanPerson,beanPushCart,warAftermathPanelHtml,WAR_EQUIPMENT,WAR_SLOT_ITEMS,SIEGE_ATTACK_ORDERS,SIEGE_DEFEND_ORDERS,activeSiege,canStartSiege,startSiege,progressSiegeMarches,setSiegeOrder,resolveSieges,finishSiege,captureSiegeTerritory,siegeMapVisuals,siegeWarPanelHtml,siegeReinforcementHtml,canReinforceSiege,reinforceSiege,progressSiegeReinforcements,siegeBlocksDelivery,pendingSiegeNotice,presentSiegeInbox,TREATY_TYPES,activeTreaty,canProposeTreaty,expireTreaties,respondTreatyOffer,resolveTreatyOffer,startWar,counterTradeOffer,refreshCounterEstimate,visibleTerritorialWarnings,threatenedHexBorders,checkWarningViolation,isBusyExpedition,eligibleExpeditionCitizens,progressExpeditions,clearExpedition,fixedFalconBillboard,falconVisuals,diplomaticFalconVisuals,handHaulingAllowed,availablePorter,progressPorterJob,porterTicks,caravanWarehouseStatus,citizenDeathProbability,advanceCitizenHealthAndMortality,tileDepthSprites,sortWorldDepth,unreadFalconDispatches,presentFalconInbox,handleFalconMessageAction,ownedTerritoryOutlines,edgedRoadSegment,wagonRoadTrace,wagonViewArtwork,caravanVisuals,expeditionTrailVisuals,domesticRoadExists,canStartDomesticRoad,startDomesticRoad,progressDomesticRoads,countryTravelRoute,pathCost,domesticRoadKey,sendDiplomaticFalcon,progressDiplomaticFalcons,currentWar,startWar,sendWarningViolation:checkWarningViolation,orderMilitary,recallMilitary,progressWarOrders,militaryTravelPath,roadExistsBetween,renderWarPanel,acceptCeasefire,getState:()=>G,getCinematic:()=>({lastAction:cpuLastAction,scene:scenePlayback?{tileId:scenePlayback.tileId,kind:scenePlayback.kind,phase:scenePlayback.phase}:null,highlight:actionTileId,cpuBusy}),select:(id)=>{if(!G)return;G.selectedId=id;render();},endTurn,render,doBuild,doExpand,doRecruit,doTrain,moveSoldier,finishRound,peopleSummary,buildUsed,buildFree,focusHome,resetView,moveCamera,runCpuCinematic,sceneCoords,showSheet,closeSheet,openCardPreview,closeCardPreview,actionsRemaining,runCpu,beginTurn,volunteeringChance,proposeTradeRoute,respondTradeOffer,tradePlan,discoverContacts,doMarketing,progressProjects,progressTradeRoutes,progressTradeOffers,tradePlan,decideTradeOffer,showCompletedProjects,migrateGameplay,ensureBuildingMeta,assignWorkers,workQuality,workCapacity,hireAt,releaseAt,toggleAutoHire,upgradeBuilding,extractMinesForRound,processSteelworks,gearReadiness,createWorld,getEconomy,canBuild,upgradePrice,workforceSummary,GEAR,BUILDINGS,RECIPES,siteLookup,dispatchShipment,progressShipments,runAgricultureAndForestry,autoDispatchOutputs,autoRequestFactoryInputs,processFactories,siteStorageCapacity,endpointStorageFree,endpointDeliverySpace,storedAt,nearbyStorage,postStock,setDeliveryRoute,setUnloadMode,sourceUnloadMode,unloadWithinHex,optimizedUnloadTask,outputPickupTasks,scheduleAutoCaravan,setFactoryRecipe,equipAuxiliary,depotCount,localCount,advanceWorldTurn,buildersSummary,idleBuilders,syncBuilders,showCompletedProjects,progressExpeditions,sendAdditionalBuilder,eligibleExpansion,expeditionForTile,buildingCount,tileHousing};
 })();
