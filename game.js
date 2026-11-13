@@ -2032,8 +2032,48 @@ function unreadFalconDispatches(){
  const routes=(G.tradeOffers||[]).filter(o=>o.to===0&&!o.inboxRead&&o.status==='pending').map(o=>({type:'route',item:o,clock:o.deliveredClock??o.createdClock??0}));
  return [...diplomatic,...routes].sort((a,b)=>a.clock-b.clock||a.item.id-b.item.id);
 }
+// Return-to-turn notifications are saved with each siege, not tied to
+// being online for the enemy action. These appear BEFORE other Falcon inbox
+// items, especially when the player must choose a defensive order.
+function pendingSiegeNotice(){
+ return (G.sieges||[]).find(s=>{
+  if(![s.attacker,s.defender].includes(0)||s.status==='marching')return false;
+  if(s.status==='active')return (s.reportedRounds??-1)<s.roundNumber;
+  return !s.endedRead;
+ });
+}
+function presentSiegeInbox(){
+ if(!G||!active()||sheetMode||!el('modalLayer').classList.contains('hidden'))return false;
+ const s=pendingSiegeNotice();if(!s)return false;
+ const territory=G.tiles.find(t=>t.id===s.targetTileId);
+ const defend=s.defender===0,over=s.status!=='active';
+ const heading=over?(s.status==='captured'?'TERRITORY CAPTURED':s.status==='repelled'?'SIEGE REPELLED':'SIEGE ENDED')
+  :defend?'YOUR TERRITORY IS UNDER SIEGE':'SIEGE CAMPAIGN REPORT';
+ const last=s.history?.[0]?.summary||'The encirclement has begun. Submit your military order during your turn.';
+ const details=over?`Campaign outcome: ${s.status}. ${s.roundNumber} exchange${s.roundNumber===1?'':'s'} resolved.`
+  :`Round ${s.roundNumber+1} awaits your orders. Defenders have ${s.supply}/100 supplies, ${s.fort}/100 fortifications and ${s.morale}/100 morale.`;
+ showModal(`<div class="gs-siege-letter">
+  <div class="gs-falcon-kicker">⚔ BATTLE DISPATCH · ROUND ${G.round}</div>
+  <h2>${esc(heading)}</h2><strong>${esc(territory?.name||'The frontier')}</strong>
+  <p>${esc(details)}</p><small>${esc(last)}</small>
+  <div class="gs-falcon-actions">
+   <button class="primary" data-modal="siege-open" data-siege-id="${s.id}">Open Siege Commands</button>
+   <button class="secondary" data-modal="siege-ack" data-siege-id="${s.id}">Acknowledge</button>
+  </div></div>`);
+ return true;
+}
+function handleSiegeInboxAction(button){
+ const id=Number(button.dataset.siegeId),s=(G.sieges||[]).find(s=>s.id===id);
+ if(!s)return;
+ if(s.status==='active')s.reportedRounds=s.roundNumber;else s.endedRead=true;
+ save();closeModal();render();
+ if(button.dataset.modal==='siege-open')showSheet('world');
+ else setTimeout(presentFalconInbox,140);
+}
+
 function presentFalconInbox(){
  if(!active()||sheetMode||!el('modalLayer').classList.contains('hidden'))return;
+ if(presentSiegeInbox())return;
  const dispatch=unreadFalconDispatches()[0];if(!dispatch)return;
  const f=dispatch.item,from=G.players[f.from],route=dispatch.type==='route';
  const label=route?(f.revision?'ROAD COUNTEROFFER':'ROAD PROPOSAL'):f.kind==='treaty'?'TREATY PROPOSAL':f.kind==='alliance'?'ALLIANCE PROPOSAL':f.kind==='dissolve'?'AGREEMENT TERMINATED':f.kind==='warning'?'TERRITORIAL WARNING':f.kind==='retract'?'WARNING RESCINDED':f.kind==='war'?'DECLARATION OF WAR':'CEASEFIRE PROPOSAL';
@@ -3746,7 +3786,7 @@ function bindEvents(){
   scheduleMapViewportReflow();
  },{passive:true});
  window.visualViewport?.addEventListener('resize',scheduleMapViewportReflow,{passive:true});
- el('modalLayer').addEventListener('click',e=>{const b=e.target.closest('[data-modal]');if(b?.dataset.modal?.startsWith('falcon-')){handleFalconMessageAction(b);return;}if(!b){if(e.target===el('modalBackdrop'))closeModal();return;}switch(b.dataset.modal){case'close':closeModal();break;case'new-confirm':confirmNew();break;case'new':try{localStorage.removeItem(SAVE_KEY);localStorage.removeItem(OLD_SAVE_KEY);}catch(e){}newMatch();break;case'continue':G.finished=false;G.continued=true;G.maxRounds=Math.max(G.round+16,G.maxRounds+16);G.round++;beginTurn(0);cpuBusy=false;save();closeModal();render();break;}});
+ el('modalLayer').addEventListener('click',e=>{const b=e.target.closest('[data-modal]');if(b?.dataset.modal?.startsWith('siege-')){handleSiegeInboxAction(b);return;}if(b?.dataset.modal?.startsWith('falcon-')){handleFalconMessageAction(b);return;}if(!b){if(e.target===el('modalBackdrop'))closeModal();return;}switch(b.dataset.modal){case'close':closeModal();break;case'new-confirm':confirmNew();break;case'new':try{localStorage.removeItem(SAVE_KEY);localStorage.removeItem(OLD_SAVE_KEY);}catch(e){}newMatch();break;case'continue':G.finished=false;G.continued=true;G.maxRounds=Math.max(G.round+16,G.maxRounds+16);G.round++;beginTurn(0);cpuBusy=false;save();closeModal();render();break;}});
 }
 try{
  mountMapUi();renderLobby();bindEvents();
