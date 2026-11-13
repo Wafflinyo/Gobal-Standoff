@@ -1371,7 +1371,7 @@ function startWar(a,b,cause='A war declaration arrived by messenger falcon',call
 }
 function endWar(a,b){
  const w=currentWar(a,b);if(!w)return false;w.status='peace';w.endedClock=G.turnClock||0;
- for(const siege of G.sieges||[])if(['marching','active'].includes(siege.status)
+ for(const siege of G.sieges||[])if(['marching','active','breached','aftermath','counterattack'].includes(siege.status)
   &&warPair(siege.attacker,siege.defender)===warPair(a,b))finishSiege(siege,'ceasefire');
  addLog(`${G.players[a].name} and ${G.players[b].name} signed a ceasefire.`);
  return true;
@@ -2118,7 +2118,7 @@ function beanShield(c,lod){
  let shield='<path d="M0-11L9-8L8 5L0 12L-8 5L-9-8Z" fill="'+base+'" stroke="#243a45" stroke-width="1.7"/>';
  if(lod>=1)shield+='<path d="M0-7L5-5L4 3L0 7L-4 3L-5-5Z" fill="'+(mat==='wood'?'#997047':'#8ba9b9')+'" stroke="'+trim+'" stroke-width="1.3"/>';
  if(lod>=2)shield+='<circle r="2.3" fill="'+trim+'" stroke="#50616a" stroke-width=".7"/>';
- return '<g class="gs-bean-shield" transform="translate(-17 -7)">'+shield+'</g>';
+ return '<g transform="translate(-17 -7)"><g class="gs-bean-shield">'+shield+'</g></g>';
 }
 function beanPerson(c,owner,kind='soldier',lod=beanLod()){
  const col=owner?.color||'#7ed0b7',skin=beanSkin(c);
@@ -2128,7 +2128,7 @@ function beanPerson(c,owner,kind='soldier',lod=beanLod()){
  if(lod>=1)head+='<ellipse cx="-4" cy="-31" rx="2.4" ry="1.2" fill="#fff3d4" opacity=".45"/>'+
   '<ellipse cx="-3" cy="-28" rx="1" ry="1.6" fill="#24333b"/><ellipse cx="3" cy="-28" rx="1" ry="1.6" fill="#24333b"/>'+
   '<path d="'+beanMood(c)+'" fill="none" stroke="#5d3d36" stroke-width="1.1" stroke-linecap="round"/>';
- return '<g class="gs-bean-unit '+(kind==='soldier'?'gs-bean-soldier':'gs-bean-civilian')+'">'+
+ return '<g class="gs-bean-unit '+(kind==='soldier'?'gs-bean-soldier gs-weapon-'+warWeaponClass(c.military?.weapon):'gs-bean-civilian')+'" style="--gs-hop-duration:'+(kind==='soldier'?(0.50/warMoraleSpeed(c)).toFixed(2):'.40')+'s;--gs-attack-duration:'+(kind==='soldier'?(0.92/warMoraleSpeed(c)).toFixed(2):'.85')+'s">'+
   '<ellipse cx="0" cy="12" rx="13" ry="3" fill="#15252b" opacity=".24"/>'+
   '<g class="gs-bean-hopper">'+body+(kind==='soldier'?beanChest(c,lod):'')+
   head+(kind==='soldier'?beanHelmet(c,lod)+beanShield(c,lod)+beanWeapon(c,lod):'')+'</g></g>';
@@ -2572,10 +2572,10 @@ function presentSiegeInbox(){
  const s=pendingSiegeNotice();if(!s)return false;
  const territory=G.tiles.find(t=>t.id===s.targetTileId);
  const defend=s.defender===0,over=s.status!=='active';
- const heading=over?(s.status==='captured'?'TERRITORY CAPTURED':s.status==='repelled'?'SIEGE REPELLED':'SIEGE ENDED')
+ const heading=over?(s.status==='breached'?'HEX DESTROYED — ORDERS REQUIRED':s.status==='aftermath'?'AFTERMATH: DECISIONS PENDING':s.status==='counterattack'?'COUNTERATTACK UNDERWAY':s.status==='claimed'?'RUINS CLAIMED':s.status==='repelled'?'SIEGE REPELLED':'SIEGE ENDED')
   :defend?'YOUR TERRITORY IS UNDER SIEGE':'SIEGE CAMPAIGN REPORT';
  const last=s.history?.[0]?.summary||'The encirclement has begun. Submit your military order during your turn.';
- const details=over?`Campaign outcome: ${s.status}. ${s.roundNumber} exchange${s.roundNumber===1?'':'s'} resolved.`
+ const details=over?(['breached','aftermath','counterattack'].includes(s.status)?'The hex is destroyed to 100% and unclaimed unless an army claims it. Choose your next order in World Affairs; late defenders also have choices.':`Campaign outcome: ${s.status}. ${s.roundNumber} exchange${s.roundNumber===1?'':'s'} resolved.`)
   :`Round ${s.roundNumber+1} awaits your orders. Defenders have ${s.supply}/100 supplies, ${s.fort}/100 fortifications and ${s.morale}/100 morale.`;
  showModal(`<div class="gs-siege-letter">
   <div class="gs-falcon-kicker">⚔ BATTLE DISPATCH · ROUND ${G.round}</div>
@@ -3054,7 +3054,11 @@ function finishRound(){
  for(const route of G.tradeRoutes.filter(r=>r.status==='active')){G.players[route.a].gold+=2;G.players[route.b].gold+=2;}
  resolveSieges();expireTreaties();
  addLog(`Round ${G.round} concluded. Population, production and maintenance updated.`);
- if(G.round>=G.maxRounds&&!G.continued){G.finished=true;save();render();showEndGame();return;}
+ if(G.round>=G.maxRounds&&!G.continued){
+  const unfinished=(G.sieges||[]).some(s=>['marching','active','breached','aftermath','counterattack'].includes(s.status));
+  if(unfinished){G.maxRounds+=4;addLog('Ongoing siege campaigns extend the match by four rounds until the fronts are settled.');}
+  else{G.finished=true;save();render();showEndGame();return;}
+ }
  G.round++;beginTurn(0);cpuBusy=false;save();render();showToast(`Round ${G.round} — your turn`);
 }
 
