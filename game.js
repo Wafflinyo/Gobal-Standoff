@@ -2051,32 +2051,106 @@ function resolveSieges(){
   // Even when all defenders are defeated, destruction must reach 100% to take land.
  }
 }
+
+// v0.4.30 bean artwork. This SVG is the actual runtime drawing, not preview art.
+// Material trim and weapon silhouette come exclusively from the soldier's loadout.
+const BEAN_SKINS=['#f2c9a6','#dca781','#bd805b','#8c5941','#593a2c'];
+function beanSkin(c){
+ if(c?.skinTone!=null)return BEAN_SKINS[Math.abs(Number(c.skinTone)||0)%BEAN_SKINS.length];
+ return BEAN_SKINS[hash('skin:'+String(c?.id||'0'))%BEAN_SKINS.length];
+}
+function beanMood(c){
+ const m=c?.morale??50;
+ return m>=70?'M-3 -14Q0 -9 3 -14':m<35?'M-3 -11Q0 -16 3 -11':'M-3 -13H3';
+}
+function beanLod(){return view.w>=680?0:view.w>=330?1:2;}
+function beanPaint(material){
+ const metal={leather:['#986b46','#d6a679'],stone:['#949b9b','#cbd0ce'],
+ iron:['#879aa7','#d1dce0'],steel:['#b6c7d5','#f0fbff'],
+ gold:['#c4d0d8','#e9bc52'],diamond:['#c3d0dd','#60ddeb'],
+ wood:['#ae8356','#e9c28c'],none:['#84969c','#b3c5c4']};
+ return metal[material]||metal.none;
+}
+function beanHelmet(c,lod){
+ const m=c.military||{},item=m.helmet||null;
+ if(!item)return '';
+ const [base,trim]=beanPaint(warMaterial(item));
+ let html='<path d="M-9-28Q-9-42 0-42Q9-42 9-28L8-26Q0-29-8-26Z" fill="'+base+'" stroke="#2a3b47" stroke-width="1.5"/>';
+ if(lod>=1)html+='<path d="M-8-28Q0-32 8-28M0-40V-30" fill="none" stroke="'+trim+'" stroke-width="1.4"/>';
+ if(lod>=2&&['gold','diamond'].includes(warMaterial(item)))html+='<path d="M0-36l2 3-2 3-2-3Z" fill="'+trim+'"/>';
+ return html;
+}
+function beanChest(c,lod){
+ const m=c.military||{},item=m.chest||((m.gear&&GEAR[m.gear])?m.gear:null);
+ if(!item)return '';
+ const mat=warMaterial(item),[base,trim]=beanPaint(mat);
+ const chain=/chain/i.test(item);
+ let html='<path d="M-10-21Q0-24 10-21L11-8Q0 2-11-8Z" fill="'+base+'" stroke="#293a45" stroke-width="1.3"/>';
+ if(lod>=1){
+  if(chain&&lod>=2)for(let y=-19;y<-5;y+=4)for(let x=-8;x<8;x+=5)
+   html+='<path d="M'+x+' '+y+'q2 3 4 0" stroke="'+trim+'" stroke-width=".8" fill="none"/>';
+  else html+='<path d="M0-21V-2M-8-16L8-16" fill="none" stroke="'+trim+'" stroke-width="1.2"/>';
+ }
+ if(lod>=2&&['gold','diamond'].includes(mat))html+='<path d="M0-16l2 2-2 3-2-3Z" fill="'+trim+'"/>';
+ return html;
+}
+function beanWeapon(c,lod){
+ const key=c.military?.weapon;if(!key)return '';
+ const kind=warWeaponClass(key),mat=warMaterial(key),[base,trim]=beanPaint(mat);
+ const blade=mat==='wood'?'#ad7746':base;
+ let shape='';
+ if(kind==='sword')shape='<path d="M-2 3L-3-15L0-22L3-15L2 3Z" fill="'+blade+'" stroke="#33404a" stroke-width="1.1"/>'+
+  '<path d="M-6 4H6" stroke="'+trim+'" stroke-width="2.4"/><path d="M0 4V11" stroke="#775038" stroke-width="2.6"/>';
+ else if(kind==='spear')shape='<path d="M0 11V-14" stroke="#805938" stroke-width="2.5"/>'+
+  '<path d="M-4-13L0-23L4-13L0-9Z" fill="'+blade+'" stroke="#384751" stroke-width="1"/>';
+ else if(kind==='axe')shape='<path d="M0 10V-16" stroke="#86593d" stroke-width="2.8"/>'+
+  '<path d="M0-17L8-22L11-19L10-8L3-5L0-8Z" fill="'+blade+'" stroke="#3a454a" stroke-width="1.2"/>';
+ else shape='<path d="M0 11V-17" stroke="#86593d" stroke-width="2.8"/>'+
+  '<rect x="-8" y="-22" width="16" height="8" rx="1.5" fill="'+blade+'" stroke="#3a454a" stroke-width="1.2"/>';
+ if(lod>=2&&mat!=='wood')shape+='<path d="M0-17V-8" stroke="'+trim+'" stroke-width=".9"/>';
+ return '<g class="gs-bean-weapon" transform="translate(16 -9)">'+shape+'</g>';
+}
+function beanShield(c,lod){
+ const key=c.military?.shield;if(!key)return '';
+ const mat=warMaterial(key),[base,trim]=beanPaint(mat);
+ let shield='<path d="M0-11L9-8L8 5L0 12L-8 5L-9-8Z" fill="'+base+'" stroke="#243a45" stroke-width="1.7"/>';
+ if(lod>=1)shield+='<path d="M0-7L5-5L4 3L0 7L-4 3L-5-5Z" fill="'+(mat==='wood'?'#997047':'#8ba9b9')+'" stroke="'+trim+'" stroke-width="1.3"/>';
+ if(lod>=2)shield+='<circle r="2.3" fill="'+trim+'" stroke="#50616a" stroke-width=".7"/>';
+ return '<g class="gs-bean-shield" transform="translate(-17 -7)">'+shield+'</g>';
+}
+function beanPerson(c,owner,kind='soldier',lod=beanLod()){
+ const col=owner?.color||'#7ed0b7',skin=beanSkin(c);
+ const body='<path d="M0-23C-10-23-13-13-13-6Q-14 9 0 10Q14 9 13-6C13-16 10-23 0-23Z" fill="'+col+'" stroke="#29383f" stroke-width="1.8"/>'+
+  (lod>=1?'<path d="M-7-15Q-11-7-7 2" fill="none" stroke="#ffffff" opacity=".38" stroke-width="2"/>':'');
+ let head='<circle cx="0" cy="-28" r="10" fill="'+skin+'" stroke="#27333c" stroke-width="1.8"/>';
+ if(lod>=1)head+='<ellipse cx="-4" cy="-31" rx="2.4" ry="1.2" fill="#fff3d4" opacity=".45"/>'+
+  '<ellipse cx="-3" cy="-28" rx="1" ry="1.6" fill="#24333b"/><ellipse cx="3" cy="-28" rx="1" ry="1.6" fill="#24333b"/>'+
+  '<path d="'+beanMood(c)+'" fill="none" stroke="#5d3d36" stroke-width="1.1" stroke-linecap="round"/>';
+ return '<g class="gs-bean-unit '+(kind==='soldier'?'gs-bean-soldier':'gs-bean-civilian')+'">'+
+  '<ellipse cx="0" cy="12" rx="13" ry="3" fill="#15252b" opacity=".24"/>'+
+  '<g class="gs-bean-hopper">'+body+(kind==='soldier'?beanChest(c,lod):'')+
+  head+(kind==='soldier'?beanHelmet(c,lod)+beanShield(c,lod)+beanWeapon(c,lod):'')+'</g></g>';
+}
 function siegeMapVisuals(){
  return (G.sieges||[]).filter(s=>['marching','active','breached','aftermath','counterattack'].includes(s.status)&&(s.attacker===0||s.defender===0)).map(s=>{
-  const target=G.tiles.find(t=>t.id===s.targetTileId);
-  if(!target)return '';
-  const outline=pts(hexPoints(target,HEX-1));
-  const anchor=s.status==='marching'?G.tiles.find(t=>t.id===s.stagingTileId)||target:target;
-  const center=sceneCoords(anchor);
-  const emblem=`<g transform="translate(${center.x.toFixed(1)} ${(center.y-34).toFixed(1)})">
-   <path d="M-15 -11L-11 -19H11L15 -11V7H-15Z" fill="#402c2f" stroke="#f2b48d" stroke-width="2"/>
-   <path d="M-10 -19V-25H-5V-19M4 -19V-25H9V-19" fill="#b78b68" stroke="#f2b48d" stroke-width="1.5"/>
-   <path d="M-5 7V-5Q0 -13 5 -5V7" fill="#d17b58"/>
-   ${Array.from({length:Math.min(3,siegeTeam(s,'attacker').length)},(_,i)=>`
-    <g class="gs-siege-soldier" transform="translate(${(i-1)*17} 17)">
-     <g class="gs-siege-soldier-idle" style="--siege-delay:${i*120}ms">
-      <circle cx="0" cy="-6" r="3.5" fill="#efd3aa" stroke="#342f35" stroke-width="1"/>
-      <path d="M-5 -2L5 -2L6 7L-6 7Z" fill="${G.players[s.attacker].color||'#a9bfc2'}" stroke="#13262e" stroke-width="1"/>
-      <path d="M-4 1L-7 -3L-8 2L-5 6Z" fill="#c9b788"/>
-     </g>
-    </g>`).join('')}
-   <text x="0" y="-29" text-anchor="middle" fill="#fff0c8" font-size="9" font-weight="900">${s.status==='marching'?'MARCH':'SIEGE '+s.roundNumber}</text>
-  </g>`;
-  const ring=s.status==='active'? `<g class="gs-siege-border" pointer-events="none"><polygon points="${outline}" fill="none" stroke="#ffab72" stroke-width="5" stroke-dasharray="10 6"/></g>`:'';
-  return ring+billboardSvg(center.x,center.y,emblem,true);
+  const target=G.tiles.find(t=>t.id===s.targetTileId);if(!target)return '';
+  const stage=s.status==='marching'?G.tiles.find(t=>t.id===s.stagingTileId)||target:target;
+  const center=sceneCoords(stage),lod=beanLod(),attacker=G.players[s.attacker],defender=G.players[s.defender];
+  const left=siegeTeam(s,'attacker').slice(0,3),right=siegeTeam(s,'defender').slice(0,3);
+  let figures='';
+  const scale=lod===0?.45:lod===1?.58:.71;
+  const leftStart=-Math.max(0,left.length-1)*11-13;
+  for(let i=0;i<left.length;i++)figures+='<g transform="translate('+(center.x+leftStart+i*11).toFixed(1)+' '+(center.y+9).toFixed(1)+') scale('+scale+')">'+beanPerson(left[i],attacker,'soldier',lod)+'</g>';
+  for(let i=0;i<right.length;i++)figures+='<g transform="translate('+(center.x+19+i*11).toFixed(1)+' '+(center.y+9).toFixed(1)+') scale('+scale+')">'+beanPerson(right[i],defender,'soldier',lod)+'</g>';
+  const status=s.status==='active'?'SIEGE '+s.roundNumber+' · '+(s.destruction||0)+'%':s.status==='marching'?'MARCHING '+s.marchRemaining+'T':s.status==='counterattack'?'RECLAIMING':'DESTROYED 100%';
+  const ring=['breached','aftermath','counterattack'].includes(s.status)?
+   '<polygon class="gs-ruined-hex" points="'+pts(hexPoints(target,HEX-1))+'" fill="#43271c" fill-opacity=".30" stroke="#fcad75" stroke-width="5" stroke-dasharray="7 4"/>':
+   s.status==='active'?'<polygon class="gs-siege-border" points="'+pts(hexPoints(target,HEX-1))+'" fill="none" stroke="#ffab72" stroke-width="4" stroke-dasharray="10 6"/>':'';
+  const label='<g transform="translate('+center.x.toFixed(1)+' '+(center.y-38).toFixed(1)+')"><rect x="-45" y="-14" rx="5" width="90" height="18" fill="#223645" fill-opacity=".95" stroke="#f2c47d" stroke-width="1.5"/><text text-anchor="middle" y="-2" fill="#fff0cb" font-size="8.5" font-weight="bold">'+status+'</text></g>';
+  const fighting=s.lastCombatRound>=G.round-1;
+  return ring+billboardSvg(center.x,center.y,'<g class="gs-bean-army '+(fighting?'gs-bean-fight':'')+'">'+figures+label+'</g>',true);
  }).join('');
 }
-
 function visibleWarOrderMarkers(){
  if(!G||cpuBusy||G.turnIndex!==0)return '';
  return G.militaryOrders.filter(m=>m.owner===0&&m.status!=='returned').map(m=>{
