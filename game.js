@@ -840,6 +840,32 @@ function finishCaravanJob(job,cart,p){
  if(job.stage==='return'){cart.currentTileId=job.path[job.path.length-1]||cart.currentTileId;}
  G.shipments.splice(G.shipments.indexOf(job),1);
 }
+// Upgrade a saved automatic pickup created before mixed cargo existed.
+ // Wagons already travelling to a farm can fill spare capacity on arrival.
+function upgradeQueuedMixedPickup(job,p){
+ if(!job.auto||job.kind==='porter'||Array.isArray(job.cargo)||job.qty>=10)return;
+ const origin=siteLookup(p.id,job.from);
+ if(!origin?.site||!OUTPUTS[origin.kind])return;
+ const candidates=outputPickupTasks(p).filter(t=>String(t.from)===String(job.from));
+ const cargo=[{item:job.item,qty:job.qty,to:job.to}];
+ let remaining=10-job.qty;
+ const perDest=new Map();
+ for(const task of candidates)for(const entry of task.cargo){
+  if(remaining<=0)break;
+  const key=String(entry.to),free=perDest.has(key)?perDest.get(key):endpointDeliverySpace(p,entry.to);
+  const qty=Math.min(remaining,entry.qty,free);
+  if(qty<1)continue;
+  cargo.push({item:entry.item,qty,to:entry.to});
+  perDest.set(key,free-qty);remaining-=qty;
+ }
+ if(cargo.length<2)return;
+ const tour=optimalCargoDelivery(p.id,origin.tile,cargo);
+ if(!tour)return;
+ job.cargo=cargo;job.deliveryStops=tour.stops;
+ job.to=tour.stops[0];job.toTileId=siteLookup(p.id,job.to)?.tile?.id;
+ job.qty=shipmentTotal(job);
+ for(const entry of cargo.slice(1))markUnloadBooked(origin.site,entry.item,entry.qty);
+}
 function moveCaravanToStage(job,cart,p){
  // Deliveries take at least one later player turn per hex. There is no teleportation.
  const stage=job.stage,path=job.path||[];
@@ -858,6 +884,7 @@ function moveCaravanToStage(job,cart,p){
   return;
  }
  if(stage==='pickup'){
+  if(job.auto&&!Array.isArray(job.cargo))upgradeQueuedMixedPickup(job,p);
   if(Array.isArray(job.cargo)){
    for(const entry of job.cargo){
     const available=Math.min(entry.qty,endpointCount(p,job.from,entry.item));
