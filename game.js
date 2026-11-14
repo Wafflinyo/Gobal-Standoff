@@ -1361,6 +1361,7 @@ function caravanWarehouseStatus(p,siteId){
 function shippingDashboard(){
  const p=getCountry(),jobs=G.shipments.filter(j=>j.owner===0),carts=p.caravans||[],boats=p.boats||[];
  return `<div class="gs-shipping-summary"><b>Logistics · ${carts.filter(c=>!c.shipmentId&&caravanHasDriver(p,c)).length}/${carts.length} wagons · ${boats.filter(b=>!b.shipmentId).length}/${boats.length} boats available</b>
+  <small>Boats are reusable 10-unit water carriers. Craft a Boat (6 Logs) at Woodworks, deliver it to a riverside or lakeside building, then tap Launch Boat there. Bridge Kits (5 Logs) must be delivered to storage; build a bridge between owned riverbanks or over a single water hex (1 kit + 2 SP, 3 work turns). Unbridged crossings stop all caravans, including troop wagons.</small>
   <small>Wagons carry 10 units each and require one employed adult citizen driver per wagon. Drivers are full-time workers and cannot hold another job or join expeditions. A hand porter carries 2 units when permitted. A hand trip takes 8 world turns per unpaved hex (6 on paved borders), each way; longer trips reduce worker morale and can affect health.</small>
   <label class="gs-routing-label">Workers when all wagons are busy <select data-hand-haul-policy><option value="wait" ${p.handHaulingPolicy!=='allow'?'selected':''}>Wait for a caravan</option><option value="allow" ${p.handHaulingPolicy==='allow'?'selected':''}>Allow 2-unit worker deliveries</option></select></label>
   ${!(p.caravans||[]).length?'<small>No wagons owned: eligible workers transport resources by hand automatically.</small>':!(p.caravans||[]).some(c=>caravanHasDriver(p,c))?'<small>No employed caravan drivers: hire eligible adults at a Caravan Warehouse to activate wagons.</small>':''}
@@ -2350,6 +2351,12 @@ function warDriverReady(owner,job){
  const cart=p.caravans.find(c=>c.id===job.cartId);
  return !!cart&&caravanHasDriver(p,cart);
 }
+function warRideNeedsBridge(job){
+ const path=job?.ridePath||[];
+ return path.some((id,i)=>{if(!i)return false;const a=G.tiles.find(t=>t.id===path[i-1]),b=G.tiles.find(t=>t.id===id);
+  return !a||!b||a.terrain==='water'||b.terrain==='water'||riverCrossing(a,b)&&!bridgeExistsBetween(a,b);
+ });
+}
 function warMoveRidingCart(owner,job){
  if(!job?.cartId||!job.ridePath?.length)return;
  const cart=G.players[owner]?.caravans.find(c=>c.id===job.cartId);
@@ -2438,7 +2445,7 @@ function progressSiegeReinforcements(){
     warReleaseTransport(p?.caravans?.find(c=>c.id===job.cartId));
     s.reinforcements=s.reinforcements.filter(r=>r!==job);continue;
    }
-   if(job.transport==='caravan'&&!warDriverReady(job.owner,job))continue;
+   if(job.transport==='caravan'&&(!warDriverReady(job.owner,job)||warRideNeedsBridge(job))){job.blockedByWater=warRideNeedsBridge(job);continue;}
    job.remaining=Math.max(0,job.remaining-1);warMoveRidingCart(job.owner,job);
    if(job.remaining>0)continue;
    if(late){
@@ -2487,7 +2494,7 @@ function progressSiegeMarches(){
    ||(!s.stagingNeutral&&G.tiles.find(t=>t.id===s.stagingTileId)?.owner!==s.attacker)||!siegeTeam(s,'attacker').length){
    finishSiege(s,'cancelled');continue;
   }
-  if(s.transport==='caravan'&&!warDriverReady(s.attacker,s))continue;
+  if(s.transport==='caravan'&&(!warDriverReady(s.attacker,s)||warRideNeedsBridge(s))){s.blockedByWater=warRideNeedsBridge(s);continue;}
    s.marchRemaining=Math.max(0,s.marchRemaining-1);warMoveRidingCart(s.attacker,s);
   if(!s.marchRemaining)establishSiege(s);
  }
