@@ -858,27 +858,72 @@ function moveCaravanToStage(job,cart,p){
   return;
  }
  if(stage==='pickup'){
-  const available=Math.min(job.qty,endpointCount(p,job.from,job.item));
-  if(available<=0){job.qty=0;job.stage='return';}
-  else {job.qty=available;endpointAdd(p,job.from,job.item,-available);job.stage='delivery';}
+  if(Array.isArray(job.cargo)){
+   for(const entry of job.cargo){
+    const available=Math.min(entry.qty,endpointCount(p,job.from,entry.item));
+    if(available>0)endpointAdd(p,job.from,entry.item,-available);
+    entry.qty=available;
+   }
+   job.qty=shipmentTotal(job);
+   const next=(job.deliveryStops||[]).find(to=>job.cargo.some(e=>e.qty>0&&String(e.to)===String(to)));
+   job.to=next||job.to;
+   job.toTileId=siteLookup(job.owner,job.to)?.tile?.id||job.toTileId;
+   job.stage=job.qty>0?'delivery':'return';
+  }else{
+   const available=Math.min(job.qty,endpointCount(p,job.from,job.item));
+   if(available<=0){job.qty=0;job.stage='return';}
+   else {job.qty=available;endpointAdd(p,job.from,job.item,-available);job.stage='delivery';}
+  }
   const source=G.tiles.find(t=>t.id===job.fromTileId),dest=G.tiles.find(t=>t.id===job.toTileId);
-  job.path=job.stage==='delivery'?ownedPath(job.owner,source,dest):ownedPath(job.owner,source,siteLookup(job.owner,job.homeSiteId)?.tile||source);
+  job.path=(job.stage==='delivery'?ownedPath(job.owner,source,dest):
+   ownedPath(job.owner,source,siteLookup(job.owner,job.homeSiteId)?.tile||source))||[source?.id].filter(Boolean);
   job.step=0;job.remaining=Math.max(1,Math.ceil(pathCost(job.owner,job.path)/2));return;
  }
  if(stage==='delivery'||stage==='unloading'){
   const validDestination=siteLookup(job.owner,job.to);
   if(!validDestination){
-   // A demolished site does not magically teleport cargo home; carry it to the capital.
-   const capital=siteLookup(job.owner,'depot');
+   // Preserve loaded mixed goods when a delivery building is demolished.
+   const capital=siteLookup(job.owner,'depot'),old=job.to;
+   if(Array.isArray(job.cargo)){
+    for(const entry of job.cargo)if(String(entry.to)===String(old))entry.to='depot';
+    job.deliveryStops=(job.deliveryStops||[]).map(id=>String(id)===String(old)?'depot':id);
+   }
    job.to='depot';job.toTileId=capital?.tile?.id;
    const from=G.tiles.find(t=>t.id===cart.currentTileId);
    job.path=ownedPath(job.owner,from,capital?.tile)||[from?.id].filter(Boolean);
    job.step=0;job.stage='delivery';return;
   }
-  const unloaded=endpointAdd(p,job.to,job.item,job.qty);
-  job.qty-=unloaded;
-  if(job.qty>0){job.stage='unloading';job.remaining=0;return;}
-  if(job.owner===0)addLog(`${unloaded} ${GOOD_NAMES[job.item]||job.item} arrived at ${G.tiles.find(t=>t.id===job.toTileId)?.name}.`);
+  let deliveredText='',unloaded=0;
+  if(Array.isArray(job.cargo)){
+   const dropped=[];
+   for(const entry of job.cargo.filter(e=>e.qty>0&&String(e.to)===String(job.to))){
+    const moved=endpointAdd(p,job.to,entry.item,entry.qty);
+    entry.qty-=moved;unloaded+=moved;
+    if(moved)dropped.push(moved+' '+(GOOD_NAMES[entry.item]||entry.item));
+   }
+   deliveredText=dropped.join(' + ');job.qty=shipmentTotal(job);
+   if(job.cargo.some(e=>e.qty>0&&String(e.to)===String(job.to))){
+    job.stage='unloading';job.remaining=0;return;
+   }
+   if(job.owner===0&&unloaded)addLog(`${deliveredText} arrived at ${validDestination.tile.name}.`);
+   const next=(job.deliveryStops||[]).find(to=>job.cargo.some(e=>e.qty>0&&String(e.to)===String(to)));
+   if(next){
+    const nextSite=siteLookup(job.owner,next);
+    if(!nextSite?.tile){
+     job.to=next;job.stage='delivery';job.path=[cart.currentTileId];job.step=0;return;
+    }
+    job.to=next;job.toTileId=nextSite.tile.id;job.stage='delivery';
+    const here=G.tiles.find(t=>t.id===cart.currentTileId);
+    job.path=ownedPath(job.owner,here,nextSite.tile)||[here?.id].filter(Boolean);
+    job.step=0;job.remaining=Math.max(1,Math.ceil(pathCost(job.owner,job.path)/2));return;
+   }
+  }else{
+   unloaded=endpointAdd(p,job.to,job.item,job.qty);
+   job.qty-=unloaded;
+   if(job.qty>0){job.stage='unloading';job.remaining=0;return;}
+   deliveredText=unloaded+' '+(GOOD_NAMES[job.item]||job.item);
+   if(job.owner===0&&unloaded)addLog(`${deliveredText} arrived at ${validDestination.tile.name}.`);
+  }
   // Automatic shipments chain into the next ready pickup instead of
   // returning empty to a caravan warehouse between deliveries.
   if(job.auto){
@@ -967,7 +1012,12 @@ function progressShipments(){
   }
   const cart=p?.caravans?.find(c=>c.id===job.caravanId);
   if(p&&cart){syncCaravans(p);if(!caravanHasDriver(p,cart)){job.waitingForDriver=true;continue;}job.waitingForDriver=false;}
-  if(!p||!cart){if(p&&job.qty&&['delivery','unloading'].includes(job.stage))addDepot(p,job.item,job.qty);G.shipments.splice(G.shipments.indexOf(job),1);continue;}
+  if(!p||!cart){
+    if(p&&['delivery','unloading'].includes(job.stage)){
+     for(const entry of shipmentLoads(job))if(entry.qty>0)addDepot(p,entry.item,entry.qty);
+    }
+    G.shipments.splice(G.shipments.indexOf(job),1);continue;
+   }
   moveCaravanToStage(job,cart,p);
  }
 }
