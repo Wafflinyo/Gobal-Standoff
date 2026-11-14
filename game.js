@@ -663,6 +663,123 @@ function caravanCanTraverse(a,b,owner){
  if(!a||!b||a.owner!==owner||b.owner!==owner||a.terrain==='water'||b.terrain==='water')return false;
  return distance(a,b)===1?!riverCrossing(a,b)||bridgeExistsBetween(a,b):!!lakeBridgeSpan(a,b)&&bridgeExistsBetween(a,b);
 }
+
+function boatLanding(tile){
+ return !!tile&&tile.terrain!=='water'&&(neighbors(tile).some(n=>n.terrain==='water')||
+  (G.rivers||[]).some(r=>(r.banks||[]).some(pair=>pair.includes(tile.id))));
+}
+function boatTravelRoute(owner,start,end){
+ if(!start||!end||start.owner!==owner||end.owner!==owner||!boatLanding(start)||!boatLanding(end))return null;
+ if(start.id===end.id)return {path:[start.id],cost:0};
+ const dist=new Map([[start.id,0]]),prev=new Map(),pending=new Set([start.id]);
+ while(pending.size){
+  let best=null,bestCost=Infinity;
+  for(const id of pending){const d=dist.get(id);if(d<bestCost){best=id;bestCost=d;}}
+  pending.delete(best);if(best===end.id)break;
+  const at=G.tiles.find(t=>t.id===best);if(!at)continue;
+  for(const next of neighbors(at)){
+   if(at.terrain!=='water'&&next.terrain!=='water'&&!riverCrossing(at,next))continue;
+   if(next.terrain!=='water'&&next.owner!==owner)continue;
+   const cost=bestCost+1;if(cost<(dist.get(next.id)??Infinity)){dist.set(next.id,cost);prev.set(next.id,best);pending.add(next.id);}
+  }
+ }
+ if(!dist.has(end.id))return null;
+ const path=[end.id];
+ while(path[0]!==start.id){const parent=prev.get(path[0]);if(!parent)return null;path.unshift(parent);}
+ return {path,cost:dist.get(end.id)};
+}
+function idleBoat(owner,source){
+ const p=G.players[owner];if(!p||!boatLanding(source))return null;
+ return (p.boats||[]).filter(b=>!b.shipmentId).map(boat=>{
+  const here=G.tiles.find(t=>t.id===boat.currentTileId),route=boatTravelRoute(owner,here,source);
+  return {boat,route,cost:route?.cost??Infinity};
+ }).filter(v=>v.route).sort((a,b)=>a.cost-b.cost)[0]||null;
+}
+function dispatchBoatShipment(owner,from,to,item,qty,auto=false,preferred=null){
+ const p=G.players[owner],source=siteLookup(owner,from),dest=siteLookup(owner,to);
+ if(!p||!source?.tile||!dest?.tile||String(from)===String(to))return false;
+ const voyage=boatTravelRoute(owner,source.tile,dest.tile),available=preferred?
+  (!preferred.shipmentId?{boat:preferred,route:boatTravelRoute(owner,G.tiles.find(t=>t.id===preferred.currentTileId),source.tile)}:null):
+  idleBoat(owner,source.tile);
+ if(!voyage||!available?.route)return false;
+ const booked=sourceReserved(p,source.site||{id:from},item);
+ const amount=Math.min(10,Math.floor(qty),Math.max(0,endpointCount(p,from,item)-booked),endpointDeliverySpace(p,to));
+ if(amount<1)return false;
+ const job={id:G.nextShipmentId++,kind:'boat',owner,from,to,item,qty:amount,auto,
+  boatId:available.boat.id,stage:'pickup',path:available.route.path,step:0,startedClock:G.turnClock||0,
+  fromTileId:source.tile.id,toTileId:dest.tile.id,remaining:Math.ceil((available.route.cost+voyage.cost)/2)+2};
+ G.shipments.push(job);available.boat.shipmentId=job.id;
+ if(owner===0&&!auto)addLog(`${p.name}'s boat sailed to collect ${amount} ${GOOD_NAMES[item]||item}.`);
+ return true;
+}
+function progressBoatJob(job,p){
+ const boat=p.boats?.find(b=>b.id===job.boatId);if(!boat)return;
+ const here=G.tiles.find(t=>t.id===boat.currentTileId),goal=G.tiles.find(t=>t.id===(job.stage==='pickup'?job.fromTileId:job.toTileId));
+ const route=boatTravelRoute(p.id,here,goal);
+ if(!route){job.blockedByWater=true;job.remaining=0;return;}
+ job.blockedByWater=false;
+ if(route.path.length>1){
+  const moves=Math.min(2,route.path.length-1);
+  boat.currentTileId=route.path[moves];job.path=route.path;job.step=moves;
+  job.remaining=Math.ceil(Math.max(0,route.path.length-moves-1)/2)+1;return;
+ }
+ job.path=route.path;job.step=0;
+ if(job.stage==='pickup'){
+  const take=Math.min(job.qty,endpointCount(p,job.from,job.item));
+  if(!take){boat.shipmentId=null;G.shipments=G.shipments.filter(j=>j!==job);return;}
+  endpointAdd(p,job.from,job.item,-take);
+  job.qty=take;job.stage='delivery';job.remaining=Math.ceil((boatTravelRoute(p.id,here,G.tiles.find(t=>t.id===job.toTileId))?.cost||0)/2)+1;return;
+ }
+ const dest=siteLookup(p.id,job.to);
+ if(!dest){
+  const depot=siteLookup(p.id,'depot');
+  if(depot?.tile&&boatTravelRoute(p.id,here,depot.tile)){job.to='depot';job.toTileId=depot.tile.id;return;}
+  job.blockedByWater=true;return;
+ }
+ const moved=endpointAdd(p,job.to,job.item,job.qty);job.qty-=moved;
+ if(job.qty>0){job.stage='unloading';job.remaining=0;return;}
+ if(p.id===0&&moved)addLog(`Boat delivered ${moved} ${GOOD_NAMES[job.item]||job.item} to ${dest.tile.name}.`);
+ boat.shipmentId=null;G.shipments=G.shipments.filter(j=>j!==job);
+}
+function launchBoat(tile,source='depot',owner=0){
+ const p=G.players[owner],store=siteLookup(owner,source);
+ if(!p||!tile||tile.owner!==owner||!boatLanding(tile)||store?.tile?.id!==tile.id||
+  endpointCount(p,source,'boat')<1||owner===0&&!active())return false;
+ endpointAdd(p,source,'boat',-1);p.boats??=[];
+ G.nextBoatId??=1;
+ p.boats.push({id:'boat-'+owner+'-'+G.nextBoatId++,currentTileId:tile.id,homeTileId:tile.id,shipmentId:null});
+ if(owner===0){addLog(`A boat launched from ${tile.name}.`);autoDispatchBoats();save();render();}
+ return true;
+}
+function autoDispatchBoats(){
+ for(const p of G.players)for(const boat of p.boats||[]){
+  if(boat.shipmentId)continue;
+  const here=G.tiles.find(t=>t.id===boat.currentTileId),choices=[];
+  if(!here)continue;
+  for(const tile of G.tiles.filter(t=>t.owner===p.id&&boatLanding(t)))
+  for(let i=0;i<tile.buildings.length;i++){
+   const kind=tile.buildings[i],site=tile.buildingMeta?.[i];if(!site||!OUTPUTS[kind])continue;
+   for(const item of OUTPUTS[kind]){
+    const ready=unloadAllowance(p,kind,site,item);if(!ready)continue;
+    const configured=site.routes?.[item],destinations=configured!=null?
+     [{id:configured,tile:siteLookup(p.id,configured)?.tile}]:
+     [{id:'depot',tile:siteLookup(p.id,'depot')?.tile},...G.tiles.filter(t=>t.owner===p.id)
+      .flatMap(t=>t.buildings.map((k,j)=>k==='storageWarehouse'?{id:t.buildingMeta?.[j]?.id,tile:t}:null).filter(Boolean))];
+    for(const dest of destinations){
+     if(!dest.tile||dest.tile.id===tile.id||endpointDeliverySpace(p,dest.id)<1)continue;
+     const sailing=boatTravelRoute(p.id,tile,dest.tile),approach=boatTravelRoute(p.id,here,tile);
+     if(sailing&&approach)choices.push({from:site.id,to:dest.id,item,qty:Math.min(10,ready),cost:sailing.cost+approach.cost});
+    }
+   }
+  }
+  choices.sort((a,b)=>a.cost-b.cost);
+  for(const task of choices)if(dispatchBoatShipment(p.id,task.from,task.to,task.item,task.qty,true,boat)){
+   const site=siteLookup(p.id,task.from)?.site;
+   if(site)markUnloadBooked(site,task.item,task.qty);
+   break;
+  }
+ }
+}
 function caravanNeighbors(t,owner){
  const list=neighbors(t).filter(n=>caravanCanTraverse(t,n,owner));
  for(const bridge of G.bridges||[]){
