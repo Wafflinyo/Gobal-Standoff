@@ -620,7 +620,7 @@ function nationalBalance(p,item,change){
 }
 function nearbyStorage(p,tile,item){
  const stores=[{id:'depot',tile:siteLookup(p.id,'depot')?.tile},...G.tiles.filter(t=>t.owner===p.id).flatMap(t=>t.buildings.map((kind,i)=>kind==='storageWarehouse'?{id:t.buildingMeta?.[i]?.id,tile:t}:null).filter(Boolean))];
- return stores.map(o=>({...o,path:o.tile&&ownedPath(p.id,tile,o.tile)})).filter(o=>o.path&&endpointDeliverySpace(p,o.id)>0)
+ return stores.map(o=>({...o,path:o.tile&&(ownedPath(p.id,tile,o.tile)||(p.boats?.length?boatTravelRoute(p.id,tile,o.tile)?.path:null))})).filter(o=>o.path&&endpointDeliverySpace(p,o.id)>0)
   .sort((a,b)=>pathCost(p.id,a.path)-pathCost(p.id,b.path))[0]||null;
 }
 
@@ -1104,7 +1104,15 @@ function moveCaravanToStage(job,cart,p){
   let budget=2;
   while(job.step<path.length-1){
    const a=G.tiles.find(t=>t.id===path[job.step]),b=G.tiles.find(t=>t.id===path[job.step+1]);
-   if(!a||!b)break;
+   if(!a||!b||!caravanCanTraverse(a,b,job.owner)){
+    const here=G.tiles.find(t=>t.id===cart.currentTileId);
+    const target=G.tiles.find(t=>t.id===(stage==='pickup'?job.fromTileId:stage==='return'?siteLookup(job.owner,job.returnSiteId||job.homeSiteId)?.tile?.id:job.toTileId));
+    const route=countryTravelRoute(job.owner,here,target);
+    if(route){job.path=route.path;job.step=0;job.blockedByWater=false;job.remaining=Math.ceil(route.cost/2)+1;}
+    else{job.blockedByWater=true;job.remaining=0;}
+    return;
+   }
+   job.blockedByWater=false;
    const need=domesticMoveCost(a,b);if(need>budget)break;
    budget-=need;job.step++;cart.currentTileId=path[job.step];
   }
@@ -1223,10 +1231,12 @@ function progressPorterJob(job,p){
  const path=job.path||[];
  if(job.step<path.length-1){
   const a=G.tiles.find(t=>t.id===path[job.step]),b=G.tiles.find(t=>t.id===path[job.step+1]);
-  if(!a||!b||a.owner!==p.id||b.owner!==p.id){
-   if(job.qty>0&&job.stage!=='pickup')addDepot(p,job.item,job.qty);
-   G.shipments=G.shipments.filter(j=>j!==job);return;
+  if(!a||!b||!caravanCanTraverse(a,b,p.id)){
+   const goal=G.tiles.find(t=>t.id===path[path.length-1]),route=countryTravelRoute(p.id,a,goal);
+   if(!route){job.blockedByWater=true;job.remaining=0;return;}
+   job.path=route.path;job.step=0;job.stepSpent=0;job.blockedByWater=false;return;
   }
+  job.blockedByWater=false;
   job.stepSpent=(job.stepSpent||0)+1;
   if(job.stepSpent>=porterTicks(a,b)){
    // Hauling is tiring in both directions, worse on unpaved roads.
@@ -1615,7 +1625,7 @@ function autoRequestFactoryInputs(){
    let needed=Math.max(0,amount*(site.level||1)*2-localCount(site,item)-queued);
    let free=endpointDeliverySpace(p,site.id);
    if(needed<=0||free<=0)continue;
-   const sources=storedAt(p,item).map(entry=>({...entry,route:countryTravelRoute(p.id,entry.tile,tile)}))
+   const sources=storedAt(p,item).map(entry=>({...entry,route:countryTravelRoute(p.id,entry.tile,tile)||(p.boats?.length?boatTravelRoute(p.id,entry.tile,tile):null)}))
     .filter(entry=>entry.route&&String(entry.id)!==String(site.id))
     .sort((a,b)=>a.route.cost-b.route.cost);
    // Shared-hex stores can feed their neighboring factory immediately.
