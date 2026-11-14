@@ -65,8 +65,7 @@ const GEAR_ORDER=['leather','iron','steel','gold','diamond'];
 const RECIPES={
  steel:{name:'Smelt Steel',input:{iron:2,coal:1},output:'steel'},
  leatherArmor:{name:'Leather Armor',input:{leather:2},output:'leatherArmor'},
- woodPlanks:{name:'Construction Wood',input:{logs:2},output:'wood',amount:3},
- woodShield:{name:'Wooden Shield',input:{logs:2},output:'woodShield'},
+ woodShield:{name:'Wooden Shield',input:{wood:2},output:'woodShield'},
  stoneAxe:{name:'Stone Axe',input:{stone:2,wood:1},output:'stoneAxe'},
  stonePickaxe:{name:'Stone Pickaxe',input:{stone:2,wood:1},output:'stonePickaxe'},
  stoneSword:{name:'Stone Sword',input:{stone:3,wood:1},output:'stoneSword'},
@@ -76,9 +75,9 @@ const RECIPES={
  goldArmor:{name:'Gold-Reinforced Steel',input:{steel:2,goldOre:1},output:'goldArmor'},
  diamondArmor:{name:'Diamond-Reinforced Steel',input:{steel:2,diamond:1},output:'diamondArmor'}
 };
-const FACTORY_RECIPES={foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['woodPlanks','woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
-const OUTPUTS={farm:['food','leather'],lumber:['logs'],mine:['stone',...MINERAL_KEYS],foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['wood','woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
-const GOOD_NAMES={food:'Food',logs:'Timber Logs',wood:'Construction Wood',stone:'Stone',leather:'Raw Leather',coal:'Coal',iron:'Iron',copper:'Copper',silver:'Silver',goldOre:'Gold Ore',diamond:'Diamonds',steel:'Steel',woodShield:'Wooden Shield',stoneAxe:'Stone Axe',stonePickaxe:'Stone Pickaxe',stoneSword:'Stone Sword',stoneClub:'Stone Club',leatherArmor:'Leather Armor',ironArmor:'Iron Armor',steelArmor:'Steel Armor',goldArmor:'Gold-Reinforced Steel',diamondArmor:'Diamond-Reinforced Steel'};
+const FACTORY_RECIPES={foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
+const OUTPUTS={farm:['food','leather'],lumber:['wood'],mine:['stone',...MINERAL_KEYS],foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['wood','woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
+const GOOD_NAMES={food:'Food',wood:'Logs',stone:'Stone',leather:'Raw Leather',coal:'Coal',iron:'Iron',copper:'Copper',silver:'Silver',goldOre:'Gold Ore',diamond:'Diamonds',steel:'Steel',woodShield:'Wooden Shield',stoneAxe:'Stone Axe',stonePickaxe:'Stone Pickaxe',stoneSword:'Stone Sword',stoneClub:'Stone Club',leatherArmor:'Leather Armor',ironArmor:'Iron Armor',steelArmor:'Steel Armor',goldArmor:'Gold-Reinforced Steel',diamondArmor:'Diamond-Reinforced Steel'};
 
 // v0.4.30: individually craftable helmets, chest plates, weapons and shields.
 // Existing armor bundles remain readable for saved soldiers; the new slots are independent.
@@ -221,7 +220,7 @@ function gearReadiness(c){return Math.round(10+2*(c.military?.training||1)+Math.
 
 const BUILDINGS={
  farm:{name:'Farm',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>',gold:4,wood:2,iron:0,space:2,rounds:1,upkeep:1,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Workers produce Food and raw Leather · both must be delivered'},
- lumber:{name:'Lumber Camp',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-forest"></use></svg>',gold:4,wood:1,iron:0,space:2,rounds:2,upkeep:1,jobs:[2,4,6],production:{},allow:['forest'],text:'Workers harvest Timber Logs. Send them straight to storage or process them at Woodworks.'},
+ lumber:{name:'Lumber Camp',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-forest"></use></svg>',gold:4,wood:1,iron:0,space:2,rounds:2,upkeep:1,jobs:[2,4,6],production:{},allow:['forest'],text:'Workers harvest Logs, which are immediately usable for construction after delivery to storage. Woodworks crafts equipment from Logs.'},
  mine:{name:'Mine',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-mine"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['mountain'],text:'Produces Stone on EVERY mountain plus any mineral veins'},
  homes:{name:'Homes',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-homes"></use></svg>',gold:5,wood:2,iron:0,space:1,rounds:1,upkeep:1,jobs:[0,0,0],production:{},allow:['plains','forest','hills','desert','mountain'],text:'+8 housing spaces · no workers required · occupied family homes earn Silver Pents'},
  market:{name:'Marketplace',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-market"></use></svg>',gold:7,wood:2,iron:1,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{gold:5},allow:['plains','forest','hills','desert','mountain'],text:'Silver Pents income scales with worker staffing and morale'},
@@ -232,7 +231,7 @@ const BUILDINGS={
  post:{name:'Military Post',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-shield"></use></svg>',gold:8,wood:2,iron:2,space:2,rounds:2,upkeep:2,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Administrative staff support recruitment and the 12-troop garrison'},
  foundry:{name:'Steelworks Factory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-foundry"></use></svg>',gold:10,wood:3,iron:3,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Receives Iron + Coal shipments and smelts Steel'},
  leatherFactory:{name:'Leather Factory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-thread"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Raw Leather → Leather Armor; send gear to a military post'},
- woodworks:{name:'Woodworks Factory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-saw"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['forest','plains','hills'],text:'Timber Logs → Construction Wood or Wooden Shields'},
+ woodworks:{name:'Woodworks Factory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-saw"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['forest','plains','hills'],text:'Logs → Wooden Shields and other wooden equipment'},
  stoneworks:{name:'Stone Workshop',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-axe"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['plains','hills','mountain'],text:'Stone + Wood → axes, pickaxes, swords or clubs'},
  armory:{name:'Armory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-builder"></use></svg>',gold:10,wood:2,iron:2,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Produces Iron, Steel, SP and Diamond armor from delivered metal'}
 };
@@ -585,6 +584,37 @@ function storedAt(p,item){
   stores.push({id:tile.buildingMeta?.[i]?.id,tile,count:localCount(tile.buildingMeta?.[i],item)});
  }
  return stores.filter(o=>o.tile&&o.count>0);
+}
+// Resources in any owned Storage Warehouse are nationally available after
+// physical delivery. Production sites and cargo in transit never count.
+// Construction consumes the actual stored goods exactly once.
+function nationalResourceCount(p,item){
+ const treasury=depotCount(p,item);
+ if(!G?.tiles)return treasury;
+ return treasury+G.tiles.filter(t=>t.owner===p.id).reduce((sum,t)=>sum+
+  t.buildings.reduce((acc,kind,i)=>acc+(kind==='storageWarehouse'?
+   localCount(t.buildingMeta?.[i],item):0),0),0);
+}
+function spendNationalResource(p,item,amount){
+ const required=Math.max(0,Math.floor(amount)||0);
+ if(nationalResourceCount(p,item)<required)return false;
+ let left=required;
+ const fromDepot=Math.min(left,depotCount(p,item));
+ if(fromDepot){addDepot(p,item,-fromDepot);left-=fromDepot;}
+ if(left)for(const t of G.tiles.filter(t=>t.owner===p.id)){
+  for(let i=0;i<t.buildings.length;i++){
+   if(t.buildings[i]!=='storageWarehouse')continue;
+   const site=t.buildingMeta?.[i],qty=Math.min(left,localCount(site,item));
+   if(qty){addLocal(site,item,-qty);left-=qty;}
+   if(!left)break;
+  }
+  if(!left)break;
+ }
+ return left===0;
+}
+function nationalBalance(p,item,change){
+ if(change>=0)addDepot(p,item,change);
+ else spendNationalResource(p,item,Math.min(-change,nationalResourceCount(p,item)));
 }
 function nearbyStorage(p,tile,item){
  const stores=[{id:'depot',tile:siteLookup(p.id,'depot')?.tile},...G.tiles.filter(t=>t.owner===p.id).flatMap(t=>t.buildings.map((kind,i)=>kind==='storageWarehouse'?{id:t.buildingMeta?.[i]?.id,tile:t}:null).filter(Boolean))];
@@ -1141,7 +1171,7 @@ function runAgricultureAndForestry(){
    const leather=Math.max(1,Math.round(1.5*factor));
    const free=endpointStorageFree(p,site.id);
    if(free>=1){addLocal(site,'food',Math.min(food,free));addLocal(site,'leather',Math.min(leather,free-Math.min(food,free)));}
-  }else{const free=endpointStorageFree(p,site.id);if(free>=1)addLocal(site,'logs',Math.min(free,Math.max(1,Math.round(3*factor))));}
+  }else{const free=endpointStorageFree(p,site.id);if(free>=1)addLocal(site,'wood',Math.min(free,Math.max(1,Math.round(3*factor))));}
  }
 }
 function processFactories(){
@@ -1712,6 +1742,30 @@ function migrateGameplay(s){
  prepareMineralVeins(s.tiles,s.seed,false);
  ensureBuildingMeta(s);
  assignCpuPersonalities(s);
+ // Older saves split harvested 'logs' from Construction Wood. They are
+ // identical Logs now. Merge inventories and cargo once without losing items.
+ if(s.logsUnifiedVersion!==1){
+  for(const tile of s.tiles)for(const site of tile.buildingMeta||[]){
+   if(!site)continue;
+   if(site.stock?.logs!=null){
+    site.stock.wood=(site.stock.wood||0)+Math.max(0,site.stock.logs||0);delete site.stock.logs;
+   }
+   if(site.routes?.logs!=null){site.routes.wood??=site.routes.logs;delete site.routes.logs;}
+   if(site.unloadOncePending?.logs!=null){
+    site.unloadOncePending.wood=(site.unloadOncePending.wood||0)+site.unloadOncePending.logs;
+    delete site.unloadOncePending.logs;
+   }
+   if(site.recipe==='woodPlanks')site.recipe='woodShield';
+  }
+  for(const p of s.players){
+   if(p.warehouse?.logs){p.wood=(p.wood||0)+p.warehouse.logs;delete p.warehouse.logs;}
+  }
+  for(const job of s.shipments){
+   if(job.item==='logs')job.item='wood';
+   for(const load of job.cargo||[])if(load.item==='logs')load.item='wood';
+  }
+  s.logsUnifiedVersion=1;
+ }
  // Barren legacy mines keep extracting Stone; never manufacture Iron veins merely to preserve an old mine.
  for(const p of s.players){
   if(p.materials!==undefined){const old=Math.max(0,p.materials);p.wood=(p.wood||0)+Math.ceil(old*.6);p.ore=(p.ore||0)+Math.floor(old*.4);delete p.materials;}
@@ -3977,7 +4031,7 @@ function renderTile(t){
    for(const item of current){const route=meta.routes?.[item]??'auto';
     html+=`<label class="gs-routing-label"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-caravan"></use></svg> ${GOOD_NAMES[item]||item} destination <select data-route-site="${i}" data-route-good="${item}"><option value="auto" ${route==='auto'?'selected':''}>Automatic · nearest storage</option>${targets.map(target=>`<option value="${target.id}" ${String(route)===String(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>`;}
    if(FACTORY_RECIPES[type])html+='<small class="gs-routing-help">Choose Capital warehouse to send finished goods to your capital. A wagon handles up to 10 units per trip.</small>';
-   if(type==='lumber')html+='<small class="gs-routing-help">Timber Logs go straight to storage or the capital. A Woodworks Factory is optional and only processes logs into Construction Wood or shields. With no wagons, workers slowly carry 2 units per trip. When wagons exist, your transport policy decides whether workers can walk while all wagons are busy.</small>';
+   if(type==='lumber')html+='<small class="gs-routing-help">Logs are your construction resource. Once a caravan delivers them to any Storage Warehouse or the capital, they count toward the national Logs total and can pay construction costs. Woodworks can use those same Logs to craft equipment. Uncollected Logs at a Lumber Camp do not count until delivered.</small>';
   }
   if(isOwn){html+=`<div class="gs-job-controls">${q.slots?`<button data-action="hire-worker" data-index="${i}" ${!active()||q.count>=q.slots||!p.citizens.some(c=>eligibleWorker(c)&&!c.job)?'disabled':''}>Hire</button><button data-action="release-worker" data-index="${i}" ${!active()||!q.count?'disabled':''}>Release</button><button data-action="auto-workers" data-index="${i}" ${!active()?'disabled':''}>Auto ${meta.autoHire?'ON':'OFF'}</button>`:''}`;
    if(upgrade)html+=`<button data-action="upgrade" data-index="${i}" ${!canAct()||!idleBuilders(p).length||inProgress||!hasMoney(p,upgrade.gold)||p.wood<upgrade.wood||mineralCount(p,'iron')<upgrade.iron?'disabled':''}>${inProgress?'Upgrading…':`Upgrade L${meta.level+1}: ${upgrade.gold} SP ${upgrade.wood} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg> ${upgrade.iron} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>`}</button>`;
