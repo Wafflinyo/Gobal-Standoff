@@ -66,6 +66,8 @@ const RECIPES={
  steel:{name:'Smelt Steel',input:{iron:2,coal:1},output:'steel'},
  leatherArmor:{name:'Leather Armor',input:{leather:2},output:'leatherArmor'},
  woodShield:{name:'Wooden Shield',input:{wood:2},output:'woodShield'},
+ bridgeKit:{name:'Bridge Kit',input:{wood:5},output:'bridgeKit'},
+ boat:{name:'Boat',input:{wood:6},output:'boat'},
  stoneAxe:{name:'Stone Axe',input:{stone:2,wood:1},output:'stoneAxe'},
  stonePickaxe:{name:'Stone Pickaxe',input:{stone:2,wood:1},output:'stonePickaxe'},
  stoneSword:{name:'Stone Sword',input:{stone:3,wood:1},output:'stoneSword'},
@@ -75,9 +77,9 @@ const RECIPES={
  goldArmor:{name:'Gold-Reinforced Steel',input:{steel:2,goldOre:1},output:'goldArmor'},
  diamondArmor:{name:'Diamond-Reinforced Steel',input:{steel:2,diamond:1},output:'diamondArmor'}
 };
-const FACTORY_RECIPES={foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
-const OUTPUTS={farm:['food','leather'],lumber:['wood'],mine:['stone',...MINERAL_KEYS],foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
-const GOOD_NAMES={food:'Food',wood:'Logs',stone:'Stone',leather:'Raw Leather',coal:'Coal',iron:'Iron',copper:'Copper',silver:'Silver',goldOre:'Gold Ore',diamond:'Diamonds',steel:'Steel',woodShield:'Wooden Shield',stoneAxe:'Stone Axe',stonePickaxe:'Stone Pickaxe',stoneSword:'Stone Sword',stoneClub:'Stone Club',leatherArmor:'Leather Armor',ironArmor:'Iron Armor',steelArmor:'Steel Armor',goldArmor:'Gold-Reinforced Steel',diamondArmor:'Diamond-Reinforced Steel'};
+const FACTORY_RECIPES={foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['woodShield','bridgeKit','boat'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
+const OUTPUTS={farm:['food','leather'],lumber:['wood'],mine:['stone',...MINERAL_KEYS],foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['woodShield','bridgeKit','boat'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
+const GOOD_NAMES={food:'Food',wood:'Logs',bridgeKit:'Bridge Kit',boat:'Boat',stone:'Stone',leather:'Raw Leather',coal:'Coal',iron:'Iron',copper:'Copper',silver:'Silver',goldOre:'Gold Ore',diamond:'Diamonds',steel:'Steel',woodShield:'Wooden Shield',stoneAxe:'Stone Axe',stonePickaxe:'Stone Pickaxe',stoneSword:'Stone Sword',stoneClub:'Stone Club',leatherArmor:'Leather Armor',ironArmor:'Iron Armor',steelArmor:'Steel Armor',goldArmor:'Gold-Reinforced Steel',diamondArmor:'Diamond-Reinforced Steel'};
 
 // v0.4.30: individually craftable helmets, chest plates, weapons and shields.
 // Existing armor bundles remain readable for saved soldiers; the new slots are independent.
@@ -231,7 +233,7 @@ const BUILDINGS={
  post:{name:'Military Post',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-shield"></use></svg>',gold:8,wood:2,iron:2,space:2,rounds:2,upkeep:2,jobs:[1,2,3],production:{},allow:['plains','forest','hills','desert','mountain'],text:'Administrative staff support recruitment and the 12-troop garrison'},
  foundry:{name:'Steelworks Factory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-foundry"></use></svg>',gold:10,wood:3,iron:3,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Receives Iron + Coal shipments and smelts Steel'},
  leatherFactory:{name:'Leather Factory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-thread"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['plains','forest','hills'],text:'Raw Leather → Leather Armor; send gear to a military post'},
- woodworks:{name:'Woodworks Factory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-saw"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['forest','plains','hills'],text:'Logs → Wooden Shields and other wooden equipment'},
+ woodworks:{name:'Woodworks Factory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-saw"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['forest','plains','hills'],text:'Craft Wooden Shields, Boats and Bridge Kits from Logs'},
  stoneworks:{name:'Stone Workshop',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-axe"></use></svg>',gold:6,wood:2,iron:0,space:2,rounds:2,upkeep:2,jobs:[2,4,6],production:{},allow:['plains','hills','mountain'],text:'Stone + Wood → axes, pickaxes, swords or clubs'},
  armory:{name:'Armory',icon:'<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-builder"></use></svg>',gold:10,wood:2,iron:2,space:2,rounds:3,upkeep:3,jobs:[2,4,6],production:{},allow:['plains','hills'],text:'Produces Iron, Steel, SP and Diamond armor from delivered metal'}
 };
