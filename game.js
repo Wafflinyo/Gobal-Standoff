@@ -536,8 +536,16 @@ function endpointStorageFree(p,endpoint){
  const found=siteLookup(p.id,endpoint);
  return Math.max(0,endpointStorageCapacity(p,endpoint)-stockUsed(found?.site));
 }
+// Multi-item cargo is backward compatible with older single-item shipments.
+function shipmentLoads(job){return Array.isArray(job?.cargo)?job.cargo:[{item:job?.item,qty:job?.qty||0,to:job?.to}];}
+function shipmentTotal(job){return shipmentLoads(job).reduce((n,e)=>n+Math.max(0,e.qty||0),0);}
+function shipmentCargoText(job){
+ const loads=shipmentLoads(job).filter(e=>e.qty>0);
+ return loads.length?loads.map(e=>e.qty+' '+(GOOD_NAMES[e.item]||e.item)).join(' + '):'nothing';
+}
 function incomingReserved(owner,endpoint){
- return G.shipments.filter(j=>j.owner===owner&&String(j.to)===String(endpoint)&&j.stage!=='return').reduce((n,j)=>n+(j.qty||0),0);
+ return G.shipments.filter(j=>j.owner===owner&&j.stage!=='return').reduce((sum,j)=>sum+
+  shipmentLoads(j).filter(e=>String(e.to)===String(endpoint)).reduce((v,e)=>v+Math.max(0,e.qty||0),0),0);
 }
 function endpointDeliverySpace(p,endpoint){
  return endpoint==='depot'?Infinity:Math.max(0,endpointStorageFree(p,endpoint)-incomingReserved(p.id,endpoint));
@@ -1039,8 +1047,8 @@ function processFactories(){
 // availability. Legacy sites default to waiting until full.
 function sourceUnloadMode(site){return ['full','continuous','once'].includes(site?.unloadMode)?site.unloadMode:'full';}
 function sourceReserved(p,site,item){
- return G.shipments.filter(j=>j.owner===p.id&&String(j.from)===String(site.id)&&j.item===item&&j.stage==='pickup')
-  .reduce((sum,j)=>sum+j.qty,0);
+ return G.shipments.filter(j=>j.owner===p.id&&String(j.from)===String(site.id)&&j.stage==='pickup')
+  .reduce((sum,j)=>sum+shipmentLoads(j).filter(e=>e.item===item).reduce((v,e)=>v+Math.max(0,e.qty||0),0),0);
 }
 function outputAvailable(p,site,item){return Math.max(0,localCount(site,item)-sourceReserved(p,site,item));}
 function unloadAllowance(p,kind,site,item){
@@ -1105,16 +1113,56 @@ function outgoingDestination(p,tile,site,item){
  const route=countryTravelRoute(p.id,tile,dest.tile);
  return route?{id:destination,tile:dest.tile,route}:null;
 }
+// Find the cheapest order of delivery destinations for a mixed load.
+function optimalCargoDelivery(owner,origin,entries){
+ const ids=[...new Set(entries.map(e=>String(e.to)))];
+ const sites=ids.map(id=>siteLookup(owner,id));
+ if(!sites.length||sites.some(s=>!s?.tile)||sites.length>10)return null;
+ const n=ids.length,limit=1<<n,dp=Array.from({length:limit},()=>Array(n).fill(Infinity));
+ const prev=Array.from({length:limit},()=>Array(n).fill(-1));
+ const cost=(a,b)=>countryTravelRoute(owner,a,b)?.cost??Infinity;
+ for(let i=0;i<n;i++)dp[1<<i][i]=cost(origin,sites[i].tile);
+ for(let mask=1;mask<limit;mask++)for(let i=0;i<n;i++){
+  if(!(mask&(1<<i))||!Number.isFinite(dp[mask][i]))continue;
+  for(let j=0;j<n;j++){if(mask&(1<<j))continue;
+   const next=mask|1<<j,trial=dp[mask][i]+cost(sites[i].tile,sites[j].tile);
+   if(trial<dp[next][j]){dp[next][j]=trial;prev[next][j]=i;}
+  }
+ }
+ let last=-1,best=Infinity;
+ for(let i=0;i<n;i++)if(dp[limit-1][i]<best){last=i;best=dp[limit-1][i];}
+ if(last<0||!Number.isFinite(best))return null;
+ let mask=limit-1;const stops=[];
+ while(last>=0){stops.unshift(ids[last]);const old=last;last=prev[mask][old];mask^=1<<old;}
+ return {stops,cost:best,lastTile:siteLookup(owner,stops[stops.length-1]).tile};
+}
 function outputPickupTasks(p){
  const tasks=[];
  for(const tile of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<tile.buildings.length;i++){
   const kind=tile.buildings[i],site=tile.buildingMeta?.[i];if(!site||!OUTPUTS[kind])continue;
+  const candidates=[];
   for(const item of OUTPUTS[kind]){
-   const available=unloadAllowance(p,kind,site,item);if(available<1)continue;
-   const target=outgoingDestination(p,tile,site,item);if(!target||target.tile.id===tile.id)continue;
-   const qty=Math.min(10,available,endpointDeliverySpace(p,target.id));
-   if(qty>0)tasks.push({from:site.id,to:target.id,item,qty,source:tile,dest:target.tile,leg:target.route.cost});
+   const ready=unloadAllowance(p,kind,site,item);if(ready<1)continue;
+   const target=outgoingDestination(p,tile,site,item);
+   if(target&&target.tile.id!==tile.id)candidates.push({item,to:target.id,ready});
   }
+  if(!candidates.length)continue;
+  // Pack scarcer outputs first: 4 leather + 12 food => 4 leather + 6 food.
+  candidates.sort((a,b)=>a.ready-b.ready||a.item.localeCompare(b.item));
+  const remainingByDest=new Map(),cargo=[];let space=10;
+  for(const entry of candidates){
+   if(!space)break;
+   const key=String(entry.to),free=remainingByDest.has(key)?
+    remainingByDest.get(key):endpointDeliverySpace(p,entry.to);
+   const qty=Math.min(space,entry.ready,free);
+   if(qty<1)continue;
+   cargo.push({item:entry.item,qty,to:entry.to});
+   remainingByDest.set(key,free-qty);space-=qty;
+  }
+  if(!cargo.length)continue;
+  const tour=optimalCargoDelivery(p.id,tile,cargo);if(!tour)continue;
+  tasks.push({from:site.id,to:tour.stops[0],item:cargo[0].item,qty:cargo[0].qty,
+   cargo,stops:tour.stops,source:tile,dest:tour.lastTile,leg:tour.cost});
  }
  return tasks;
 }
