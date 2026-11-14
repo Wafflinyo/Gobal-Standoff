@@ -901,6 +901,10 @@ function moveCaravanToStage(job,cart,p){
    if(available<=0){job.qty=0;job.stage='return';}
    else {job.qty=available;endpointAdd(p,job.from,job.item,-available);job.stage='delivery';}
   }
+  if(job.auto&&job.stage==='delivery'&&job.qty>0){
+   cart.collectionVisited??=[];
+   if(!cart.collectionVisited.some(id=>String(id)===String(job.from)))cart.collectionVisited.push(job.from);
+  }
   const source=G.tiles.find(t=>t.id===job.fromTileId),dest=G.tiles.find(t=>t.id===job.toTileId);
   job.path=(job.stage==='delivery'?ownedPath(job.owner,source,dest):
    ownedPath(job.owner,source,siteLookup(job.owner,job.homeSiteId)?.tile||source))||[source?.id].filter(Boolean);
@@ -955,6 +959,7 @@ function moveCaravanToStage(job,cart,p){
   // returning empty to a caravan warehouse between deliveries.
   if(job.auto){
    cart.currentTileId=job.toTileId||cart.currentTileId;
+   cart.collectionActiveSource=null;
    finishCaravanJob(job,cart,p);
    scheduleAutoCaravan(p,cart);
    return;
@@ -1243,12 +1248,21 @@ function outputPickupTasks(p){
  }
  return tasks;
 }
-// Exact dynamic-programming route ordering for a bounded set of ready jobs.
-// Each task includes both its mandatory pickup and its delivery; the wagon
-// chooses its next task based on the total travel cost of the complete loop.
+// Automatic wagons travel a persistent circuit of producer buildings.
+// Other wagons' in-progress pickups count as already covered, and a site
+// visited this circuit cannot be revisited until other ready sites are served.
+function otherCaravanPickupClaims(p,cart){
+ const claimed=new Set();
+ for(const other of p.caravans||[]){
+  if(other.id===cart.id||!other.shipmentId)continue;
+  const job=G.shipments.find(j=>j.id===other.shipmentId);
+  if(job?.stage==='pickup'&&job.from!=null)claimed.add(String(job.from));
+ }
+ return claimed;
+}
 function optimizedUnloadTask(p,cart){
  const start=G.tiles.find(t=>t.id===cart.currentTileId);if(!start)return null;
- let tasks=outputPickupTasks(p);if(!tasks.length)return null;
+ const claims=otherCaravanPickupClaims(p,cart);
  const cache=new Map(),travel=(a,b)=>{
   if(!a||!b)return Infinity;
   if(a.id===b.id)return 0;
@@ -1256,31 +1270,48 @@ function optimizedUnloadTask(p,cart){
   if(!cache.has(key))cache.set(key,countryTravelRoute(p.id,a,b)?.cost??Infinity);
   return cache.get(key);
  };
- tasks=tasks.filter(task=>Number.isFinite(travel(start,task.source)));
- if(!tasks.length)return null;
- // A ten-stop planning window keeps touch devices responsive in large worlds.
+ let tasks=outputPickupTasks(p).filter(t=>!claims.has(String(t.from))
+  &&Number.isFinite(travel(start,t.source)));
+ if(!tasks.length){cart.collectionQueue=[];return null;}
+ // The visited list survives deliveries, rounds and browser save/reload.
+ cart.collectionVisited??=[];
+ const visited=new Set(cart.collectionVisited.map(String));
+ let unvisited=tasks.filter(t=>!visited.has(String(t.from)));
+ if(!unvisited.length){
+  cart.collectionVisited=[];
+  unvisited=tasks; // Completed a circuit: begin the next.
+ }
+ tasks=unvisited;
  if(tasks.length>10)tasks=tasks.sort((a,b)=>{
   const sa=siteLookup(p.id,a.from)?.site,sb=siteLookup(p.id,b.from)?.site;
   return (sa?.lastUnloadClock||0)-(sb?.lastUnloadClock||0)
-    ||travel(start,a.source)+a.leg-travel(start,b.source)-b.leg;
+   ||travel(start,a.source)+a.leg-travel(start,b.source)-b.leg;
  }).slice(0,10);
- const n=tasks.length,count=1<<n,dp=Array.from({length:count},()=>Array(n).fill(Infinity));
- const first=Array.from({length:count},()=>Array(n).fill(-1));
- for(let i=0;i<n;i++){dp[1<<i][i]=travel(start,tasks[i].source)+tasks[i].leg;first[1<<i][i]=i;}
- for(let mask=1;mask<count;mask++)for(let i=0;i<n;i++){
+ const n=tasks.length,limit=1<<n;
+ const dp=Array.from({length:limit},()=>Array(n).fill(Infinity));
+ const prev=Array.from({length:limit},()=>Array(n).fill(-1));
+ for(let i=0;i<n;i++)dp[1<<i][i]=travel(start,tasks[i].source)+tasks[i].leg;
+ for(let mask=1;mask<limit;mask++)for(let i=0;i<n;i++){
   if(!(mask&(1<<i))||!Number.isFinite(dp[mask][i]))continue;
   for(let j=0;j<n;j++){
    if(mask&(1<<j))continue;
    const next=mask|(1<<j),cost=dp[mask][i]+travel(tasks[i].dest,tasks[j].source)+tasks[j].leg;
-   if(cost<dp[next][j]){dp[next][j]=cost;first[next][j]=first[mask][i];}
+   if(cost<dp[next][j]){dp[next][j]=cost;prev[next][j]=i;}
   }
  }
- let winner=-1,best=Infinity;
- for(let i=0;i<n;i++)if(dp[count-1][i]<best){winner=i;best=dp[count-1][i];}
- // If a subset is isolated by territory changes, choose the best reachable
- // nearest task; do not leave an otherwise functional cart idle.
- if(winner<0)return tasks.sort((a,b)=>travel(start,a.source)+a.leg-travel(start,b.source)-b.leg)[0]||null;
- return tasks[first[count-1][winner]];
+ let last=-1,best=Infinity;
+ for(let i=0;i<n;i++)if(dp[limit-1][i]<best){best=dp[limit-1][i];last=i;}
+ let order=[];
+ if(last>=0&&Number.isFinite(best)){
+  let mask=limit-1;
+  while(last>=0){order.unshift(tasks[last]);const old=last;last=prev[mask][old];mask^=1<<old;}
+ }else{
+  // A changed border may make some stops unreachable. Service reachable
+  // producers now, and re-plan the rest after delivery.
+  order=tasks.sort((a,b)=>travel(start,a.source)+a.leg-travel(start,b.source)-b.leg).slice(0,1);
+ }
+ cart.collectionQueue=order.map(t=>t.from);
+ return order[0]||null;
 }
 function scheduleAutoCaravan(p,cart){
  if(!p||!cart||cart.shipmentId||!caravanHasDriver(p,cart))return false;
@@ -1289,6 +1320,8 @@ function scheduleAutoCaravan(p,cart){
  if(!dispatchShipment(p.id,task.from,first.to,first.item,first.qty,true,cart))return false;
  const job=G.shipments.find(j=>j.id===cart.shipmentId);
  if(!job||job.kind==='porter')return false;
+ cart.collectionActiveSource=task.from;
+ cart.collectionQueue=(cart.collectionQueue||[]).filter(id=>String(id)!==String(task.from));
  // One ten-unit capacity shared across every type of cargo.
  job.cargo=task.cargo.map(entry=>({...entry}));
  job.deliveryStops=[...task.stops];job.to=task.stops[0];
