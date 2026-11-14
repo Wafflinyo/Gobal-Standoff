@@ -1039,7 +1039,8 @@ function dispatchShipment(owner,from,to,item,qty,auto=false,preferredCart=null){
   if(transferred>0&&!auto)addLog(`${transferred} ${GOOD_NAMES[item]||item} moved locally within ${src.tile.name}.`);
   return transferred>0;
  }
- const delivery=ownedPath(owner,src.tile,dst.tile);if(!delivery)return false;
+ const delivery=ownedPath(owner,src.tile,dst.tile);
+ if(!delivery)return dispatchBoatShipment(owner,from,to,item,qty,auto);
  const available=preferredCart
   ?(!preferredCart.shipmentId&&caravanHasDriver(p,preferredCart)?{cart:preferredCart,path:ownedPath(owner,G.tiles.find(t=>t.id===preferredCart.currentTileId),src.tile)}:null)
   :availableCaravan(owner,src.tile);
@@ -1274,6 +1275,7 @@ function progressShipments(){
    if(!p){G.shipments=G.shipments.filter(j=>j!==job);continue;}
    progressPorterJob(job,p);continue;
   }
+  if(job.kind==='boat'){if(p)progressBoatJob(job,p);continue;}
   const cart=p?.caravans?.find(c=>c.id===job.caravanId);
   if(p&&cart){syncCaravans(p);if(!caravanHasDriver(p,cart)){job.waitingForDriver=true;continue;}job.waitingForDriver=false;}
   if(!p||!cart){
@@ -1866,7 +1868,7 @@ function generateWaterways(tiles,rng,options){
 function createWorld(seed,name,capital,color){
  const rng=mulberry32(hash(seed));
  const colors=[COLORS[color],...COLORS.filter((_,i)=>i!==color)];
- const players=[{name,capital,sigil:'GS'},...NPCS].map((p,i)=>({id:i,name:p.name,capital:p.capital,sigil:p.sigil,color:colors[i],gold:34,food:14,wood:16,minerals:{...START_MINERALS},knowledge:0,marketingUntil:0,warehouse:{},tech:[],hand:[],discountExpand:0,discountBuild:0,acted:false,actionsUsed:0,expansionsThisTurn:0,levyUsed:false,cardPlayed:false,logisticsUsed:false,citizens:[],nextCitizenId:0,caravans:[],caravanPolicy:'nearest'}));
+ const players=[{name,capital,sigil:'GS'},...NPCS].map((p,i)=>({id:i,name:p.name,capital:p.capital,sigil:p.sigil,color:colors[i],gold:34,food:14,wood:16,minerals:{...START_MINERALS},knowledge:0,marketingUntil:0,warehouse:{},tech:[],hand:[],discountExpand:0,discountBuild:0,acted:false,actionsUsed:0,expansionsThisTurn:0,levyUsed:false,cardPlayed:false,logisticsUsed:false,citizens:[],nextCitizenId:0,caravans:[],boats:[],caravanPolicy:'nearest'}));
  const usedNames=new Set(),tiles=[];
  for(let q=-RADIUS;q<=RADIUS;q++)for(let r=-RADIUS;r<=RADIUS;r++){
   if(Math.abs(q+r)>RADIUS)continue;
@@ -1882,7 +1884,7 @@ function createWorld(seed,name,capital,color){
  prepareMineralVeins(tiles,seed);
  const deck=Array.from({length:6},()=>CARD_POOL).flat().sort(()=>rng()-.5);
  const worldName=['The Wild Marches','The Broken Coast','The Emerald Frontier','The Hinterlands','The New Continent'][randInt(rng,5)];
- G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],domesticRoads:[],domesticRoadJobs:[],nextDomesticRoadId:1,bridges:[],bridgeJobs:[],nextBridgeId:1,diplomaticFalcons:[],warnings:[],wars:[],treaties:[],militaryOrders:[],sieges:[],nextSiegeId:1,nextDiplomacyId:1,nextOrderId:1,nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
+ G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],domesticRoads:[],domesticRoadJobs:[],nextDomesticRoadId:1,bridges:[],bridgeJobs:[],nextBridgeId:1,nextBoatId:1,diplomaticFalcons:[],warnings:[],wars:[],treaties:[],militaryOrders:[],sieges:[],nextSiegeId:1,nextDiplomacyId:1,nextOrderId:1,nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
  for(const p of players){const citizenRng=mulberry32(hash(seed+'-people-'+p.id));for(let k=0;k<10;k++)p.citizens.push(makeCitizen(p,citizenRng,true));reallocateHousing(p);drawCard(p);drawCard(p);}
  assignCpuPersonalities(G); ensureBuildingMeta(G);ensureStartingCrews(G);for(const p of G.players){reallocateHousing(p);assignWorkers(p);syncCaravans(p);}
  beginTurn(0);
@@ -1911,7 +1913,7 @@ function migrateGameplay(s){
  s.projects=s.projects||[];s.completedScenes=s.completedScenes||[];s.contacts=s.contacts||[];
  s.shipments??=[];s.nextShipmentId??=1; s.diplomaticFalcons??=[];s.warnings??=[];s.wars??=[];s.treaties??=[];s.militaryOrders??=[];s.sieges??=[];s.nextSiegeId??=1;s.nextDiplomacyId??=1;s.nextOrderId??=1;
  s.logisticsRouteVersion??=0;
- s.tradeOffers=s.tradeOffers||[];s.tradeRoutes=s.tradeRoutes||[];s.domesticRoads??=[];s.domesticRoadJobs??=[];s.nextDomesticRoadId??=1;s.bridges??=[];s.bridgeJobs??=[];s.nextBridgeId??=1;
+ s.tradeOffers=s.tradeOffers||[];s.tradeRoutes=s.tradeRoutes||[];s.domesticRoads??=[];s.domesticRoadJobs??=[];s.nextDomesticRoadId??=1;s.bridges??=[];s.bridgeJobs??=[];s.nextBridgeId??=1;s.nextBoatId??=1;
  s.nextProjectId=s.nextProjectId||1;s.nextTradeId=s.nextTradeId||1;
  s.nextBuildingId=s.nextBuildingId||1;
  prepareMineralVeins(s.tiles,s.seed,false);
@@ -1944,7 +1946,7 @@ function migrateGameplay(s){
  // Barren legacy mines keep extracting Stone; never manufacture Iron veins merely to preserve an old mine.
  for(const p of s.players){
   if(p.materials!==undefined){const old=Math.max(0,p.materials);p.wood=(p.wood||0)+Math.ceil(old*.6);p.ore=(p.ore||0)+Math.floor(old*.4);delete p.materials;}
-  p.wood??=10;p.marketingUntil??=0;p.warehouse??={};p.caravans??=[];p.caravanPolicy??='nearest';p.handHaulingPolicy??='wait';
+  p.wood??=10;p.marketingUntil??=0;p.warehouse??={};p.caravans??=[];p.boats??=[];p.caravanPolicy??='nearest';p.handHaulingPolicy??='wait';
   if(!Number.isFinite(p.gold))p.gold=0;
   p.gold=Math.max(-CREDIT_LIMIT_SP,p.gold);
   p.minerals??=emptyMinerals();
@@ -3780,7 +3782,7 @@ function finishRound(){
  }
  progressShipments();runAgricultureAndForestry();
  for(const p of G.players)extractMinesForRound(p);
- autoDispatchOutputs();autoRequestFactoryInputs();processFactories();autoDispatchOutputs();autoRequestFactoryInputs();
+ autoDispatchOutputs();autoDispatchBoats();autoRequestFactoryInputs();processFactories();autoDispatchOutputs();autoDispatchBoats();autoRequestFactoryInputs();
  for(const route of G.tradeRoutes.filter(r=>r.status==='active')){G.players[route.a].gold+=2;G.players[route.b].gold+=2;}
  resolveSieges();expireTreaties();
  addLog(`Round ${G.round} concluded. Population, production and maintenance updated.`);
