@@ -3652,12 +3652,18 @@ function endTurn(){
 function cpuStep(){if(!G||G.finished)return;const id=G.turnIndex;if(id<1||id>3){cpuBusy=false;return;}const p=G.players[id];beginTurn(id);for(let step=0;step<MAJOR_ACTIONS;step++){const spent=actionsUsed(p);runCpu(id);if(actionsUsed(p)===spent)break;}advanceWorldTurn();save();render();if(id===3){setTimeout(()=>{if(G)finishRound();},400);}else{G.turnIndex=id+1;save();setTimeout(cpuStep,470);}}
 function playCpuOpeningCard(id){
  const p=G.players[id];if(p.cardPlayed)return false;
- let playable=p.hand.findIndex(c=>['grant','harvest','supplies','insight'].includes(c));
- if(playable<0)playable=p.hand.findIndex(c=>c==='charter');if(playable<0)playable=p.hand.findIndex(c=>c==='permit');
- return playable>=0?playCard(id,playable):false;
+ const w=cpuPersonality(p).weights,eco=getEconomy(id);
+ const scores={grant:8*w.economy+(p.gold<12?10:0),
+  harvest:8*w.food+(p.food<9||eco.netFood<0?10:0),
+  supplies:8*w.industry+(p.wood<9?8:0),
+  insight:8*w.science+(p.knowledge<6?4:0),
+  charter:8*w.expand,permit:8*Math.max(w.industry,w.science,w.military)};
+ const pick=p.hand.map((card,i)=>({i,score:(scores[card]||0)+cpuRoll(p,'card:'+i)*2}))
+  .sort((a,b)=>b.score-a.score)[0]?.i;
+ return pick==null?false:playCard(id,pick);
 }
 function cpuSecretWarOrder(id){
- const p=G.players[id],enemies=opponentsAtWar(id);
+ const p=G.players[id],enemies=opponentsAtWar(id),mind=cpuPersonality(p);
  if(!p||!enemies.length||p.siegePlanningRound===G.round)return;
  p.siegePlanningRound=G.round;
  for(const s of G.sieges||[])if(['breached','aftermath'].includes(s.status)){
@@ -3665,11 +3671,11 @@ function cpuSecretWarOrder(id){
    const tile=G.tiles.find(t=>t.id===s.targetTileId);
    const adjacent=tile?neighbors(tile).filter(t=>t.owner===s.defender&&!t.capital&&!activeSiege(t.id)):[];
    const ready=siegeTeam(s,'attacker').length;
-   const choice=ready<2?'retreat':adjacent.length&&ready>=5?'push':'claim';
+   const choice=ready<2?'retreat':adjacent.length&&ready>=(mind.aggression>.72?4:7)?'push':'claim';
    warChooseAfternath(s,choice,adjacent[0]?.id,id);
   }else if(s.defender===id&&s.lateDefenderIds?.length){
    const able=s.lateDefenderIds.filter(cid=>p.citizens.some(c=>c.id===cid&&c.health>0));
-   const choice=able.length>=3?'attack':'guard';
+   const choice=able.length>=(mind.aggression>.72?2:5)?'attack':'guard';
    if(!warChooseAfternath(s,choice,null,id))warChooseAfternath(s,'retreat',null,id);
   }
  }
@@ -3679,8 +3685,8 @@ function cpuSecretWarOrder(id){
   if(s.status!=='active'||![s.attacker,s.defender].includes(id))continue;
   const side=s.attacker===id?'attacker':'defender';
   const kind=side==='attacker'
-   ?(s.roundNumber%4===3&&s.preparation<2&&p.wood>1?'prepare':'assault')
-   :(s.supply<45&&p.food>=3?'resupply':s.fort<42&&p.wood>=2?'fortify':s.morale<45?'rally':s.roundNumber%4===3?'counterattack':'hold');
+   ?(s.roundNumber%4===3&&s.preparation<(mind.aggression>.7?1:3)&&p.wood>1?'prepare':'assault')
+   :(s.supply<(mind.caution>.75?60:38)&&p.food>=3?'resupply':s.fort<(mind.caution>.75?65:36)&&p.wood>=2?'fortify':s.morale<45?'rally':s.roundNumber%4===3&&mind.aggression>.7?'counterattack':'hold');
   setSiegeOrder(s.id,kind,id);
  }
  if(p.logisticsUsed)return;
@@ -3701,7 +3707,8 @@ function cpuSecretWarOrder(id){
  const enemyTargets=G.tiles.filter(t=>enemies.includes(t.owner)&&!t.capital&&
   neighbors(t).some(n=>n.owner===id)&&!activeSiege(t.id));
  // Prefer a campaign over passive patrols, but start one at a time per army.
- if(!(G.sieges||[]).some(s=>s.attacker===id&&['marching','active'].includes(s.status))){
+ if(!(G.sieges||[]).some(s=>s.attacker===id&&['marching','active'].includes(s.status))&&
+  (mind.aggression>.4||readyPosts.some(post=>postGarrison(p,post.id).filter(c=>!c.military.missionId).length>=8))){
   for(const t of enemyTargets){
    for(const post of readyPosts){
     if(!canStartSiege(t.id,post.id,id))continue;
@@ -3815,7 +3822,7 @@ function cpuEconomyAction(id){
  return false;
 }
 function runCpu(id){
- const p=G.players[id];
+ const p=G.players[id],mind=cpuPersonality(p);
  if(id!==0)cpuSecretWarOrder(id); // also works during resumed/fast-forwarded CPU turns.
  if(!p.cardPlayed)playCpuOpeningCard(id);
  // CPU nations may warn rivals when their frontiers converge; players can respond by expanding or backing off.
@@ -3827,12 +3834,12 @@ function runCpu(id){
    &&!G.diplomaticFalcons.some(note=>note.kind==='retract'&&note.warningId===w.id&&note.status==='flying'));
   if(stale.length&&G.round%4===id%4){
    const w=stale[0],chance=mulberry32(hash(G.seed+':withdraw-threat:'+w.id+':'+G.round));
-   if(chance()<.34&&sendDiplomaticFalcon(0,'retract',w.tileId,id,false,w.id))return;
+   if(chance()<.16+(1-mind.aggression)*.66&&sendDiplomaticFalcon(0,'retract',w.tileId,id,false,w.id))return;
   }
  }
  if(id!==0&&G.round>=3&&!currentWar(id,0)&&p.gold>=5){
   const sent=G.warnings.some(w=>w.from===id&&w.to===0&&(['active','violated','escalated'].includes(w.status)||(w.status==='rescinded'&&G.turnClock-(w.rescindedClock??0)<24)))||G.diplomaticFalcons.some(f=>f.from===id&&f.to===0&&f.kind==='warning'&&f.status==='flying');
-  if(!sent&&G.round%3===id%3){
+  if(!sent&&G.round%3===id%3&&cpuRoll(p,'warn')<mind.aggression*.85){
    const contested=G.tiles.filter(t=>t.owner===null&&t.terrain!=='water'&&
     G.tiles.some(v=>v.owner===0&&distance(v,t)<=2)&&G.tiles.some(v=>v.owner===id&&distance(v,t)<=2));
    if(contested.length&&sendDiplomaticFalcon(0,'warning',contested[0].id,id))return;
@@ -3840,15 +3847,17 @@ function runCpu(id){
  }
  // CPU countries also initiate peace treaties and defensive alliances,
  // delivered through the same Falcon inbox as human proposals.
- if(id!==0&&G.round>=4&&G.round%6===id%6&&actionsRemaining(p)>0&&hasMoney(p,1)){
+ if(id!==0&&G.round>=4&&G.round%6===id%6&&actionsRemaining(p)>0&&hasMoney(p,1)
+  &&cpuRoll(p,'diplomacy')<.2+mind.diplomacy*.75){
   const candidates=G.players.filter(v=>v.id!==id&&!currentWar(id,v.id)).sort((a,b)=>(a.id===0?-1:0)-(b.id===0?-1:0));
   for(const partner of candidates){
    const existing=activeTreaty(id,partner.id);
-   const kind=existing?.type==='treaty'?'alliance':G.round>=9&&G.round%3===0?'alliance':'treaty';
+   const kind=existing?.type==='treaty'&&mind.diplomacy>.55?'alliance':
+    G.round>=9&&mind.diplomacy>.75?'alliance':'treaty';
    if(canProposeTreaty(id,partner.id,kind)&&sendDiplomaticFalcon(partner.id,kind,null,id))return;
   }
  }
- if(G.round>=4&&G.round%4===id%4&&actionsRemaining(p)>0){
+ if(G.round>=4&&G.round%4===id%4&&actionsRemaining(p)>0&&cpuRoll(p,'trade')<.12+mind.weights.trade*.36){
   const available=G.players.filter(v=>v.id!==id&&!alreadyLinked(id,v.id)&&idleBuilders(p).length&&idleBuilders(v).length);
   if(available.length&&p.gold>18&&proposeTradeRoute(available[0].id,50,id))return;
  }
