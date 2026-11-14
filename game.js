@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.35 — persistent multi-stop caravan collection circuits and fair pickup routing. */
+/* Global Standoff 0.4.36 — distinct CPU personalities, adaptive priorities, diplomacy and military strategy. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
