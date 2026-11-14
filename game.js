@@ -669,7 +669,7 @@ function boatLanding(tile){
   (G.rivers||[]).some(r=>(r.banks||[]).some(pair=>pair.includes(tile.id))));
 }
 function boatTravelRoute(owner,start,end){
- if(!start||!end||start.owner!==owner||end.owner!==owner||!boatLanding(start)||!boatLanding(end))return null;
+ if(!start||!end||(start.terrain!=='water'&&(start.owner!==owner||!boatLanding(start)))||end.owner!==owner||!boatLanding(end))return null;
  if(start.id===end.id)return {path:[start.id],cost:0};
  const dist=new Map([[start.id,0]]),prev=new Map(),pending=new Set([start.id]);
  while(pending.size){
@@ -1040,7 +1040,7 @@ function dispatchShipment(owner,from,to,item,qty,auto=false,preferredCart=null){
   return transferred>0;
  }
  const delivery=ownedPath(owner,src.tile,dst.tile);
- if(!delivery)return dispatchBoatShipment(owner,from,to,item,qty,auto);
+ if(!delivery)return preferredCart?false:dispatchBoatShipment(owner,from,to,item,qty,auto);
  const available=preferredCart
   ?(!preferredCart.shipmentId&&caravanHasDriver(p,preferredCart)?{cart:preferredCart,path:ownedPath(owner,G.tiles.find(t=>t.id===preferredCart.currentTileId),src.tile)}:null)
   :availableCaravan(owner,src.tile);
@@ -1654,7 +1654,7 @@ function setDeliveryRoute(tile,index,item,destination){
  const p=getCountry(),site=worksite(tile,index),automatic=destination==='auto';
  const target=automatic?null:siteLookup(0,destination);
  if(!active()||!site||tile.owner!==0||!(OUTPUTS[tile.buildings[index]]||[]).includes(item)||(!automatic&&!target)||destination===String(site.id))return false;
- if(target&&!ownedPath(0,tile,target.tile))return false;
+ if(target&&!ownedPath(0,tile,target.tile)&&!boatTravelRoute(0,tile,target.tile))return false;
  site.routes??={};
  if(automatic)delete site.routes[item];
  else site.routes[item]=destination==='depot'?'depot':Number(destination);
@@ -5134,7 +5134,7 @@ function bindEvents(){
   const field=e.target.closest('[data-road-from],[data-road-to],[data-trade-share]');
   if(field)refreshRouteEstimate(Number(field.dataset.roadFrom||field.dataset.roadTo||field.dataset.tradeShare));
  });
- el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'siege-world':showSheet('world');break;case 'expand':{const picked=[...el('territoryDetails').querySelectorAll('[data-expedition-citizen]')].map(node=>node.value).filter(Boolean);doExpand(t,0,picked);break;}case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'bridge':startBridge(t.id,button.dataset.bridgeNeighbor);break;case 'launch-boat':launchBoat(t,button.dataset.launchSite||'depot');break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Shipment dispatched with '+(GOOD_NAMES[item]||item):'No available wagon or log porter, route, or destination storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
+ el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'siege-world':showSheet('world');break;case 'expand':{const picked=[...el('territoryDetails').querySelectorAll('[data-expedition-citizen]')].map(node=>node.value).filter(Boolean);doExpand(t,0,picked);break;}case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'bridge':startBridge(t.id,button.dataset.bridgeNeighbor);break;case 'launch-boat':launchBoat(t,button.dataset.launchSite||'depot');break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Shipment dispatched with '+(GOOD_NAMES[item]||item):'No land bridge, reachable boat, available worker, or destination storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
  el('territoryDetails').addEventListener('change',e=>{
    if(e.target.matches('[data-expedition-citizen]')){
     const panel=el('territoryDetails'),first=panel.querySelector('[data-expedition-citizen="0"]'),second=panel.querySelector('[data-expedition-citizen="1"]');
