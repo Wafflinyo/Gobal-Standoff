@@ -1044,8 +1044,8 @@ function caravanWarehouseStatus(p,siteId){
   const back=siteLookup(p.id,job.returnSiteId||job.homeSiteId)?.tile?.name||'caravan warehouse';
   const heading=job.stage==='pickup'?from:job.stage==='return'?esc(back):to;
   const cargo=job.stage==='delivery'||job.stage==='unloading'?
-   (job.qty>0?`${job.qty} ${esc(GOOD_NAMES[job.item]||job.item)}`:'Empty — unloading'):
-   (job.stage==='pickup'?`Empty (will collect ${job.qty} ${esc(GOOD_NAMES[job.item]||job.item)})`:'Empty — returning');
+   (job.qty>0?esc(shipmentCargoText(job)):'Empty — unloading'):
+   (job.stage==='pickup'?`Empty (will collect ${esc(shipmentCargoText(job))})`:'Empty — returning');
   const stage={pickup:'Traveling to pickup',delivery:'Delivering',unloading:'Waiting for unloading space',return:'Returning to warehouse'}[job.stage]||job.stage;
   return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · ${job.waitingForDriver?'PAUSED · no driver':stage}</strong><small>Driver: ${driverLabel}</small><small>Current hex: ${where}</small><small>Heading to: ${heading}</small><small>Holding: ${cargo}</small><small>Route: ${from} → ${to} · ${Math.max(0,job.remaining||0)}T left in current leg</small>${control}</div>`;
  }).join('');
@@ -1060,7 +1060,7 @@ function shippingDashboard(){
   <label class="gs-routing-label">Workers when all wagons are busy <select data-hand-haul-policy><option value="wait" ${p.handHaulingPolicy!=='allow'?'selected':''}>Wait for a caravan</option><option value="allow" ${p.handHaulingPolicy==='allow'?'selected':''}>Allow 2-unit worker deliveries</option></select></label>
   ${!(p.caravans||[]).length?'<small>No wagons owned: eligible workers transport resources by hand automatically.</small>':!(p.caravans||[]).some(c=>caravanHasDriver(p,c))?'<small>No employed caravan drivers: hire eligible adults at a Caravan Warehouse to activate wagons.</small>':''}
   <label class="gs-routing-label">After delivery <select data-caravan-policy><option value="nearest" ${p.caravanPolicy==='nearest'?'selected':''}>Closest warehouse</option><option value="home" ${p.caravanPolicy==='home'?'selected':''}>Original warehouse</option><option value="stay" ${p.caravanPolicy==='stay'?'selected':''}>Stay if destination has space</option></select></label>
-  ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.kind==='porter'?'Worker':'Wagon'} · ${j.stage==='return'?'Returning empty':j.stage==='pickup'?('Going to collect '+j.qty+' '+(GOOD_NAMES[j.item]||j.item)):(j.qty+' '+(GOOD_NAMES[j.item]||j.item))} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
+  ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.kind==='porter'?'Worker':'Wagon'} · ${j.stage==='return'?'Returning empty':j.stage==='pickup'?('Going to collect '+shipmentCargoText(j)):shipmentCargoText(j)} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
 }
 function runAgricultureAndForestry(){
  for(const p of G.players)for(const t of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<t.buildings.length;i++){
@@ -3796,7 +3796,7 @@ function renderTile(t){
   const storageLimit=siteStorageCapacity(type,meta.level),stored=stockUsed(meta);
   if(storageLimit>0)html+=`<div class="gs-storage-gauge"><b>Storage:</b> ${stored}/${storageLimit} units${stored>=storageLimit?' · FULL — production halted until collected':''}<div class="gs-storage-track"><span style="width:${Math.min(100,100*stored/storageLimit)}%"></span></div><small>Higher building levels increase storage capacity.</small></div>`;
   const outgoing=G.shipments.filter(job=>job.owner===p.id&&job.from===meta.id);
-  html+=`<div class="gs-site-inventory"><small><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>On the road: ${outgoing.slice(0,4).map(job=>`${job.qty} ${GOOD_NAMES[job.item]||job.item} (${job.remaining}T)`).join(' · ')}`:''}</small></div>`;
+  html+=`<div class="gs-site-inventory"><small><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>On the road: ${outgoing.slice(0,4).map(job=>`${shipmentCargoText(job)} (${job.remaining}T)`).join(' · ')}`:''}</small></div>`;
   if(isOwn&&type==='caravanWarehouse')html+=caravanWarehouseStatus(p,meta.id);
   if(isOwn&&type==='storageWarehouse'&&stockList.length){
    const targets=routingTargets(p,meta.id);
