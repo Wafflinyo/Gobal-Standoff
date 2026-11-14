@@ -76,7 +76,7 @@ const RECIPES={
  diamondArmor:{name:'Diamond-Reinforced Steel',input:{steel:2,diamond:1},output:'diamondArmor'}
 };
 const FACTORY_RECIPES={foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
-const OUTPUTS={farm:['food','leather'],lumber:['wood'],mine:['stone',...MINERAL_KEYS],foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['wood','woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
+const OUTPUTS={farm:['food','leather'],lumber:['wood'],mine:['stone',...MINERAL_KEYS],foundry:['steel'],leatherFactory:['leatherArmor'],woodworks:['woodShield'],stoneworks:['stoneAxe','stonePickaxe','stoneSword','stoneClub'],armory:['ironArmor','steelArmor','goldArmor','diamondArmor']};
 const GOOD_NAMES={food:'Food',wood:'Logs',stone:'Stone',leather:'Raw Leather',coal:'Coal',iron:'Iron',copper:'Copper',silver:'Silver',goldOre:'Gold Ore',diamond:'Diamonds',steel:'Steel',woodShield:'Wooden Shield',stoneAxe:'Stone Axe',stonePickaxe:'Stone Pickaxe',stoneSword:'Stone Sword',stoneClub:'Stone Club',leatherArmor:'Leather Armor',ironArmor:'Iron Armor',steelArmor:'Steel Armor',goldArmor:'Gold-Reinforced Steel',diamondArmor:'Diamond-Reinforced Steel'};
 
 // v0.4.30: individually craftable helmets, chest plates, weapons and shields.
