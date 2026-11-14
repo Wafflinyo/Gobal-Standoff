@@ -887,6 +887,23 @@ function domesticRoadEdge(a,b){
  const corners=t=>Array.from({length:6},(_,i)=>{const xy=coords(t),rad=i*Math.PI/3+Math.PI/6;return {x:xy.x+HEX*Math.cos(rad),y:xy.y+HEX*Math.sin(rad)};});
  const ac=corners(a),bc=corners(b);return ac.filter(v=>bc.some(w=>Math.hypot(v.x-w.x,v.y-w.y)<.1)).slice(0,2);
 }
+function bridgeMapVisuals(){
+ return [...(G.bridges||[]),...(G.bridgeJobs||[])].map(j=>{
+  const a=G.tiles.find(t=>t.id===j.aId),b=G.tiles.find(t=>t.id===j.bId);
+  if(!a||!b)return '';
+  const left=sceneCoords(a),right=sceneCoords(b);
+  const p=project(left.x*.75+right.x*.25,left.y*.75+right.y*.25);
+  const q=project(left.x*.25+right.x*.75,left.y*.25+right.y*.75);
+  const dx=q.x-p.x,dy=q.y-p.y,len=Math.hypot(dx,dy)||1,nx=-dy/len,ny=dx/len;
+  const d=`M${p.x.toFixed(1)},${p.y.toFixed(1)}L${q.x.toFixed(1)},${q.y.toFixed(1)}`;
+  const slats=Array.from({length:8},(_,i)=>{
+   const x=p.x+dx*(i+.5)/8,y=p.y+dy*(i+.5)/8;
+   return `<path d="M${(x-nx*6).toFixed(1)},${(y-ny*6).toFixed(1)}L${(x+nx*6).toFixed(1)},${(y+ny*6).toFixed(1)}" stroke="#664534" stroke-width="1.3"/>`;
+  }).join('');
+  const opacity=(G.bridgeJobs||[]).includes(j)?'.45':'1';
+  return `<g class="gs-bridge" opacity="${opacity}" pointer-events="none"><path d="${d}" stroke="#57402b" stroke-width="20" stroke-linecap="round"/><path d="${d}" stroke="#c49a66" stroke-width="15"/><path d="${d}" stroke="#e2bb7b" stroke-width="12"/>${slats}</g>`;
+ }).join('');
+}
 function domesticRoadVisuals(){
  const visuals=[];
  for(const road of [...(G.domesticRoads||[]),...(G.domesticRoadJobs||[])]){
@@ -4847,6 +4864,24 @@ function porterVisuals(depthEntries=false){
  });
  return depthEntries?entries.filter(Boolean):entries.filter(Boolean).join('');
 }
+function boatVisuals(depthEntries=false){
+ const entries=G.players.flatMap(p=>(p.boats||[]).map(boat=>{
+  const tile=G.tiles.find(t=>t.id===boat.currentTileId);if(!tile)return null;
+  const world=sceneCoords(tile),pt=project(world.x+11,world.y+7);
+  const job=G.shipments.find(j=>j.id===boat.shipmentId),cargo=!!job&&['delivery','unloading'].includes(job.stage);
+  const artwork=billboardSvg(pt.x,pt.y,`<g class="gs-boat" transform="translate(${pt.x.toFixed(1)},${pt.y.toFixed(1)})" pointer-events="none">
+   <ellipse cx="0" cy="8" rx="20" ry="5" fill="#144f66" opacity=".35"/>
+   <g><animateTransform attributeName="transform" type="translate" values="0,0;0,1.4;0,0" dur="2s" repeatCount="indefinite"/>
+    <path d="M-18 0Q0 7 18 0L12 10Q0 15 -12 10Z" fill="#a16c45" stroke="#51372c" stroke-width="1.5"/>
+    <path d="M0 -27V4" stroke="#58432b" stroke-width="2.5"/>
+    <path d="M-2 -26Q-14 -11 -3 -1Z" fill="#f9ecd4" stroke="#88785b" stroke-width="1"/>
+    <path d="M2 -19Q15 -9 3 -2Z" fill="${p.color}" stroke="#425061" stroke-width="1"/>
+    ${cargo?'<rect x="7" y="0" width="7" height="5" fill="#e7c78a" stroke="#53422c" stroke-width="1"/>':''}
+   </g></g>`);
+  return depthEntries?{x:pt.x,y:pt.y+6,html:artwork}:artwork;
+ }));
+ return depthEntries?entries.filter(Boolean):entries.filter(Boolean).join('');
+}
 function caravanVisuals(depthEntries=false){
  const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches||false;
  const graphics=G.players.flatMap(p=>(p.caravans||[]).map(cart=>{
@@ -4940,10 +4975,11 @@ function renderMap(){
    const d='M'+projected.map(p=>`${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' L');
    return `<g class="river-course" pointer-events="none"><path d="${d}" stroke="#49675b" stroke-width="12" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".82"/><path d="${d}" stroke="#398aab" stroke-width="8.2" stroke-linejoin="round" stroke-linecap="round" fill="none"/><path d="${d}" stroke="#a0dbe5" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round" fill="none" opacity=".77"/></g>`;
   }).join('');
- const tradeLines=roadVisuals()+domesticRoadVisuals();
+ const tradeLines=roadVisuals()+domesticRoadVisuals()+bridgeMapVisuals();
  const ownerOutlines=ownedTerritoryOutlines(),threatBorders=threatenedHexBorders(),siegeMarks=siegeMapVisuals();
  depthItems.push(...porterVisuals(true));
  depthItems.push(...caravanVisuals(true));
+ depthItems.push(...boatVisuals(true));
  const objects=depthItems.map((obj,index)=>`<g data-depth-x="${obj.x.toFixed(2)}" data-depth-y="${obj.y.toFixed(2)}" data-depth-order="${index}" pointer-events="none">${obj.html}</g>`).join('');
  const movementOverlays=falconVisuals()+diplomaticFalconVisuals()+expeditionTrailVisuals()+visibleWarOrderMarkers();
  const upperLabels=constructionHudLabels()+roadHudLabels();
