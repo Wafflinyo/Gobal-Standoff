@@ -518,8 +518,8 @@ function upgradePrice(t,index){
 function upgradeBuilding(t,index,id=0){
  const p=G.players[id],meta=worksite(t,index),cost=upgradePrice(t,index);
  if(!canCountryAct(p,id)||!allowed(p,t)||!meta||!cost)return false;
- if(!idleBuilders(p).length||G.projects.some(j=>j.upgradeSiteId===meta.id)||!hasMoney(p,cost.gold)||p.wood<cost.wood||mineralCount(p,'iron')<cost.iron)return false;
- p.gold-=cost.gold;p.wood-=cost.wood;p.minerals.iron-=cost.iron;
+ if(!idleBuilders(p).length||G.projects.some(j=>j.upgradeSiteId===meta.id)||!hasMoney(p,cost.gold)||nationalResourceCount(p,'wood')<cost.wood||nationalResourceCount(p,'iron')<cost.iron)return false;
+ p.gold-=cost.gold;spendNationalResource(p,'wood',cost.wood);spendNationalResource(p,'iron',cost.iron);
  const duration=Math.max(2,meta.level*2);
  const job={id:G.nextProjectId++,owner:id,tileId:t.id,type:t.buildings[index],upgradeSiteId:meta.id,remaining:duration,total:duration,startedRound:G.round,builderIds:[]};
  G.projects.push(job);appointBuilder(p,job,t);
@@ -675,7 +675,7 @@ function pathCost(owner,path){let cost=0;for(let i=1;i<(path?.length||0);i++){
  }return cost;
 }
 function canStartDomesticRoad(a,b,owner){
- const p=G.players[owner];return !!a&&!!b&&a.owner===owner&&b.owner===owner&&a.terrain!=='water'&&b.terrain!=='water'&&distance(a,b)===1&&!domesticRoadExists(a,b)&&!roadJobBetween(a,b)&&idleBuilders(p).length>0&&hasMoney(p,LOCAL_ROAD_SP)&&p.wood>=LOCAL_ROAD_WOOD;
+ const p=G.players[owner];return !!a&&!!b&&a.owner===owner&&b.owner===owner&&a.terrain!=='water'&&b.terrain!=='water'&&distance(a,b)===1&&!domesticRoadExists(a,b)&&!roadJobBetween(a,b)&&idleBuilders(p).length>0&&hasMoney(p,LOCAL_ROAD_SP)&&nationalResourceCount(p,'wood')>=LOCAL_ROAD_WOOD;
 }
 function startDomesticRoad(aId,bId,owner=0){
  const p=G.players[owner],a=G.tiles.find(t=>t.id===aId),b=G.tiles.find(t=>t.id===bId);
@@ -683,7 +683,7 @@ function startDomesticRoad(aId,bId,owner=0){
  const worker=idleBuilders(p)[0],origin=G.tiles.find(t=>t.id===worker.builder.locationId)||capitalOf(owner),roadId=G.nextDomesticRoadId++;
  const route=countryTravelRoute(owner,origin,a);if(!route)return false;
  const job={id:roadId,key:domesticRoadKey(aId,bId),owner,aId,bId,builderId:worker.id,remaining:2,startedClock:G.turnClock||0};
- p.gold-=LOCAL_ROAD_SP;p.wood-=LOCAL_ROAD_WOOD;
+ p.gold-=LOCAL_ROAD_SP;spendNationalResource(p,'wood',LOCAL_ROAD_WOOD);
  worker.builder.projectId='domestic-'+roadId;worker.builder.travelRemaining=route.turns;
  worker.builder.destinationId=a.id;G.domesticRoadJobs.push(job);
  useAction(p,`${p.name} began paving the border between ${a.name} and ${b.name}.`,{tileId:a.id,kind:'road'});
@@ -1543,10 +1543,10 @@ function advanceCitizenHealthAndMortality(p){
   if(morale<15)health-=2;
   else if(morale<35)health-=1;
   else if(morale<45&&G.round%2===0)health-=1;
-  else if(!hauling&&morale>=65&&p.food>0&&p.gold>=0)health++;
+  else if(!hauling&&morale>=65&&nationalResourceCount(p,'food')>0&&p.gold>=0)health++;
   if(citizen.age>=70&&G.round%4===0)health--;
   citizen.health=Math.max(0,Math.min(100,health));
-  if(!hauling&&p.food>0&&p.gold>=0&&citizen.morale<95){
+  if(!hauling&&nationalResourceCount(p,'food')>0&&p.gold>=0&&citizen.morale<95){
    citizen.morale=Math.min(100,citizen.morale+1);
   }
   const chance=citizenDeathProbability(citizen);
@@ -1568,7 +1568,7 @@ function advanceCitizenHealthAndMortality(p){
  return losses;
 }
 function newCitizensForRound(p){
- const summary=peopleSummary(p);if(p.food<=0||summary.homeless>=7||summary.count>=150)return;
+ const summary=peopleSummary(p);if(nationalResourceCount(p,'food')<=0||summary.homeless>=7||summary.count>=150)return;
  const rng=mulberry32(hash(G.seed+':'+G.round+':'+p.id+':'+p.nextCitizenId));
  p.citizens.push(makeCitizen(p,rng));reallocateHousing(p);
 }
@@ -2585,8 +2585,8 @@ function resolveSieges(){
   const supplyBefore=s.supply;
   const drain=aOrder==='blockade'?7:aOrder==='disrupt'?10:3;
   s.supply=Math.max(0,s.supply-drain);
-  if(aOrder==='prepare'&&attacker.wood>=1){attacker.wood--;s.preparation=Math.min(3,(s.preparation||0)+1);}
-  if(dOrder==='fortify'&&defender.wood>=2){defender.wood-=2;s.fort=Math.min(100,s.fort+5);s.destruction=Math.max(0,s.destruction-2);}
+  if(aOrder==='prepare'&&nationalResourceCount(attacker,'wood')>=1){spendNationalResource(attacker,'wood',1);s.preparation=Math.min(3,(s.preparation||0)+1);}
+  if(dOrder==='fortify'&&nationalResourceCount(defender,'wood')>=2){spendNationalResource(defender,'wood',2);s.fort=Math.min(100,s.fort+5);s.destruction=Math.max(0,s.destruction-2);}
   if(dOrder==='resupply'&&defender.food>=3&&neighbors(target).some(t=>t.owner===s.defender)){
    defender.food-=3;s.supply=Math.min(100,s.supply+15);
   }
@@ -3331,12 +3331,12 @@ function volunteerEachRound(p){
  const rng=mulberry32(hash(G.seed+':volunteer:'+G.round+':'+p.id));let count=0;
  const available=p.citizens.filter(c=>c.age>=18&&!c.military).sort((a,b)=>a.id.localeCompare(b.id));
  for(const c of available){
-  if(count>=2||p.food<1)break;
+  if(count>=2||nationalResourceCount(p,'food')<1)break;
   const open=posts.filter(t=>postGarrison(p,t.id).length<12);
   if(!open.length)break;
   if(rng()>volunteeringChance(c,p))continue;
   const post=open[randInt(rng,open.length)];
-  c.military={postId:post.id,training:1,experience:0,perk:null,gear:null,helmet:null,chest:null,shield:null,weapon:null,skill:29+randInt(rng,23)};p.food-=1;count++;
+  c.military={postId:post.id,training:1,experience:0,perk:null,gear:null,helmet:null,chest:null,shield:null,weapon:null,skill:29+randInt(rng,23)};spendNationalResource(p,'food',1);count++;
   addLog(`${c.name} volunteered for ${p.name}'s military at ${post.name}.`);
  }
 }
@@ -3385,7 +3385,7 @@ function allowed(p,t){return t&&t.owner===p.id;}
 function eligibleExpansion(p,t){return !!t&&t.owner===null&&t.terrain!=='water'&&!pendingClaim(t.id)&&!!idleExpedition(p)&&neighbors(t).some(n=>n.owner===p.id);}
 function expansionCost(p){return Math.max(0,5+2*(p.expansionsThisTurn||0)-p.discountExpand-(p.tech.includes('cartography')?2:0));}
 function buildingCost(p,b){return Math.max(0,b.gold-p.discountBuild);}
-function canBuild(p,t,b){return allowed(p,t)&&idleBuilders(p).length>0&&buildFree(t)>=b.space&&b.allow.includes(t.terrain)&&hasMoney(p,buildingCost(p,b))&&p.wood>=b.wood&&mineralCount(p,'iron')>=b.iron;}
+function canBuild(p,t,b){return allowed(p,t)&&idleBuilders(p).length>0&&buildFree(t)>=b.space&&b.allow.includes(t.terrain)&&hasMoney(p,buildingCost(p,b))&&nationalResourceCount(p,'wood')>=b.wood&&nationalResourceCount(p,'iron')>=b.iron;}
 function operatingCost(p,meta,type){
  const assigned=worksiteWorkers(p,meta).length;
  const extra=(G.shipments||[]).filter(j=>j.kind==='porter'&&j.owner===p.id&&String(j.from)===String(meta.id)
@@ -3491,8 +3491,8 @@ function mineralTrade(key,direction,id=0){
  const importing=direction==='buy',cost=Math.ceil(mineral.price*2.1);
  if(importing&&!['coal','iron','copper','silver'].includes(key))return false;
  if(importing&&!hasMoney(p,cost))return false;
- if(!importing&&mineralCount(p,key)<1)return false;
- if(importing){p.gold-=cost;p.minerals[key]++;}else{p.gold+=mineral.price;p.minerals[key]--;}
+ if(!importing&&nationalResourceCount(p,key)<1)return false;
+ if(importing){p.gold-=cost;addDepot(p,key,1);}else{p.gold+=mineral.price;spendNationalResource(p,key,1);}
  useAction(p,`${p.name} ${importing?'imported':'sold'} 1 ${mineral.name} for ${importing?cost:mineral.price} SP at the Global Exchange.`);
  if(id===0)showToast(`${importing?'Imported':'Sold'} ${mineral.name} · ${importing?'-':'+'}${importing?cost:mineral.price} SP`);
  return true;
@@ -3500,7 +3500,7 @@ function mineralTrade(key,direction,id=0){
 function renderMineralMarket(){
  const node=el('mineralBody');if(!node||!G)return;
  const p=getCountry();
- node.innerHTML=MINERAL_KEYS.map(key=>{const m=MINERALS[key],q=mineralCount(p,key),buy=Math.ceil(m.price*2.1);
+ node.innerHTML=MINERAL_KEYS.map(key=>{const m=MINERALS[key],q=nationalResourceCount(p,key),buy=Math.ceil(m.price*2.1);
   return `<div class="gs-mineral-item"><span class="gs-mineral-symbol">${m.icon}</span><div class="gs-mineral-copy"><strong>${m.name} × ${q}</strong><small>Sell: ${m.price} SP${['coal','iron','copper','silver'].includes(key)?` · Buy: ${buy} SP`: ' · Mine or trade to acquire'}</small></div><div class="gs-mineral-actions"><button data-mineral="${key}" data-direction="sell" ${!canAct()||q<=0?'disabled':''}>Sell</button>${['coal','iron','copper','silver'].includes(key)?`<button data-mineral="${key}" data-direction="buy" ${!canAct()||!hasMoney(p,buy)?'disabled':''}>Buy</button>`:''}</div></div>`;
  }).join('')+`<div class="gs-mineral-item"><span class="gs-mineral-symbol"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-steel"></use></svg></span><div class="gs-mineral-copy"><strong>Steel × ${mineralCount(p,'steel')}</strong><small>Delivered Steel in capital warehouse · manufacture in staffed Steelworks from 2 Iron + 1 Coal</small></div><div class="gs-mineral-actions"><small>Factory only</small></div></div>`;
 }
@@ -3522,10 +3522,10 @@ function doExpand(t,id=0,selectedCitizenIds=null){
   if(id===0)showToast('Choose 1 or 2 unemployed civilians aged 16+ to explore.');
   return false;
  }
- const cost=expansionCost(p);if(!hasMoney(p,cost)||p.food<2)return false;
+ const cost=expansionCost(p);if(!hasMoney(p,cost)||nationalResourceCount(p,'food')<2)return false;
  // Keep the existing departure zoom, overlay suspension and restore behavior.
  const playback=(id===0||cpuBusy)?startMapScenePlayback(t,'dispatch'):null;
- p.gold-=cost;p.food-=2;p.discountExpand=0;p.expansionsThisTurn=(p.expansionsThisTurn||0)+1;
+ p.gold-=cost;spendNationalResource(p,'food',2);p.discountExpand=0;p.expansionsThisTurn=(p.expansionsThisTurn||0)+1;
  const origin=G.tiles.find(v=>v.id===crew.locationId)||G.tiles.find(v=>v.owner===id&&v.capital);
  crew.targetId=t.id;crew.originId=(origin||t).id;crew.remaining=Math.max(1,countryTravelRoute(id,origin||t,t,true)?.turns??Math.ceil(distance(origin||t,t)));crew.travelTotal=crew.remaining;crew.startedClock=G.turnClock||0;
  crew.citizenIds=[...ids];crew.elapsed=0;crew.legacyInFlight=false;
@@ -3538,7 +3538,7 @@ function doExpand(t,id=0,selectedCitizenIds=null){
 function doBuild(t,type,id=0){
  const p=G.players[id],b=BUILDINGS[type];if(!canCountryAct(p,id)||!b||!canBuild(p,t,b))return false;
  const playback=(id===0||cpuBusy)?startMapScenePlayback(t,'work',-1,type):null;
- p.gold-=buildingCost(p,b);p.wood-=b.wood;p.minerals.iron-=b.iron;p.discountBuild=0;
+ p.gold-=buildingCost(p,b);spendNationalResource(p,'wood',b.wood);spendNationalResource(p,'iron',b.iron);p.discountBuild=0;
  const duration=Math.max(2,b.rounds*2);
  const job={id:G.nextProjectId++,owner:id,tileId:t.id,type,remaining:duration,total:duration,startedRound:G.round,builderIds:[]};
  G.projects.push(job);appointBuilder(p,job,t);
@@ -3560,8 +3560,8 @@ function doRecruit(t,id=0){return doMarketing(t,id);}
 function doTrain(t,id=0){
  const p=G.players[id];if(!canCountryAct(p,id)||!allowed(p,t)||!buildingCount(t,'post'))return false;
  const soldiers=postGarrison(p,t.id).filter(c=>c.military.training<5&&!c.military.missionId).slice(0,3);
- if(!soldiers.length||!hasMoney(p,3)||p.food<1)return false;
- p.gold-=3;p.food-=1;
+ if(!soldiers.length||!hasMoney(p,3)||nationalResourceCount(p,'food')<1)return false;
+ p.gold-=3;spendNationalResource(p,'food',1);
  for(const c of soldiers){c.military.training++;c.military.skill=Math.min(100,warSkill(c)+8);if(c.military.training>=3&&!c.military.perk)c.military.perk='Disciplined';}
  useAction(p,`${p.name} trained ${soldiers.length} troops at ${t.name}.`,{tileId:t.id,kind:'train'});
  if(id===0)showToast('Training completed');return true;
@@ -3575,7 +3575,7 @@ function moveSoldier(citizenId,destinationId){
  citizen.military.postId=destinationId;p.logisticsUsed=true;
  addLog(`${citizen.name} reassigned to ${destination.name}.`);save();render();showToast(`${citizen.name} transferred to ${destination.name}`);return true;
 }
-function doLevy(id=0){const p=G.players[id];if(!canCountryAct(p,id)||p.levyUsed)return false;const foodCost=Math.min(2,p.food);p.gold+=6;p.food-=foodCost;p.levyUsed=true;useAction(p,`${p.name} raised emergency taxes: +6 SP, −${foodCost} Food.`);if(id===0)showToast('Emergency taxes collected: +6 Silver Pents');return true;}
+function doLevy(id=0){const p=G.players[id];if(!canCountryAct(p,id)||p.levyUsed)return false;const foodCost=Math.min(2,nationalResourceCount(p,'food'));p.gold+=6;spendNationalResource(p,'food',foodCost);p.levyUsed=true;useAction(p,`${p.name} raised emergency taxes: +6 SP, −${foodCost} Food.`);if(id===0)showToast('Emergency taxes collected: +6 Silver Pents');return true;}
 function doResearch(type,id=0){const p=G.players[id],t=TECHS[type];if(!canCountryAct(p,id)||!t||p.tech.includes(type)||!hasMoney(p,t.gold)||p.knowledge<t.knowledge)return false;p.gold-=t.gold;p.knowledge-=t.knowledge;p.tech.push(type);useAction(p,`${p.name} completed research: ${t.name}.`);if(id===0)showToast(`${t.name} researched`);return true;}
 function playCard(id,idx){const p=G.players[id];if(!p||p.cardPlayed||idx<0||idx>=p.hand.length||G.turnIndex!==id||G.finished)return false;const type=p.hand[idx];p.cardPlayed=true;p.hand.splice(idx,1);
  switch(type){case'grant':p.gold+=6;break;case'harvest':p.food+=5;break;case'supplies':p.wood+=3;p.minerals.iron+=2;break;case'insight':p.knowledge+=3;break;case'charter':p.discountExpand+=3;break;case'permit':p.discountBuild+=3;break;}
@@ -3593,10 +3593,10 @@ function finishRound(){
    for(const c of p.citizens||[])if(!c.military)c.morale=Math.max(0,(c.morale??50)-penalty);
    addLog(`${p.name} reached its −${CREDIT_LIMIT_SP} SP credit limit; ${unfunded} SP in operating costs could not be paid. Civilian morale fell.`);
   }
-  p.food=Math.max(0,p.food+e.netFood);p.wood+=e.wood;p.knowledge+=e.knowledge;
+  nationalBalance(p,'food',e.netFood);nationalBalance(p,'wood',e.wood);p.knowledge+=e.knowledge;
   const wars=opponentsAtWar(p.id).length;for(const c of p.citizens){if(c.military)continue;c.morale=Math.max(0,Math.min(100,(c.morale??50)-(wars?Math.min(4,wars*2):0)));}
   if(p.gold<0&&oldGold>=0)addLog(`${p.name} entered debt; the −${CREDIT_LIMIT_SP} SP credit ceiling limits spending.`);
-  if(p.food===0&&e.netFood<0)addLog(`${p.name} is experiencing a food shortage. Population growth paused.`);
+  if(nationalResourceCount(p,'food')===0&&e.netFood<0)addLog(`${p.name} is experiencing a food shortage. Population growth paused.`);
   if(G.round%4===0)for(const c of p.citizens)c.age++;
   advanceCitizenHealthAndMortality(p);
   newCitizensForRound(p);
