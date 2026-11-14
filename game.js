@@ -1340,13 +1340,13 @@ function caravanWarehouseStatus(p,siteId){
   ${policy}</div>`;
 }
 function shippingDashboard(){
- const p=getCountry(),jobs=G.shipments.filter(j=>j.owner===0),carts=p.caravans||[];
- return `<div class="gs-shipping-summary"><b>Caravan logistics · ${carts.filter(c=>!c.shipmentId&&caravanHasDriver(p,c)).length}/${carts.length} staffed wagons available</b>
+ const p=getCountry(),jobs=G.shipments.filter(j=>j.owner===0),carts=p.caravans||[],boats=p.boats||[];
+ return `<div class="gs-shipping-summary"><b>Logistics · ${carts.filter(c=>!c.shipmentId&&caravanHasDriver(p,c)).length}/${carts.length} wagons · ${boats.filter(b=>!b.shipmentId).length}/${boats.length} boats available</b>
   <small>Wagons carry 10 units each and require one employed adult citizen driver per wagon. Drivers are full-time workers and cannot hold another job or join expeditions. A hand porter carries 2 units when permitted. A hand trip takes 8 world turns per unpaved hex (6 on paved borders), each way; longer trips reduce worker morale and can affect health.</small>
   <label class="gs-routing-label">Workers when all wagons are busy <select data-hand-haul-policy><option value="wait" ${p.handHaulingPolicy!=='allow'?'selected':''}>Wait for a caravan</option><option value="allow" ${p.handHaulingPolicy==='allow'?'selected':''}>Allow 2-unit worker deliveries</option></select></label>
   ${!(p.caravans||[]).length?'<small>No wagons owned: eligible workers transport resources by hand automatically.</small>':!(p.caravans||[]).some(c=>caravanHasDriver(p,c))?'<small>No employed caravan drivers: hire eligible adults at a Caravan Warehouse to activate wagons.</small>':''}
   <label class="gs-routing-label">After delivery <select data-caravan-policy><option value="nearest" ${p.caravanPolicy==='nearest'?'selected':''}>Closest warehouse</option><option value="home" ${p.caravanPolicy==='home'?'selected':''}>Original warehouse</option><option value="stay" ${p.caravanPolicy==='stay'?'selected':''}>Stay if destination has space</option></select></label>
-  ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.kind==='porter'?'Worker':'Wagon'} · ${j.stage==='return'?'Returning empty':j.stage==='pickup'?('Going to collect '+shipmentCargoText(j)):shipmentCargoText(j)} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
+  ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.kind==='porter'?'Worker':j.kind==='boat'?'Boat':'Wagon'} · ${j.stage==='return'?'Returning empty':j.stage==='pickup'?('Going to collect '+shipmentCargoText(j)):shipmentCargoText(j)} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
 }
 function runAgricultureAndForestry(){
  for(const p of G.players)for(const t of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<t.buildings.length;i++){
@@ -4199,6 +4199,7 @@ function renderTile(t){
   const outgoing=G.shipments.filter(job=>job.owner===p.id&&job.from===meta.id);
   html+=`<div class="gs-site-inventory"><small><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-storage"></use></svg> On-site: ${stockList.length?stockList.map(([k,v])=>`${v} ${GOOD_NAMES[k]||k}`).join(' · '):'Empty'}${outgoing.length?`<br>On the road: ${outgoing.slice(0,4).map(job=>`${shipmentCargoText(job)} (${job.remaining}T)`).join(' · ')}`:''}</small></div>`;
   if(isOwn&&type==='caravanWarehouse')html+=caravanWarehouseStatus(p,meta.id);
+  if(isOwn&&boatLanding(t)&&localCount(meta,'boat')>0)html+=`<button class="action-btn" data-action="launch-boat" data-launch-site="${meta.id}" ${!active()?'disabled':''}>Launch Boat · ${localCount(meta,'boat')} ready <span>Reusable 10-unit water transport</span></button>`;
   if(isOwn&&type==='storageWarehouse'&&stockList.length){
    const targets=routingTargets(p,meta.id);
    html+=`<div class="gs-storage-actions"><strong>Ship stored goods by wagon or worker (when allowed)</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship (10 wagon / 2 worker)</button></div>`).join('')}</div>`;
@@ -4262,11 +4263,23 @@ function renderTile(t){
    html+='<p class="empty-note">'+(busy&&border?'Your civilian expedition is underway. Wait until it returns before sending another.':'Expand from your own border to reach this territory.')+'</p>';
   }
  else if(isOwn){
+  if(t.capital&&boatLanding(t)&&depotCount(p,'boat')>0)html+=`<button class="action-btn" data-action="launch-boat" data-launch-site="depot" ${!active()?'disabled':''}>Launch Boat from Capital · ${depotCount(p,'boat')} ready</button>`;
+  const docked=(p.boats||[]).filter(boat=>boat.currentTileId===t.id);
+  if(docked.length)html+=`<div class="gs-crew-status">⛵ ${docked.length} boat${docked.length===1?'':'s'} here · ${docked.filter(b=>!b.shipmentId).length} available · 10 items each</div>`;
   const adjacentOwned=neighbors(t).filter(n=>n.owner===0&&n.terrain!=='water');
   if(adjacentOwned.length){
    html+='<div class="gs-local-road-list"><strong>Domestic roads · Faster internal travel</strong><small>Pave the shared border for 3 SP + 1 Log. Requires an idle builder, travel time, and 2 construction turns. Completed roads speed up caravans, builders, expeditions and soldiers.</small>';
    for(const n of adjacentOwned){const paved=domesticRoadExists(t,n),job=roadJobBetween(t,n),afford=canStartDomesticRoad(t,n,0);
     html+=`<div class="gs-local-road-row"><span>${esc(n.name)} <small>${paved?'Paved road operational':job?'Crew constructing · '+job.remaining+'T work left':'Unpaved border'}</small></span>${!paved&&!job?`<button data-action="domestic-road" data-road-neighbor="${esc(n.id)}" ${!canAct()||!afford?'disabled':''}>Build road · 3 SP</button>`:''}</div>`;
+   }
+   html+='</div>';
+  }
+  const crossingBanks=[...neighbors(t).filter(n=>n.owner===0&&riverCrossing(t,n)),...G.tiles.filter(n=>n.owner===0&&n.id!==t.id&&lakeBridgeSpan(t,n))];
+  if(crossingBanks.length){
+   html+='<div class="gs-local-road-list"><strong>Bridges · Cross water</strong><small>Craft Bridge Kits at Woodworks and deliver them to storage. A builder uses 1 kit and 2 SP for a bridge over a river border or a one-hex lake gap. Caravans cannot cross until the bridge is completed.</small>';
+   for(const n of crossingBanks){
+    const finished=bridgeExistsBetween(t,n),job=bridgeJobBetween(t,n),allowed=canStartBridge(t,n,0);
+    html+=`<div class="gs-local-road-row"><span>${esc(n.name)} <small>${crossingType(t,n)==='lake'?'Lake span':'River border'} · ${finished?'Bridge open':job?'Under construction · '+job.remaining+'T':'No bridge'}</small></span>${!finished&&!job?`<button data-action="bridge" data-bridge-neighbor="${esc(n.id)}" ${!active()||!allowed?'disabled':''}>Build bridge · 1 kit + 2 SP</button>`:''}</div>`;
    }
    html+='</div>';
   }
@@ -5121,7 +5134,7 @@ function bindEvents(){
   const field=e.target.closest('[data-road-from],[data-road-to],[data-trade-share]');
   if(field)refreshRouteEstimate(Number(field.dataset.roadFrom||field.dataset.roadTo||field.dataset.tradeShare));
  });
- el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'siege-world':showSheet('world');break;case 'expand':{const picked=[...el('territoryDetails').querySelectorAll('[data-expedition-citizen]')].map(node=>node.value).filter(Boolean);doExpand(t,0,picked);break;}case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Shipment dispatched with '+(GOOD_NAMES[item]||item):'No available wagon or log porter, route, or destination storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
+ el('territoryDetails').addEventListener('click',e=>{const button=e.target.closest('[data-action]');if(!button||!active())return;const t=getSelected();if(!t)return;switch(button.dataset.action){case 'siege-world':showSheet('world');break;case 'expand':{const picked=[...el('territoryDetails').querySelectorAll('[data-expedition-citizen]')].map(node=>node.value).filter(Boolean);doExpand(t,0,picked);break;}case 'domestic-road':startDomesticRoad(t.id,button.dataset.roadNeighbor);break;case 'bridge':startBridge(t.id,button.dataset.bridgeNeighbor);break;case 'launch-boat':launchBoat(t,button.dataset.launchSite||'depot');break;case 'open-build':showBuild=true;showResearch=false;render();break;case 'sell':doSell(t,Number(button.dataset.index||0));break;case 'hire-worker':hireAt(t,Number(button.dataset.index||0));break;case 'release-worker':releaseAt(t,Number(button.dataset.index||0));break;case 'auto-workers':toggleAutoHire(t,Number(button.dataset.index||0));break;case 'upgrade':upgradeBuilding(t,Number(button.dataset.index||0));break;case 'add-builder':sendAdditionalBuilder(t,Number(button.dataset.job));break;case 'dispatch-store':{const idx=Number(button.dataset.index),item=button.dataset.item,site=worksite(t,idx);if(t.buildings[idx]!=='storageWarehouse'||!site)return;const select=el('territoryDetails').querySelector(`[data-storage-send-to="${idx}"][data-storage-good="${item}"]`);if(select?.value){const ok=dispatchShipment(0,site.id,select.value,item,Math.min(10,localCount(site,item)),false);showToast(ok?'Shipment dispatched with '+(GOOD_NAMES[item]||item):'No available wagon or log porter, route, or destination storage space');save();render();}break;}case 'recruit':doRecruit(t);break;case 'train':doTrain(t);break;}});
  el('territoryDetails').addEventListener('change',e=>{
    if(e.target.matches('[data-expedition-citizen]')){
     const panel=el('territoryDetails'),first=panel.querySelector('[data-expedition-citizen="0"]'),second=panel.querySelector('[data-expedition-citizen="1"]');
