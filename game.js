@@ -3324,7 +3324,7 @@ function newMatch(){cardEffectBusy=false;el('cardEffectLayer')?.classList.add('h
 function renderLobby(){
  el('colorOptions').innerHTML=COLORS.map((c,i)=>`<button class="color-swatch" style="--swatch:${c}" aria-label="Choose ${['jade','amber','violet','coral'][i]}" aria-pressed="${i===selectedColor}" data-color="${i}"></button>`).join('');
  const colors=[COLORS[selectedColor],...COLORS.filter((_,i)=>i!==selectedColor)];
- el('cpuPreview').innerHTML=NPCS.map((p,i)=>`<div class="cpu-item"><div class="cpu-avatar" style="background:${colors[i+1]}">${p.sigil}</div><div><div class="cpu-item-title">${esc(p.name)}</div><div class="cpu-item-sub">Capital: ${esc(p.capital)}</div></div><span class="cpu-pill">CPU</span></div>`).join('');
+ el('cpuPreview').innerHTML=NPCS.map((p,i)=>`<div class="cpu-item"><div class="cpu-avatar" style="background:${colors[i+1]}">${p.sigil}</div><div><div class="cpu-item-title">${esc(p.name)}</div><div class="cpu-item-sub">Capital: ${esc(p.capital)} · Unique personality each world</div></div><span class="cpu-pill">CPU</span></div>`).join('');
  el('resumeBtn').classList.toggle('hidden',!loadSaved());
 }
 function allowed(p,t){return t&&t.owner===p.id;}
@@ -3583,7 +3583,7 @@ async function runCpuCinematic(token=cpuPlaybackToken){
  for(let id=1;id<=3;id++){
   if(token!==cpuPlaybackToken||!G)return;
   const p=G.players[id],capital=G.tiles.find(t=>t.owner===id&&t.capital)||G.tiles[0];
-  actionTileId=null;beginTurn(id);render();showCpuHud(id,`Viewing ${p.name}'s turn`);
+  actionTileId=null;beginTurn(id);render();showCpuHud(id,`${p.name} · ${cpuPersonality(p).name} · ${cpuPersonality(p).focus}`);
   cpuSecretWarOrder(id);
   // A longer, ease-in/ease-out camera sweep introduces the next country.
   await moveCamera(capital,POV_ANGLES[id],1250,mobileCameraWidth(435,560));
@@ -4092,7 +4092,13 @@ function renderHand(){
   return `<button type="button" class="card-item" data-card="${i}" style="--fan:${fan};--angle:${angle}deg" aria-label="Enlarge ${esc(CARDS[c].name)} — ${esc(CARDS[c].desc)}"><span class="card-icon">${CARDS[c].icon}</span><span class="card-name">${esc(CARDS[c].name)}</span><span class="card-desc">${esc(handEffects[c]||CARDS[c].desc)}</span></button>`;
  }).join('')||'<p class="hand-empty">No cards in hand. Draw again next turn.</p>';
 }
-function renderStandings(){const sorted=[...G.players].sort((a,b)=>prosperity(b)-prosperity(a));el('standings').innerHTML=sorted.map((p,i)=>`<div class="standing"><span class="standing-rank">${i+1}</span><span class="standing-color" style="background:${p.color}"></span><span class="standing-name"><strong>${esc(p.name)}${p.id===0?' (You)':''}</strong><small>${G.tiles.filter(t=>t.owner===p.id).length} territory · ${G.tiles.filter(t=>t.owner===p.id).reduce((n,t)=>n+(t.buildings||[]).length,0)} builds · ${fmt(p.gold)} SP</small></span><span class="standing-score">${prosperity(p)}</span></div>`).join('');}
+function renderStandings(){
+ const sorted=[...G.players].sort((a,b)=>prosperity(b)-prosperity(a));
+ el('standings').innerHTML=sorted.map((p,i)=>{
+  const mind=p.id>0?cpuPersonality(p):null;
+  return `<div class="standing"><span class="standing-rank">${i+1}</span><span class="standing-color" style="background:${p.color}"></span><span class="standing-name"><strong>${esc(p.name)}${p.id===0?' (You)':''}</strong><small>${G.tiles.filter(t=>t.owner===p.id).length} territory · ${G.tiles.filter(t=>t.owner===p.id).reduce((n,t)=>n+(t.buildings||[]).length,0)} builds · ${fmt(p.gold)} SP</small>${mind?`<small title="${esc(mind.description)}">AI: ${esc(mind.name)} · ${esc(mind.focus)}</small>`:''}</span><span class="standing-score">${prosperity(p)}</span></div>`;
+ }).join('');
+}
 function renderLog(){el('gameLog').innerHTML=G.log.slice(0,10).map(l=>`<div class="log-item"><span class="log-round">R${l.round}</span><span>${esc(l.text)}</span></div>`).join('');}
 // Global Standoff: lightweight 2.5D board. All illustrations are vector primitives,
 // rendered without third-party libraries or large image downloads.
