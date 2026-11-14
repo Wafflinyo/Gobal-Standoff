@@ -1208,10 +1208,19 @@ function optimizedUnloadTask(p,cart){
 function scheduleAutoCaravan(p,cart){
  if(!p||!cart||cart.shipmentId||!caravanHasDriver(p,cart))return false;
  const task=optimizedUnloadTask(p,cart);if(!task)return false;
- if(!dispatchShipment(p.id,task.from,task.to,task.item,task.qty,true,cart))return false;
+ const first=task.cargo[0];
+ if(!dispatchShipment(p.id,task.from,first.to,first.item,first.qty,true,cart))return false;
+ const job=G.shipments.find(j=>j.id===cart.shipmentId);
+ if(!job||job.kind==='porter')return false;
+ // One ten-unit capacity shared across every type of cargo.
+ job.cargo=task.cargo.map(entry=>({...entry}));
+ job.deliveryStops=[...task.stops];job.to=task.stops[0];
+ job.toTileId=siteLookup(p.id,job.to)?.tile?.id;
+ job.item=first.item;job.qty=shipmentTotal(job);
+ job.remaining=Math.ceil((pathCost(p.id,job.path)+task.leg)/2)+2;
  const site=siteLookup(p.id,task.from)?.site;
  if(site){
-  markUnloadBooked(site,task.item,G.shipments[G.shipments.length-1]?.qty||0);
+  for(const entry of job.cargo)markUnloadBooked(site,entry.item,entry.qty);
   site.lastUnloadClock=G.turnClock||0;
  }
  return true;
@@ -1229,8 +1238,8 @@ function autoDispatchOutputs(){
   // allow porters when all staffed wagons are occupied.
   if(handHaulingAllowed(p))for(const task of outputPickupTasks(p)){
    if(availableCaravan(p.id,task.source))continue;
-   const before=G.shipments.length;
-   if(dispatchShipment(p.id,task.from,task.to,task.item,task.qty,true)&&G.shipments.length>before){
+   const first=task.cargo[0],before=G.shipments.length;
+   if(dispatchShipment(p.id,task.from,first.to,first.item,first.qty,true)&&G.shipments.length>before){
     const job=G.shipments[G.shipments.length-1],site=siteLookup(p.id,task.from)?.site;
     if(job.kind==='porter'&&site){markUnloadBooked(site,task.item,job.qty);site.lastUnloadClock=G.turnClock||0;}
    }
@@ -1246,8 +1255,9 @@ function autoRequestFactoryInputs(){
   const kind=tile.buildings[i],site=worksite(tile,i),recipe=RECIPES[site?.recipe];
   if(!FACTORY_RECIPES[kind]||!recipe)continue;
   for(const [item,amount] of Object.entries(recipe.input)){
-   const queued=G.shipments.filter(j=>j.owner===p.id&&String(j.to)===String(site.id)&&j.item===item)
-    .reduce((sum,j)=>sum+j.qty,0);
+   const queued=G.shipments.filter(j=>j.owner===p.id)
+    .reduce((sum,j)=>sum+shipmentLoads(j).filter(e=>e.item===item&&String(e.to)===String(site.id))
+     .reduce((subtotal,e)=>subtotal+Math.max(0,e.qty||0),0),0);
    let needed=Math.max(0,amount*(site.level||1)*2-localCount(site,item)-queued);
    let free=endpointDeliverySpace(p,site.id);
    if(needed<=0||free<=0)continue;
