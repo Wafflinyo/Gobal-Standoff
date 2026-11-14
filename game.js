@@ -1053,6 +1053,16 @@ function progressShipments(){
   moveCaravanToStage(job,cart,p);
  }
 }
+function caravanCollectionRouteText(p,cart,job){
+ const labels=[];
+ if(job?.auto&&job.from!=null)labels.push(job.from);
+ for(const id of cart.collectionQueue||[])if(!labels.some(existing=>String(existing)===String(id)))labels.push(id);
+ if(!labels.length)return 'No scheduled collection stops';
+ return labels.map(id=>{
+  const site=siteLookup(p.id,id);
+  return esc(site?.tile?.name||'Unavailable hex')+' · '+esc(BUILDINGS[site?.kind]?.name||'Producer');
+ }).join(' → ');
+}
 function caravanWarehouseStatus(p,siteId){
  const carts=(p.caravans||[]).filter(c=>String(c.homeSiteId)===String(siteId));
  const names=id=>esc(G.tiles.find(t=>t.id===id)?.name||'Unknown hex');
@@ -1071,7 +1081,7 @@ function caravanWarehouseStatus(p,siteId){
      <option value="" ${driver?'':'selected'}>Unassigned</option>
      ${choices.map(c=>`<option value="${esc(c.id)}" ${c.id===cart.driverId?'selected':''}>${esc(c.name)} · ${c.id===cart.driverId?'On duty':'Unemployed'}</option>`).join('')}
     </select></label>`;
-   if(!job)return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · ${caravanHasDriver(p,cart)?'Available':'Awaiting driver'}</strong><small>Driver: ${driverLabel}</small><small>Located at ${where} · Holding: nothing · Next destination: awaiting assignment</small>${control}</div>`;
+   if(!job)return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · ${caravanHasDriver(p,cart)?'Available':'Awaiting driver'}</strong><small>Driver: ${driverLabel}</small><small>Located at ${where} · Holding: nothing · Next destination: awaiting assignment</small><small>Collection circuit: ${caravanCollectionRouteText(p,cart,null)}</small>${control}</div>`;
   const from=names(job.fromTileId),to=names(job.toTileId);
   const back=siteLookup(p.id,job.returnSiteId||job.homeSiteId)?.tile?.name||'caravan warehouse';
   const heading=job.stage==='pickup'?from:job.stage==='return'?esc(back):to;
@@ -1079,7 +1089,7 @@ function caravanWarehouseStatus(p,siteId){
    (job.qty>0?esc(shipmentCargoText(job)):'Empty — unloading'):
    (job.stage==='pickup'?`Empty (will collect ${esc(shipmentCargoText(job))})`:'Empty — returning');
   const stage={pickup:'Traveling to pickup',delivery:'Delivering',unloading:'Waiting for unloading space',return:'Returning to warehouse'}[job.stage]||job.stage;
-  return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · ${job.waitingForDriver?'PAUSED · no driver':stage}</strong><small>Driver: ${driverLabel}</small><small>Current hex: ${where}</small><small>Heading to: ${heading}</small><small>Holding: ${cargo}</small><small>Route: ${from} → ${to} · ${Math.max(0,job.remaining||0)}T left in current leg</small>${control}</div>`;
+  return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · ${job.waitingForDriver?'PAUSED · no driver':stage}</strong><small>Driver: ${driverLabel}</small><small>Current hex: ${where}</small><small>Heading to: ${heading}</small><small>Holding: ${cargo}</small><small>Route: ${from} → ${to} · ${Math.max(0,job.remaining||0)}T left in current leg</small><small>Collection circuit: ${caravanCollectionRouteText(p,cart,job)}</small>${control}</div>`;
  }).join('');
  return `<div class="gs-caravan-tracker"><strong>Wagons based at this warehouse · ${carts.filter(c=>!c.shipmentId&&caravanHasDriver(p,c)).length}/${carts.length} staffed & available</strong>
   ${rows||'<small>No wagons assigned here yet. New ones appear when construction completes.</small>'}
