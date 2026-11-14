@@ -852,7 +852,7 @@ function pathCost(owner,path){let cost=0;for(let i=1;i<(path?.length||0);i++){
  }return cost;
 }
 function canStartDomesticRoad(a,b,owner){
- const p=G.players[owner];return !!a&&!!b&&a.owner===owner&&b.owner===owner&&a.terrain!=='water'&&b.terrain!=='water'&&distance(a,b)===1&&!domesticRoadExists(a,b)&&!roadJobBetween(a,b)&&idleBuilders(p).length>0&&hasMoney(p,LOCAL_ROAD_SP)&&nationalResourceCount(p,'wood')>=LOCAL_ROAD_WOOD;
+ const p=G.players[owner];return !!a&&!!b&&a.owner===owner&&b.owner===owner&&a.terrain!=='water'&&b.terrain!=='water'&&distance(a,b)===1&&!domesticRoadExists(a,b)&&!roadJobBetween(a,b)&&(!riverCrossing(a,b)||bridgeExistsBetween(a,b))&&idleBuilders(p).length>0&&hasMoney(p,LOCAL_ROAD_SP)&&nationalResourceCount(p,'wood')>=LOCAL_ROAD_WOOD;
 }
 function startDomesticRoad(aId,bId,owner=0){
  const p=G.players[owner],a=G.tiles.find(t=>t.id===aId),b=G.tiles.find(t=>t.id===bId);
@@ -1351,7 +1351,7 @@ function caravanWarehouseStatus(p,siteId){
   const cargo=job.stage==='delivery'||job.stage==='unloading'?
    (job.qty>0?esc(shipmentCargoText(job)):'Empty — unloading'):
    (job.stage==='pickup'?`Empty (will collect ${esc(shipmentCargoText(job))})`:'Empty — returning');
-  const stage={pickup:'Traveling to pickup',delivery:'Delivering',unloading:'Waiting for unloading space',return:'Returning to warehouse'}[job.stage]||job.stage;
+  const stage=job.blockedByWater?'PAUSED · bridge required':({pickup:'Traveling to pickup',delivery:'Delivering',unloading:'Waiting for unloading space',return:'Returning to warehouse'}[job.stage]||job.stage);
   return `<div class="gs-caravan-status"><strong>Wagon ${i+1} · ${job.waitingForDriver?'PAUSED · no driver':stage}</strong><small>Driver: ${driverLabel}</small><small>Current hex: ${where}</small><small>Heading to: ${heading}</small><small>Holding: ${cargo}</small><small>Route: ${from} → ${to} · ${Math.max(0,job.remaining||0)}T left in current leg</small><small>Collection circuit: ${caravanCollectionRouteText(p,cart,job)}</small>${control}</div>`;
  }).join('');
  return `<div class="gs-caravan-tracker"><strong>Wagons based at this warehouse · ${carts.filter(c=>!c.shipmentId&&caravanHasDriver(p,c)).length}/${carts.length} staffed & available</strong>
@@ -1366,7 +1366,7 @@ function shippingDashboard(){
   <label class="gs-routing-label">Workers when all wagons are busy <select data-hand-haul-policy><option value="wait" ${p.handHaulingPolicy!=='allow'?'selected':''}>Wait for a caravan</option><option value="allow" ${p.handHaulingPolicy==='allow'?'selected':''}>Allow 2-unit worker deliveries</option></select></label>
   ${!(p.caravans||[]).length?'<small>No wagons owned: eligible workers transport resources by hand automatically.</small>':!(p.caravans||[]).some(c=>caravanHasDriver(p,c))?'<small>No employed caravan drivers: hire eligible adults at a Caravan Warehouse to activate wagons.</small>':''}
   <label class="gs-routing-label">After delivery <select data-caravan-policy><option value="nearest" ${p.caravanPolicy==='nearest'?'selected':''}>Closest warehouse</option><option value="home" ${p.caravanPolicy==='home'?'selected':''}>Original warehouse</option><option value="stay" ${p.caravanPolicy==='stay'?'selected':''}>Stay if destination has space</option></select></label>
-  ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.kind==='porter'?'Worker':j.kind==='boat'?'Boat':'Wagon'} · ${j.stage==='return'?'Returning empty':j.stage==='pickup'?('Going to collect '+shipmentCargoText(j)):shipmentCargoText(j)} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
+  ${jobs.slice(0,12).map(j=>`<div class="gs-shipment-row">${j.kind==='porter'?'Worker':j.kind==='boat'?'Boat':'Wagon'} · ${j.stage==='return'?'Returning empty':j.stage==='pickup'?('Going to collect '+shipmentCargoText(j)):shipmentCargoText(j)} · ${esc(G.tiles.find(t=>t.id===j.fromTileId)?.name||'Depot')} → ${esc(G.tiles.find(t=>t.id===j.toTileId)?.name||'Depot')} <strong>${j.blockedByWater?'Waiting for water crossing':esc(j.stage)} · ${j.remaining}T</strong></div>`).join('')}</div>`;
 }
 function runAgricultureAndForestry(){
  for(const p of G.players)for(const t of G.tiles.filter(t=>t.owner===p.id))for(let i=0;i<t.buildings.length;i++){
@@ -1390,7 +1390,7 @@ function processFactories(){
   for(let n=0;n<attempts;n++){
    if(!Object.entries(chosen.input).every(([item,amount])=>localCount(site,item)>=amount))break;
    // Output must have actual storage room. A full factory stops until a wagon unloads it.
-   if(endpointStorageFree(p,site.id)<(chosen.amount||1))break;
+   if(endpointStorageFree(p,site.id)+Object.values(chosen.input).reduce((sum,qty)=>sum+qty,0)<(chosen.amount||1))break;
    const successChance=Math.min(.98,.55+.32*q.efficiency+.08*(q.level-1));
    const rng=mulberry32(hash(G.seed+':factory:'+site.id+':'+G.round+':'+n));
    if(rng()>successChance)continue;
