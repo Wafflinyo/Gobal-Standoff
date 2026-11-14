@@ -11,6 +11,28 @@ const moneyLabel=amount=>`${amount} SP`;
 const RADIUS=7, HEX=40, MAX_ROUNDS=24, MAJOR_ACTIONS=3, CREDIT_LIMIT_SP=10; // Maximum debt: −10 SP
 const COLORS=['#7ed0b7','#e6af79','#b7a1e9','#f08b87'];
 const NPCS=[{name:'Alder Union',capital:'Oakspire',sigil:'A'},{name:'Coral Dominion',capital:'Sunport',sigil:'◆'},{name:'Vesper Republic',capital:'Duskfall',sigil:'V'}];
+// Each world selects three distinct AI leaders from six strategic mindsets.
+// Stable traits persist in saves; a fresh seed mixes assignments.
+const CPU_PERSONALITIES={
+ frontier:{name:'The Trailblazer',focus:'Territorial expansion',description:'Seeks fertile frontiers and new settlements.',weights:{expand:1.9,economy:1,food:1.1,industry:.8,military:1,science:.7,trade:.8,civic:1,logistics:1.1},aggression:.55,diplomacy:.34,caution:.58},
+ merchant:{name:'The Merchant Prince',focus:'Wealth and trade',description:'Prioritizes markets, incomes and trading partners.',weights:{expand:.75,economy:2,food:.85,industry:1.05,military:.5,science:.9,trade:2,civic:.9,logistics:1},aggression:.18,diplomacy:.92,caution:.85},
+ industrial:{name:'The Industrialist',focus:'Mines and manufacturing',description:'Secures deposits, factories and transport networks.',weights:{expand:.95,economy:1.1,food:.8,industry:2,military:.7,science:1.05,trade:.9,civic:.7,logistics:1.8},aggression:.4,diplomacy:.58,caution:.62},
+ marshal:{name:'The Iron Marshal',focus:'Military strength',description:'Builds defended borders and maintains trained soldiers.',weights:{expand:1.35,economy:.8,food:.9,industry:1.1,military:2,science:.5,trade:.45,civic:.75,logistics:1.15},aggression:.92,diplomacy:.22,caution:.42},
+ scholar:{name:'The Scholar',focus:'Research and development',description:'Builds academies, researches technologies and plans ahead.',weights:{expand:.8,economy:1.05,food:1.1,industry:1,military:.5,science:2.1,trade:1.05,civic:1.35,logistics:.85},aggression:.16,diplomacy:.83,caution:.78},
+ steward:{name:'The Caretaker',focus:'Food and citizens',description:'Maintains farms, housing and a stable civilian economy.',weights:{expand:.9,economy:1.25,food:1.85,industry:.7,military:.65,science:.85,trade:.9,civic:1.9,logistics:.85},aggression:.24,diplomacy:.73,caution:.94}
+};
+function assignCpuPersonalities(world){
+ const keys=Object.keys(CPU_PERSONALITIES);
+ const rng=mulberry32(hash(world.seed+':cpu-personalities:v1'));
+ for(let i=keys.length-1;i>0;i--){const j=randInt(rng,i+1);[keys[i],keys[j]]=[keys[j],keys[i]];}
+ const taken=new Set();
+ for(const p of world.players.slice(1)){
+  if(CPU_PERSONALITIES[p.cpuPersonality]&&!taken.has(p.cpuPersonality)){taken.add(p.cpuPersonality);continue;}
+  const choice=keys.find(k=>!taken.has(k));p.cpuPersonality=choice;taken.add(choice);
+ }
+}
+function cpuPersonality(p){return CPU_PERSONALITIES[p?.cpuPersonality]||CPU_PERSONALITIES.frontier;}
+function cpuRoll(p,tag,extra=''){return mulberry32(hash((G?.seed||'')+':cpu:'+p.id+':'+tag+':'+(G?.round||1)+':'+(p.actionsUsed||0)+':'+extra))();}
 const TERRAIN={
  plains:{name:'Plains',color:'#bbc885',yield:{},slots:8,population:30,desc:'Roomy, fertile land ideal for large settlements.'},
  forest:{name:'Forest',color:'#66a17c',yield:{},slots:6,population:20,desc:'Wooded land. Timber must be worked and shipped to be used.'},
@@ -1657,7 +1679,7 @@ function createWorld(seed,name,capital,color){
  const worldName=['The Wild Marches','The Broken Coast','The Emerald Frontier','The Hinterlands','The New Continent'][randInt(rng,5)];
  G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],domesticRoads:[],domesticRoadJobs:[],nextDomesticRoadId:1,diplomaticFalcons:[],warnings:[],wars:[],treaties:[],militaryOrders:[],sieges:[],nextSiegeId:1,nextDiplomacyId:1,nextOrderId:1,nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
  for(const p of players){const citizenRng=mulberry32(hash(seed+'-people-'+p.id));for(let k=0;k<10;k++)p.citizens.push(makeCitizen(p,citizenRng,true));reallocateHousing(p);drawCard(p);drawCard(p);}
- ensureBuildingMeta(G);ensureStartingCrews(G);for(const p of G.players){reallocateHousing(p);assignWorkers(p);syncCaravans(p);}
+ assignCpuPersonalities(G); ensureBuildingMeta(G);ensureStartingCrews(G);for(const p of G.players){reallocateHousing(p);assignWorkers(p);syncCaravans(p);}
  beginTurn(0);
  addLog(`${name} established its capital at ${capital}. Four nations have entered a ${tiles.length}-hex world.`);
  save();
@@ -1689,6 +1711,7 @@ function migrateGameplay(s){
  s.nextBuildingId=s.nextBuildingId||1;
  prepareMineralVeins(s.tiles,s.seed,false);
  ensureBuildingMeta(s);
+ assignCpuPersonalities(s);
  // Barren legacy mines keep extracting Stone; never manufacture Iron veins merely to preserve an old mine.
  for(const p of s.players){
   if(p.materials!==undefined){const old=Math.max(0,p.materials);p.wood=(p.wood||0)+Math.ceil(old*.6);p.ore=(p.ore||0)+Math.floor(old*.4);delete p.materials;}
