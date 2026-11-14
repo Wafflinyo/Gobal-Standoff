@@ -3735,6 +3735,15 @@ function cpuEconomyAction(id){
  if(p.gold<=-CREDIT_LIMIT_SP){
   if(!p.levyUsed&&doLevy(id))return true;
   for(const k of ['diamond','goldOre','silver','copper','iron','coal'])if(mineralCount(p,k)>1&&mineralTrade(k,'sell',id))return true;
+  // An insolvent country can sell nonessential infrastructure. Keep homes,
+  // farms, markets and troops; never sell a warehouse with a wagon in transit.
+  for(const t of owned)for(let i=0;i<t.buildings.length;i++){
+   const type=t.buildings[i],meta=t.buildingMeta?.[i];
+   if(['market','farm','homes'].includes(type)||G.projects.some(j=>j.upgradeSiteId===meta?.id))continue;
+   if(type==='post'&&postGarrison(p,t.id).length)continue;
+   if(type==='caravanWarehouse'&&p.caravans.some(c=>String(c.homeSiteId)===String(meta?.id)&&c.shipmentId))continue;
+   if(doSell(t,i,id))return true;
+  }
   return false;
  }
  if(p.gold<5&&eco.netGold<0&&!p.levyUsed&&doLevy(id))return true;
