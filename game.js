@@ -3708,8 +3708,8 @@ function playCpuOpeningCard(id){
  const p=G.players[id];if(p.cardPlayed)return false;
  const w=cpuPersonality(p).weights,eco=getEconomy(id);
  const scores={grant:8*w.economy+(p.gold<12?10:0),
-  harvest:8*w.food+(p.food<9||eco.netFood<0?10:0),
-  supplies:8*w.industry+(p.wood<9?8:0),
+  harvest:8*w.food+(nationalResourceCount(p,'food')<9||eco.netFood<0?10:0),
+  supplies:8*w.industry+(nationalResourceCount(p,'wood')<9?8:0),
   insight:8*w.science+(p.knowledge<6?4:0),
   charter:8*w.expand,permit:8*Math.max(w.industry,w.science,w.military)};
  const pick=p.hand.map((card,i)=>({i,score:(scores[card]||0)+cpuRoll(p,'card:'+i)*2}))
@@ -3739,8 +3739,8 @@ function cpuSecretWarOrder(id){
   if(s.status!=='active'||![s.attacker,s.defender].includes(id))continue;
   const side=s.attacker===id?'attacker':'defender';
   const kind=side==='attacker'
-   ?(s.roundNumber%4===3&&s.preparation<(mind.aggression>.7?1:3)&&p.wood>1?'prepare':'assault')
-   :(s.supply<(mind.caution>.75?60:38)&&p.food>=3?'resupply':s.fort<(mind.caution>.75?65:36)&&p.wood>=2?'fortify':s.morale<45?'rally':s.roundNumber%4===3&&mind.aggression>.7?'counterattack':'hold');
+   ?(s.roundNumber%4===3&&s.preparation<(mind.aggression>.7?1:3)&&nationalResourceCount(p,'wood')>1?'prepare':'assault')
+   :(s.supply<(mind.caution>.75?60:38)&&nationalResourceCount(p,'food')>=3?'resupply':s.fort<(mind.caution>.75?65:36)&&nationalResourceCount(p,'wood')>=2?'fortify':s.morale<45?'rally':s.roundNumber%4===3&&mind.aggression>.7?'counterattack':'hold');
   setSiegeOrder(s.id,kind,id);
  }
  if(p.logisticsUsed)return;
@@ -3812,20 +3812,20 @@ function cpuEconomyAction(id){
    (p.cpuPersonality==='merchant'&&['plains','hills'].includes(t.terrain)?5:0)+cpuRoll(p,'hex:'+t.id)*3;
  };
  const frontier=G.tiles.filter(t=>eligibleExpansion(p,t)).sort((a,b)=>landValue(b)-landValue(a))[0];
- if(frontier&&p.food>=2&&hasMoney(p,expansionCost(p))&&eligibleExpeditionCitizens(p).length){
+ if(frontier&&nationalResourceCount(p,'food')>=2&&hasMoney(p,expansionCost(p))&&eligibleExpeditionCitizens(p).length){
   const resourceSeek=p.cpuPersonality==='industrial'&&!owned.some(t=>['forest','mountain'].includes(t.terrain));
   add('expand:'+frontier.id,'expand',11+(owned.length<3?5:0)+(resourceSeek?11:0)+(underThreat&&profile.aggression>.8?4:0)
    -(owned.length>8?(owned.length-8)*2:0)-(p.gold<12?6:0),()=>doExpand(frontier,id));
  }
  const goals={
-  farm:['food',11+(p.food<10?11:0)+(eco.netFood<=0?12:0),4],
+  farm:['food',11+(nationalResourceCount(p,'food')<10?11:0)+(eco.netFood<=0?12:0),4],
   market:['economy',11+(eco.netGold<=0?11:eco.netGold<4?5:0)+(p.gold<15?7:0),5],
   homes:['civic',10+(people.housing<=people.count+2?25:people.housing<=people.count+6?10:0),6],
-  lumber:['industry',10+(p.wood<8?9:p.wood<16?4:0),3],
-  mine:['industry',12+(mineralCount(p,'iron')<4?6:0),3],
+  lumber:['industry',10+(nationalResourceCount(p,'wood')<8?9:nationalResourceCount(p,'wood')<16?4:0),3],
+  mine:['industry',12+(nationalResourceCount(p,'iron')<4?6:0),3],
   academy:['science',13+(p.knowledge<9?5:0),3],
   post:['military',11+(underThreat?7:0),3],
-  woodworks:['industry',11+(p.wood<10?7:0),3],
+  woodworks:['industry',11+(nationalResourceCount(p,'wood')<10?7:0),3],
   caravanWarehouse:['logistics',9+(count('farm')+count('lumber')+count('mine')>0?6:0),2],
   storageWarehouse:['logistics',9+(count('farm')+count('lumber')+count('mine')>0?5:0),3],
   leatherFactory:['industry',9,2],stoneworks:['industry',9,2],foundry:['industry',10,2],armory:['military',10,2]
@@ -3834,13 +3834,13 @@ function cpuEconomyAction(id){
   if(!hasBuilder||count(type)>=max||!BUILDINGS[type])continue;
   if(type==='lumber'&&!owned.some(t=>t.terrain==='forest'))continue;
   if(type==='mine'&&!owned.some(t=>t.terrain==='mountain'))continue;
-  if(type==='woodworks'&&!count('lumber')&&p.wood>=8)continue;
+  if(type==='woodworks'&&!count('lumber')&&nationalResourceCount(p,'wood')>=8)continue;
   if(['leatherFactory','stoneworks','foundry','armory'].includes(type)&&G.round<(type==='leatherFactory'?4:6))continue;
   if(type==='post'&&G.round<2&&p.cpuPersonality!=='marshal')continue;
   if(['caravanWarehouse','storageWarehouse'].includes(type)&&count('farm')+count('mine')+count('lumber')===0&&G.round<3)continue;
   if(type==='homes'&&people.housing>people.count+10&&count(type)>=1)continue;
   const b=BUILDINGS[type];
-  if(!hasMoney(p,buildingCost(p,b))||p.wood<b.wood||mineralCount(p,'iron')<b.iron)continue;
+  if(!hasMoney(p,buildingCost(p,b))||nationalResourceCount(p,'wood')<b.wood||nationalResourceCount(p,'iron')<b.iron)continue;
   if(p.gold<9&&!['market','farm','homes'].includes(type))continue;
   const sites=owned.filter(t=>canBuild(p,t,b)).sort((a,b)=>{
    const siteScore=t=>(type==='farm'&&t.terrain==='plains'?5:0)+(type==='mine'&&t.vein?8:0)
@@ -3871,15 +3871,15 @@ function cpuEconomyAction(id){
   const post=posts.find(t=>postGarrison(p,t.id).length<8);
   if(post&&p.marketingUntil<G.round)add('recruit','military',12+(underThreat?8:0),()=>doMarketing(post,id));
   const training=posts.find(t=>postGarrison(p,t.id).some(c=>(c.military?.training||0)<4));
-  if(training&&p.food>=3)add('train','military',11+(underThreat?7:0),()=>doTrain(training,id));
+  if(training&&nationalResourceCount(p,'food')>=3)add('train','military',11+(underThreat?7:0),()=>doTrain(training,id));
  }
- if(G.round>=4&&p.gold>=19&&p.wood>=3&&hasBuilder&&owned.length>=2){
+ if(G.round>=4&&p.gold>=19&&nationalResourceCount(p,'wood')>=3&&hasBuilder&&owned.length>=2){
   const road=owned.flatMap(t=>neighbors(t).filter(n=>n.owner===id&&t.id<n.id).map(n=>({t,n})))
    .find(({t,n})=>canStartDomesticRoad(t,n,id));
   if(road)add('road','logistics',10+(p.caravans.length?5:0),()=>startDomesticRoad(road.t.id,road.n.id,id));
  }
  if(!p.levyUsed&&p.gold<16)add('levy','economy',5+(p.gold<8?10:0)+(eco.netGold<0?6:0),()=>doLevy(id));
- if(mineralCount(p,'iron')<2&&p.gold>=16)add('import-iron','industry',9,()=>mineralTrade('iron','buy',id));
+ if(nationalResourceCount(p,'iron')<2&&p.gold>=16)add('import-iron','industry',9,()=>mineralTrade('iron','buy',id));
  choices.sort((a,b)=>b.score-a.score||a.tag.localeCompare(b.tag));
  for(const c of choices)if(c.score>0&&c.act())return true;
  return false;
@@ -3934,7 +3934,7 @@ function runCpu(id){
  return cpuEconomyAction(id);
 }
 function prosperity(p){const owned=G.tiles.filter(t=>t.owner===p.id),people=peopleSummary(p);
- return owned.length*4+owned.reduce((n,t)=>n+(t.buildings||[]).length,0)*5+people.housed*2-people.homeless*2+people.soldiers*2+Math.max(0,Math.floor(p.gold/4))+Math.max(0,Math.floor(p.food/5))+Math.max(0,Math.floor(p.wood/5))+Math.max(0,Math.floor(mineralCount(p,'iron')/5))+Math.floor(MINERAL_KEYS.reduce((v,k)=>v+mineralCount(p,k)*MINERALS[k].price,0)/20)+Math.floor(p.knowledge/3)+p.tech.length*3;}
+ return owned.length*4+owned.reduce((n,t)=>n+(t.buildings||[]).length,0)*5+people.housed*2-people.homeless*2+people.soldiers*2+Math.max(0,Math.floor(p.gold/4))+Math.max(0,Math.floor(nationalResourceCount(p,'food')/5))+Math.max(0,Math.floor(nationalResourceCount(p,'wood')/5))+Math.max(0,Math.floor(nationalResourceCount(p,'iron')/5))+Math.floor(MINERAL_KEYS.reduce((v,k)=>v+nationalResourceCount(p,k)*MINERALS[k].price,0)/20)+Math.floor(p.knowledge/3)+p.tech.length*3;}
 function render(){if(!G)return;
  document.body.classList.toggle('cpu-watching',!!cpuBusy);
  const p=getCountry(),e=getEconomy(0),tile=getSelected(),people=peopleSummary(p);
@@ -3944,8 +3944,8 @@ function render(){if(!G)return;
  el('capitalFlag').innerHTML=icoMarkup('shield')+'<span class="gs-flag-initial">'+esc(p.id===0?'GS':p.name.slice(0,1))+'</span>';
  el('turnCounter').textContent=`Round ${G.round} of ${G.maxRounds} · ${G.tiles.length} hexes · ${G.tiles.filter(t=>t.owner===0).length} owned`;
  el('turnLabel').textContent=G.finished?'TEST COMPLETE':G.turnIndex===0&&!cpuBusy?'YOUR TURN':'CPU TURN';el('turnLabel').classList.toggle('cpu-turn',G.turnIndex!==0||cpuBusy);
- el('resources').innerHTML=[['gold',silverPentIcon(23),'Silver Pents'],['food','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>','Food'],['wood','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg>','Wood'],['iron','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>','Iron'],['knowledge','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>','Knowledge']].map(([field,icon,name])=>`<div class="resource ${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
- el('quickStats').innerHTML=[['gold',silverPentIcon(16)],['food','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>'],['wood','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg>'],['iron','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>'],['knowledge','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${(field==='iron'?mineralCount(p,'iron'):p[field])<0?'negative':''}">${fmt(field==='iron'?mineralCount(p,'iron'):p[field])}</b></span>`).join('');
+ el('resources').innerHTML=[['gold',silverPentIcon(23),'Silver Pents'],['food','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>','Food'],['wood','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg>','Logs'],['iron','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>','Iron'],['knowledge','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>','Knowledge']].map(([field,icon,name])=>`<div class="resource ${(['food','wood','iron'].includes(field)?nationalResourceCount(p,field):p[field])<0?'negative':''}"><div class="resource-icon">${icon}</div><div class="resource-num">${fmt(['food','wood','iron'].includes(field)?nationalResourceCount(p,field):p[field])}</div><div class="resource-label">${name}</div></div>`).join('');
+ el('quickStats').innerHTML=[['gold',silverPentIcon(16)],['food','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg>'],['wood','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg>'],['iron','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>'],['knowledge','<svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg>']].map(([field,icon])=>`<span class="quick-stat" title="${field}">${icon}<b class="${(['food','wood','iron'].includes(field)?nationalResourceCount(p,field):p[field])<0?'negative':''}">${fmt(['food','wood','iron'].includes(field)?nationalResourceCount(p,field):p[field])}</b></span>`).join('');
  el('economySummary').innerHTML=`<div class="gs-econ-totals"><span>Income <strong>+${e.gold} SP</strong></span><span>Operating costs <strong>−${e.upkeep} SP</strong></span><span>Net / round <strong class="${e.netGold>=0?'positive':'negative'}">${e.netGold>=0?'+':''}${e.netGold} SP</strong></span></div>
   <div class="gs-credit-line"><strong>Credit limit −${CREDIT_LIMIT_SP} SP</strong><span>${p.gold<0?`Borrowed ${-p.gold}/${CREDIT_LIMIT_SP} SP`:'No debt'} · ${p.gold<=-CREDIT_LIMIT_SP?'Spending locked':p.gold<0?'Credit still available':'Credit available if needed'}</span></div>
   <div class="gs-econ-ledger" aria-label="Silver Pents income and upkeep breakdown">
@@ -4034,7 +4034,7 @@ function renderTile(t){
    if(type==='lumber')html+='<small class="gs-routing-help">Logs are your construction resource. Once a caravan delivers them to any Storage Warehouse or the capital, they count toward the national Logs total and can pay construction costs. Woodworks can use those same Logs to craft equipment. Uncollected Logs at a Lumber Camp do not count until delivered.</small>';
   }
   if(isOwn){html+=`<div class="gs-job-controls">${q.slots?`<button data-action="hire-worker" data-index="${i}" ${!active()||q.count>=q.slots||!p.citizens.some(c=>eligibleWorker(c)&&!c.job)?'disabled':''}>Hire</button><button data-action="release-worker" data-index="${i}" ${!active()||!q.count?'disabled':''}>Release</button><button data-action="auto-workers" data-index="${i}" ${!active()?'disabled':''}>Auto ${meta.autoHire?'ON':'OFF'}</button>`:''}`;
-   if(upgrade)html+=`<button data-action="upgrade" data-index="${i}" ${!canAct()||!idleBuilders(p).length||inProgress||!hasMoney(p,upgrade.gold)||p.wood<upgrade.wood||mineralCount(p,'iron')<upgrade.iron?'disabled':''}>${inProgress?'Upgrading…':`Upgrade L${meta.level+1}: ${upgrade.gold} SP ${upgrade.wood} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg> ${upgrade.iron} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>`}</button>`;
+   if(upgrade)html+=`<button data-action="upgrade" data-index="${i}" ${!canAct()||!idleBuilders(p).length||inProgress||!hasMoney(p,upgrade.gold)||nationalResourceCount(p,'wood')<upgrade.wood||nationalResourceCount(p,'iron')<upgrade.iron?'disabled':''}>${inProgress?'Upgrading…':`Upgrade L${meta.level+1}: ${upgrade.gold} SP ${upgrade.wood} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-wood"></use></svg> ${upgrade.iron} <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-ingot"></use></svg>`}</button>`;
    html+=`<button data-action="sell" data-index="${i}" ${!canAct()||occupied>0||inProgress||type==='caravanWarehouse'&&p.caravans.some(c=>String(c.homeSiteId)===String(meta.id)&&c.shipmentId)?'disabled':''}>Sell +${Math.max(2,Math.floor(b.gold*.6))} SP</button></div>`;
   }
   html+='</div>';
@@ -4053,7 +4053,7 @@ function renderTile(t){
 
  html+='<div class="tile-actions">';
   if(frontier){
-   const cost=expansionCost(p),afford=hasMoney(p,cost)&&p.food>=2,available=eligibleExpeditionCitizens(p);
+   const cost=expansionCost(p),afford=hasMoney(p,cost)&&nationalResourceCount(p,'food')>=2,available=eligibleExpeditionCitizens(p);
    const candidates=available.map(c=>`<option value="${esc(c.id)}">${esc(c.name)} · age ${c.age} · morale ${c.morale} · health ${c.health}</option>`).join('');
    html+=`<div class="gs-expedition-selector"><strong>Choose your expedition's citizens</strong>
     <small>Send 1 or 2 unemployed civilians aged 16 or older. Soldiers, builders, employees and haulers cannot go. Travel may lower morale and health.</small>
@@ -4087,7 +4087,7 @@ function renderTile(t){
   else html+='<div class="feature-locked"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-homes"></use></svg> This hex is full. Expand into another territory for more construction space.</div>';
   if(buildingCount(t,'post')){
    const count=postGarrison(p,t.id).length,available=p.citizens.filter(c=>c.age>=18&&!c.military).length;
-   html+=`<div class="post-actions"><strong><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-shield"></use></svg> Military post · ${count}/12 stationed</strong><button class="action-btn" data-action="recruit" ${!canAct()||count>=12||!available||!hasMoney(p,4)?'disabled':''}>Recruitment marketing <span>4 SP · 2 rounds boost</span></button><button class="action-btn" data-action="train" ${!canAct()||!count||!hasMoney(p,3)||p.food<1?'disabled':''}>Train up to 3 troops <span>3 SP + 1 <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg></span></button></div>`;
+   html+=`<div class="post-actions"><strong><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-shield"></use></svg> Military post · ${count}/12 stationed</strong><button class="action-btn" data-action="recruit" ${!canAct()||count>=12||!available||!hasMoney(p,4)?'disabled':''}>Recruitment marketing <span>4 SP · 2 rounds boost</span></button><button class="action-btn" data-action="train" ${!canAct()||!count||!hasMoney(p,3)||nationalResourceCount(p,'food')<1?'disabled':''}>Train up to 3 troops <span>3 SP + 1 <svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-food"></use></svg></span></button></div>`;
   }
   if(!idleBuilders(p).length)html+='<div class="disabled-help"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-builder"></use></svg> All builders are assigned. Finish a project or upgrade/build another Builders’ Bunk.</div>';
    if(peopleSummary(p).homeless>0)html+='<div class="disabled-help"><svg class="gs-glyph" aria-hidden="true" focusable="false" viewBox="0 0 32 32"><use href="#gs-i-spark"></use></svg> Build Homes here if space allows. Each adds 8 housing spaces, up to the terrain population ceiling.</div>';
