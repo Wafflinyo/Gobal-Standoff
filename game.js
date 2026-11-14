@@ -800,7 +800,8 @@ function dispatchShipment(owner,from,to,item,qty,auto=false,preferredCart=null){
  // tile. Already loaded wagons wait with their cargo until the blockade lifts.
  if(dst?.tile&&siegeBlocksDelivery({owner,toTileId:dst.tile.id,stage:'delivery'}))return false;
  if(!p||!src?.tile||!dst?.tile||String(from)===String(to)||amount<1)return false;
- const reservedFrom=G.shipments.filter(j=>j.owner===owner&&String(j.from)===String(from)&&j.item===item&&j.stage==='pickup').reduce((n,j)=>n+j.qty,0);
+ const reservedFrom=G.shipments.filter(j=>j.owner===owner&&String(j.from)===String(from)&&j.stage==='pickup')
+  .reduce((sum,j)=>sum+shipmentLoads(j).filter(entry=>entry.item===item).reduce((n,entry)=>n+Math.max(0,entry.qty||0),0),0);
  const freeSource=Math.max(0,endpointCount(p,from,item)-reservedFrom);
  const qtyFit=Math.min(10,amount,freeSource,endpointDeliverySpace(p,to));
  if(qtyFit<1)return false;
@@ -958,6 +959,10 @@ function moveCaravanToStage(job,cart,p){
   // Automatic shipments chain into the next ready pickup instead of
   // returning empty to a caravan warehouse between deliveries.
   if(job.auto){
+   // Old saved shipments may already be en route with cargo. Count the
+   // completed pickup even when it happened before this route upgrade.
+   cart.collectionVisited??=[];
+   if(job.from!=null&&!cart.collectionVisited.some(id=>String(id)===String(job.from)))cart.collectionVisited.push(job.from);
    cart.currentTileId=job.toTileId||cart.currentTileId;
    cart.collectionActiveSource=null;
    finishCaravanJob(job,cart,p);
