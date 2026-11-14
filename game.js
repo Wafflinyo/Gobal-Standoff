@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.37 — unified Logs inventory across lumber, caravans, storage and construction. */
+/* Global Standoff 0.4.38 — crafted bridges, river-safe caravans and reusable water cargo boats. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
