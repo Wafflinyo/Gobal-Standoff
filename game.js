@@ -719,9 +719,9 @@ function progressBoatJob(job,p){
  if(!route){job.blockedByWater=true;job.remaining=0;return;}
  job.blockedByWater=false;
  if(route.path.length>1){
-  const moves=Math.min(2,route.path.length-1);
+  const moves=1; // A boat visibly occupies each water hex on successive world ticks.
   boat.currentTileId=route.path[moves];job.path=route.path;job.step=moves;
-  job.remaining=Math.ceil(Math.max(0,route.path.length-moves-1)/2)+1;return;
+  job.remaining=Math.max(0,route.path.length-moves-1)+1;return;
  }
  job.path=route.path;job.step=0;
  if(job.stage==='pickup'){
@@ -834,7 +834,9 @@ function countryTravelRoute(owner,start,end,allowNeutralDestination=false){
  while(pending.size){let at=null,best=Infinity;for(const id of pending){const d=dist.get(id);if(d<best){best=d;at=id;}}pending.delete(at);
   if(at===end.id)break;
   const tile=lookup.get(at);if(!tile)continue;
-  for(const n of caravanNeighbors(tile,owner)){
+  const choices=caravanNeighbors(tile,owner);
+  if(allowNeutralDestination)for(const next of neighbors(tile))if(next.id===end.id&&next.owner===null&&next.terrain!=='water')choices.push(next);
+  for(const n of choices){
    if(n.owner!==owner&&!(allowNeutralDestination&&n.id===end.id&&n.owner===null))continue;
    const weight=domesticMoveCost(tile,n),candidate=best+weight;
    if(candidate<(dist.get(n.id)??Infinity)){dist.set(n.id,candidate);prev.set(n.id,at);pending.add(n.id);}
@@ -2228,12 +2230,12 @@ function acceptCeasefire(falconId,accept){const n=G.diplomaticFalcons.find(x=>x.
 function roadExistsBetween(a,b){return domesticRoadExists(a,b)||(G.tradeRoutes||[]).some(r=>r.status==='active'&&r.banks?.some(pair=>pair.includes(a.id)&&pair.includes(b.id)));}
 // Flanks may cross neutral unowned land even when no road exists; unbuilt trails take longer.
 // Enemy-controlled hexes are not passable without a future battle/infiltration mechanic.
-function militaryTravelPath(owner,from,to){
+function militaryTravelPath(owner,from,to,requireBridges=false){
  if(!from||!to||from.terrain==='water'||to.terrain==='water')return null;
  const cost=new Map([[from.id,0]]),prev=new Map(),pending=new Set([from.id]);
  while(pending.size){let best=null,d=Infinity;for(const id of pending){const c=cost.get(id);if(c<d){best=id;d=c;}}pending.delete(best);if(best===to.id)break;
   const t=G.tiles.find(t=>t.id===best);for(const next of neighbors(t)){
-   if(next.terrain==='water'||(next.owner!==null&&next.owner!==owner))continue;
+   if(next.terrain==='water'||(next.owner!==null&&next.owner!==owner)||(requireBridges&&riverCrossing(t,next)&&!bridgeExistsBetween(t,next)))continue;
    const travel=roadExistsBetween(t,next)?1:(next.owner===owner?2:3)+(next.terrain==='mountain'?1:0);
    const cand=d+travel;if(cand<(cost.get(next.id)??Infinity)){cost.set(next.id,cand);prev.set(next.id,best);pending.add(next.id);}
   }
@@ -2251,7 +2253,7 @@ function orderMilitary(to,enemy,postId,qty,kind='patrol',id=0,transport='foot'){
  if(kind==='flank'&&(target.owner!==null||!G.tiles.some(t=>t.owner===enemy&&distance(t,target)<=3)))return false;
  const soldiers=postGarrison(p,postId).filter(c=>!c.military.missionId).slice(0,Number(qty));
  if(!soldiers.length||soldiers.length!==Number(qty)||soldiers.length>12)return false;
- const route=militaryTravelPath(id,post,target);if(!route)return false;
+ const route=militaryTravelPath(id,post,target,transport==='caravan');if(!route)return false;
  const cartChoice=transport==='caravan'?warCartAtPost(id,post,soldiers.length):null;
  if(transport==='caravan'&&!cartChoice)return false;
  const mission={id:G.nextOrderId++,owner:id,enemy,originPostId:post.id,targetTileId:target.id,kind,troopIds:soldiers.map(c=>c.id),path:route.path,index:0,stepSpent:0,totalPoints:route.points,startedClock:G.turnClock||0,status:'traveling'};
@@ -2263,7 +2265,7 @@ function orderMilitary(to,enemy,postId,qty,kind='patrol',id=0,transport='foot'){
 }
 function recallMilitary(id,owner=0){const m=G.militaryOrders.find(x=>x.id===id&&x.owner===owner&&x.status!=='returned');if(!m||owner===0&&!active())return false;
  const p=G.players[owner],origin=G.tiles.find(t=>t.id===m.originPostId),here=G.tiles.find(t=>t.id===m.path[m.index]);if(!origin||!here)return false;
- const route=militaryTravelPath(owner,here,origin);if(!route)return false;
+ const route=militaryTravelPath(owner,here,origin,m.transport==='caravan');if(!route)return false;
  m.path=route.path;m.index=0;m.stepSpent=0;m.totalPoints=route.points;m.targetTileId=origin.id;m.kind='return';m.status='returning';m.startedClock=G.turnClock||0;
  addLog(`${p.name} recalled a patrol.`);save();render();return true;
 }
@@ -2279,6 +2281,8 @@ function progressWarOrders(){
     while(budget>0&&m.index<m.path.length-1){
      const from=G.tiles.find(t=>t.id===m.path[m.index]),toward=G.tiles.find(t=>t.id===m.path[m.index+1]);
      if(!from||!toward)break;
+     if(riverCrossing(from,toward)&&!bridgeExistsBetween(from,toward)){m.blockedByWater=true;break;}
+     m.blockedByWater=false;
      const step=roadExistsBetween(from,toward)?1:(toward.owner===m.owner?2:3)+(toward.terrain==='mountain'?1:0);
      if(step>budget)break;budget-=step;m.index++;
     }
@@ -2317,9 +2321,9 @@ function siegeTeam(s,side){
  const ids=side==='attacker'?s.attackerIds:s.defenderIds;
  return (ids||[]).map(cid=>p.citizens.find(c=>c.id===cid)).filter(c=>c?.military&&(c.health??0)>0);
 }
-function siegeStagingRoute(owner,post,target){
+function siegeStagingRoute(owner,post,target,requireBridges=false){
  const friendly=neighbors(target).filter(t=>t.owner===owner&&t.terrain!=='water');
- return friendly.map(t=>({tile:t,route:militaryTravelPath(owner,post,t)}))
+ return friendly.map(t=>({tile:t,route:militaryTravelPath(owner,post,t,requireBridges)}))
   .filter(e=>e.route).sort((a,b)=>a.route.points-b.route.points)[0]||null;
 }
 
@@ -2370,7 +2374,7 @@ function startSiege(tileId,postId,qty,owner=0,transport='foot'){
  if(!G||!p||G.turnIndex!==owner||G.finished||owner===0&&!active()||!canStartSiege(tileId,postId,owner))return false;
  const men=postGarrison(p,postId).filter(c=>!c.military.missionId&&c.health>0).slice(0,Number(qty));
  if(!Number.isInteger(Number(qty))||qty<1||qty>12||men.length!==Number(qty))return false;
- const staging=siegeStagingRoute(owner,G.tiles.find(t=>t.id===postId),target);
+ const staging=siegeStagingRoute(owner,G.tiles.find(t=>t.id===postId),target,transport==='caravan');
  if(!staging)return false;
  const cartChoice=transport==='caravan'?warCartAtPost(owner,G.tiles.find(t=>t.id===postId),men.length):null;
  if(transport==='caravan'&&!cartChoice)return false;
@@ -2402,7 +2406,7 @@ function reinforceSiege(id,postId,qty,owner=0,transport='foot'){
  const s=(G.sieges||[]).find(s=>s.id===Number(id)),p=G.players[owner];
  if(!G||!s||!p||G.turnIndex!==owner||G.finished||owner===0&&!active()||!canReinforceSiege(s,postId,owner))return false;
  const side=owner===s.attacker?'attacker':'defender',destination=G.tiles.find(t=>t.id===(side==='attacker'?s.stagingTileId:s.targetTileId));
- const post=G.tiles.find(t=>t.id===postId),route=militaryTravelPath(owner,post,destination);
+ const post=G.tiles.find(t=>t.id===postId),route=militaryTravelPath(owner,post,destination,transport==='caravan');
  const capacity=12-siegeTeam(s,side).length-(s.reinforcements||[]).filter(r=>r.side===side).reduce((n,r)=>n+r.ids.length,0);
  const available=postGarrison(p,postId).filter(c=>c.health>0&&!c.military.missionId);
  const number=Number(qty);
