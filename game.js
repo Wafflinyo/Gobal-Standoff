@@ -1,4 +1,4 @@
-/* Global Standoff 0.4.36 — distinct CPU personalities, adaptive priorities, diplomacy and military strategy. */
+/* Global Standoff 0.4.37 — unified Logs inventory across lumber, caravans, storage and construction. */
 (() => {
 'use strict';
 const SAVE_KEY='global_standoff_v02_save'; // preserves 0.3.x browser saves
@@ -4025,7 +4025,7 @@ function renderTile(t){
      <option value="once" ${mode==='once'?'selected':''}>Unload once</option>
     </select></label><small class="gs-routing-help">${mode==='once'?('One-time unload: '+pending+' units remaining, then returns to Unload when full'):mode==='continuous'?'Unloads available production as soon as transport is available':'Keeps goods on-site until this building is full'}. Same-hex storage transfers instantly without a caravan.</small>`;
     const targets=routingTargets(p,meta.id);
-   // Recipe identifiers (e.g. woodPlanks) aren't the cargo keys (wood).
+   // Recipe identifiers aren't the same as the cargo keys created by each recipe.
    // Only cargo keys can be dispatched or assigned a delivery route.
    const current=FACTORY_RECIPES[type]?[RECIPES[meta.recipe]?.output].filter(Boolean):OUTPUTS[type].filter(item=>type!=='mine'||item==='stone'||(t.vein?.kind===item)||(t.coalVein?.kind===item));
    for(const item of current){const route=meta.routes?.[item]??'auto';
