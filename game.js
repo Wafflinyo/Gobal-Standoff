@@ -444,7 +444,7 @@ function progressExpeditions(){
 }
 function advanceWorldTurn(){
  G.turnClock=(G.turnClock||0)+1;
- progressExpeditions();progressProjects();progressDomesticRoads();progressDiplomaticFalcons();progressWarOrders();progressSiegeMarches();progressTradeOffers();progressTradeRoutes();progressShipments();
+ progressExpeditions();progressProjects();progressDomesticRoads();progressBridgeJobs();progressDiplomaticFalcons();progressWarOrders();progressSiegeMarches();progressTradeOffers();progressTradeRoutes();progressShipments();
  save();
 }
 
@@ -653,7 +653,63 @@ function domesticRoadExists(a,b){
  return (G.domesticRoads||[]).some(r=>r.key===k&&r.owner===a.owner);
 }
 function roadJobBetween(a,b){const k=domesticRoadKey(a.id,b.id);return (G.domesticRoadJobs||[]).find(j=>j.key===k);}
-function domesticMoveCost(a,b){return roadExistsBetween(a,b)?1:2;}
+const BRIDGE_SP=2;
+function riverCrossing(a,b){return !!a&&!!b&&distance(a,b)===1&&(G.rivers||[]).some(r=>(r.banks||[]).some(pair=>pair.includes(a.id)&&pair.includes(b.id)));}
+function lakeBridgeSpan(a,b){if(!a||!b||distance(a,b)!==2)return null;const q=(a.q+b.q)/2,r=(a.r+b.r)/2;return Number.isInteger(q)&&Number.isInteger(r)?G.tiles.find(t=>t.q===q&&t.r===r&&t.terrain==='water')||null:null;}
+function crossingType(a,b){if(!a||!b||a.terrain==='water'||b.terrain==='water')return null;return riverCrossing(a,b)?'river':lakeBridgeSpan(a,b)?'lake':null;}
+function bridgeExistsBetween(a,b){if(!a||!b)return false;return (G.bridges||[]).some(j=>j.key===domesticRoadKey(a.id,b.id)&&j.owner===a.owner&&a.owner===b.owner);}
+function bridgeJobBetween(a,b){return (G.bridgeJobs||[]).find(j=>j.key===domesticRoadKey(a.id,b.id));}
+function caravanCanTraverse(a,b,owner){
+ if(!a||!b||a.owner!==owner||b.owner!==owner||a.terrain==='water'||b.terrain==='water')return false;
+ return distance(a,b)===1?!riverCrossing(a,b)||bridgeExistsBetween(a,b):!!lakeBridgeSpan(a,b)&&bridgeExistsBetween(a,b);
+}
+function caravanNeighbors(t,owner){
+ const list=neighbors(t).filter(n=>caravanCanTraverse(t,n,owner));
+ for(const bridge of G.bridges||[]){
+  if(bridge.type!=='lake'||bridge.owner!==owner||![bridge.aId,bridge.bId].includes(t.id))continue;
+  const next=G.tiles.find(v=>v.id===(bridge.aId===t.id?bridge.bId:bridge.aId));
+  if(next&&caravanCanTraverse(t,next,owner))list.push(next);
+ }
+ return list;
+}
+function canStartBridge(a,b,owner){
+ const p=G.players[owner];
+ if(!p||!crossingType(a,b)||a.owner!==owner||b.owner!==owner||bridgeExistsBetween(a,b)||bridgeJobBetween(a,b)
+  ||!idleBuilders(p).length||!hasMoney(p,BRIDGE_SP)||nationalResourceCount(p,'bridgeKit')<1)return false;
+ const worker=idleBuilders(p)[0],origin=G.tiles.find(t=>t.id===worker.builder.locationId)||capitalOf(owner);
+ return !!(countryTravelRoute(owner,origin,a)||countryTravelRoute(owner,origin,b));
+}
+function startBridge(aId,bId,owner=0){
+ const a=G.tiles.find(t=>t.id===aId),b=G.tiles.find(t=>t.id===bId),p=G.players[owner];
+ if(!p||!canCountryAct(p,owner)||!canStartBridge(a,b,owner))return false;
+ const worker=idleBuilders(p)[0],origin=G.tiles.find(t=>t.id===worker.builder.locationId)||capitalOf(owner);
+ const bank=[a,b].map(tile=>({tile,route:countryTravelRoute(owner,origin,tile)})).filter(x=>x.route).sort((x,y)=>x.route.cost-y.route.cost)[0];
+ if(!bank)return false;
+ const job={id:G.nextBridgeId++,key:domesticRoadKey(aId,bId),owner,aId,bId,type:crossingType(a,b),waterTileId:lakeBridgeSpan(a,b)?.id||null,builderId:worker.id,startedClock:G.turnClock||0,remaining:3};
+ p.gold-=BRIDGE_SP;spendNationalResource(p,'bridgeKit',1);
+ worker.builder.projectId='bridge-'+job.id;worker.builder.destinationId=bank.tile.id;worker.builder.travelRemaining=bank.route.turns;
+ G.bridgeJobs.push(job);
+ useAction(p,`${p.name} began building a ${job.type} bridge between ${a.name} and ${b.name}.`,{tileId:bank.tile.id,kind:'bridge'});
+ if(owner===0)showToast('Bridge underway · 3 construction turns');return true;
+}
+function progressBridgeJobs(){
+ for(const job of [...(G.bridgeJobs||[])]){
+  if((G.turnClock||0)<=job.startedClock+1)continue;
+  const a=G.tiles.find(t=>t.id===job.aId),b=G.tiles.find(t=>t.id===job.bId),p=G.players[job.owner],worker=p?.citizens.find(c=>c.id===job.builderId);
+  if(!a||!b||a.owner!==job.owner||b.owner!==job.owner||!worker?.builder){
+   if(worker?.builder){worker.builder.projectId=null;worker.builder.destinationId=null;worker.builder.travelRemaining=0;}
+   G.bridgeJobs=G.bridgeJobs.filter(j=>j!==job);continue;
+  }
+  if(worker.builder.travelRemaining>0){worker.builder.travelRemaining--;if(!worker.builder.travelRemaining)worker.builder.locationId=worker.builder.destinationId;continue;}
+  if(--job.remaining>0)continue;
+  G.bridges.push({key:job.key,owner:job.owner,aId:job.aId,bId:job.bId,type:job.type,waterTileId:job.waterTileId});
+  worker.builder.projectId=null;worker.builder.destinationId=null;worker.builder.travelRemaining=0;
+  G.bridgeJobs=G.bridgeJobs.filter(j=>j!==job);
+  addLog(`${p.name} completed a bridge between ${a.name} and ${b.name}. Caravans can now cross.`);
+ }
+}
+
+function domesticMoveCost(a,b){return bridgeExistsBetween(a,b)?2:roadExistsBetween(a,b)?1:2;}
 // Dijkstra prefers a fully paved route, even when it is slightly longer in hexes.
 function countryTravelRoute(owner,start,end,allowNeutralDestination=false){
  if(!start||!end||start.owner!==owner||end.terrain==='water'||(end.owner!==owner&&!(allowNeutralDestination&&end.owner===null)))return null;
@@ -661,7 +717,7 @@ function countryTravelRoute(owner,start,end,allowNeutralDestination=false){
  while(pending.size){let at=null,best=Infinity;for(const id of pending){const d=dist.get(id);if(d<best){best=d;at=id;}}pending.delete(at);
   if(at===end.id)break;
   const tile=lookup.get(at);if(!tile)continue;
-  for(const n of neighbors(tile)){
+  for(const n of caravanNeighbors(tile,owner)){
    if(n.owner!==owner&&!(allowNeutralDestination&&n.id===end.id&&n.owner===null))continue;
    const weight=domesticMoveCost(tile,n),candidate=best+weight;
    if(candidate<(dist.get(n.id)??Infinity)){dist.set(n.id,candidate);prev.set(n.id,at);pending.add(n.id);}
@@ -1709,7 +1765,7 @@ function createWorld(seed,name,capital,color){
  prepareMineralVeins(tiles,seed);
  const deck=Array.from({length:6},()=>CARD_POOL).flat().sort(()=>rng()-.5);
  const worldName=['The Wild Marches','The Broken Coast','The Emerald Frontier','The Hinterlands','The New Continent'][randInt(rng,5)];
- G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],domesticRoads:[],domesticRoadJobs:[],nextDomesticRoadId:1,diplomaticFalcons:[],warnings:[],wars:[],treaties:[],militaryOrders:[],sieges:[],nextSiegeId:1,nextDiplomacyId:1,nextOrderId:1,nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
+ G={version:2,waterwayVersion:2,seed,worldName,worldOptions:options,rivers,players,tiles,projects:[],completedScenes:[],shipments:[],nextShipmentId:1,logisticsVersion:1,contacts:[],tradeOffers:[],tradeRoutes:[],domesticRoads:[],domesticRoadJobs:[],nextDomesticRoadId:1,bridges:[],bridgeJobs:[],nextBridgeId:1,diplomaticFalcons:[],warnings:[],wars:[],treaties:[],militaryOrders:[],sieges:[],nextSiegeId:1,nextDiplomacyId:1,nextOrderId:1,nextProjectId:1,nextTradeId:1,nextBuildingId:1,turnClock:0,crewVersion:1,round:1,turnIndex:0,maxRounds:MAX_ROUNDS,selectedId:key(...CAPITAL_SPOTS[0]),deck,drawIndex:0,log:[],finished:false,continued:false};
  for(const p of players){const citizenRng=mulberry32(hash(seed+'-people-'+p.id));for(let k=0;k<10;k++)p.citizens.push(makeCitizen(p,citizenRng,true));reallocateHousing(p);drawCard(p);drawCard(p);}
  assignCpuPersonalities(G); ensureBuildingMeta(G);ensureStartingCrews(G);for(const p of G.players){reallocateHousing(p);assignWorkers(p);syncCaravans(p);}
  beginTurn(0);
@@ -1738,7 +1794,7 @@ function migrateGameplay(s){
  s.projects=s.projects||[];s.completedScenes=s.completedScenes||[];s.contacts=s.contacts||[];
  s.shipments??=[];s.nextShipmentId??=1; s.diplomaticFalcons??=[];s.warnings??=[];s.wars??=[];s.treaties??=[];s.militaryOrders??=[];s.sieges??=[];s.nextSiegeId??=1;s.nextDiplomacyId??=1;s.nextOrderId??=1;
  s.logisticsRouteVersion??=0;
- s.tradeOffers=s.tradeOffers||[];s.tradeRoutes=s.tradeRoutes||[];s.domesticRoads??=[];s.domesticRoadJobs??=[];s.nextDomesticRoadId??=1;
+ s.tradeOffers=s.tradeOffers||[];s.tradeRoutes=s.tradeRoutes||[];s.domesticRoads??=[];s.domesticRoadJobs??=[];s.nextDomesticRoadId??=1;s.bridges??=[];s.bridgeJobs??=[];s.nextBridgeId??=1;
  s.nextProjectId=s.nextProjectId||1;s.nextTradeId=s.nextTradeId||1;
  s.nextBuildingId=s.nextBuildingId||1;
  prepareMineralVeins(s.tiles,s.seed,false);
