@@ -3717,6 +3717,103 @@ function cpuSecretWarOrder(id){
  if(target)orderMilitary(target.id,enemies[0],post.id,Math.min(2,postGarrison(p,post.id).filter(c=>!c.military.missionId).length),'patrol',id);
 }
 
+// Distinct CPU strategic reasoning, with persistent priorities and temporary
+// economic pressure. Every candidate is attempted through existing player rules.
+function cpuEconomyAction(id){
+ const p=G.players[id],profile=cpuPersonality(p),w=profile.weights;
+ const owned=G.tiles.filter(t=>t.owner===id),eco=getEconomy(id),people=peopleSummary(p);
+ const projects=G.projects.filter(j=>j.owner===id),count=type=>owned.reduce((n,t)=>n+t.buildings.filter(b=>b===type).length,0)+projects.filter(j=>j.type===type).length;
+ const hasBuilder=idleBuilders(p).length>0,underThreat=owned.some(t=>neighbors(t).some(n=>n.owner!==null&&n.owner!==id));
+ const choices=[],add=(tag,focus,score,act)=>choices.push({tag,score:score*(w[focus]||1)+(cpuRoll(p,tag,owned.length)-.5)*4.6,act});
+ if(p.gold<=-CREDIT_LIMIT_SP){
+  if(!p.levyUsed&&doLevy(id))return true;
+  for(const k of ['diamond','goldOre','silver','copper','iron','coal'])if(mineralCount(p,k)>1&&mineralTrade(k,'sell',id))return true;
+  return false;
+ }
+ if(p.gold<5&&eco.netGold<0&&!p.levyUsed&&doLevy(id))return true;
+ const landValue=t=>{
+  const free=neighbors(t).filter(n=>n.owner===null&&n.terrain!=='water').length;
+  const deposits=t.vein?.kind;
+  return ({plains:8,forest:6,hills:5,desert:2,mountain:deposits?11:3})[t.terrain]+
+   free*(p.cpuPersonality==='frontier'?2:.6)+
+   (p.cpuPersonality==='industrial'?(t.terrain==='forest'?12:t.terrain==='mountain'?13:0):0)+
+   (p.cpuPersonality==='steward'&&t.terrain==='plains'?9:0)+
+   (p.cpuPersonality==='marshal'&&neighbors(t).some(n=>n.owner!==null&&n.owner!==id)?8:0)+
+   (p.cpuPersonality==='merchant'&&['plains','hills'].includes(t.terrain)?5:0)+cpuRoll(p,'hex:'+t.id)*3;
+ };
+ const frontier=G.tiles.filter(t=>eligibleExpansion(p,t)).sort((a,b)=>landValue(b)-landValue(a))[0];
+ if(frontier&&p.food>=2&&hasMoney(p,expansionCost(p))&&eligibleExpeditionCitizens(p).length){
+  const resourceSeek=p.cpuPersonality==='industrial'&&!owned.some(t=>['forest','mountain'].includes(t.terrain));
+  add('expand:'+frontier.id,'expand',11+(owned.length<3?5:0)+(resourceSeek?11:0)+(underThreat&&profile.aggression>.8?4:0)
+   -(owned.length>8?(owned.length-8)*2:0)-(p.gold<12?6:0),()=>doExpand(frontier,id));
+ }
+ const goals={
+  farm:['food',11+(p.food<10?11:0)+(eco.netFood<=0?12:0),4],
+  market:['economy',11+(eco.netGold<=0?11:eco.netGold<4?5:0)+(p.gold<15?7:0),5],
+  homes:['civic',10+(people.housing<=people.count+2?25:people.housing<=people.count+6?10:0),6],
+  lumber:['industry',10+(p.wood<8?9:p.wood<16?4:0),3],
+  mine:['industry',12+(mineralCount(p,'iron')<4?6:0),3],
+  academy:['science',13+(p.knowledge<9?5:0),3],
+  post:['military',11+(underThreat?7:0),3],
+  woodworks:['industry',11+(p.wood<10?7:0),3],
+  caravanWarehouse:['logistics',9+(count('farm')+count('lumber')+count('mine')>0?6:0),2],
+  storageWarehouse:['logistics',9+(count('farm')+count('lumber')+count('mine')>0?5:0),3],
+  leatherFactory:['industry',9,2],stoneworks:['industry',9,2],foundry:['industry',10,2],armory:['military',10,2]
+ };
+ for(const [type,[focus,base,max]] of Object.entries(goals)){
+  if(!hasBuilder||count(type)>=max||!BUILDINGS[type])continue;
+  if(type==='lumber'&&!owned.some(t=>t.terrain==='forest'))continue;
+  if(type==='mine'&&!owned.some(t=>t.terrain==='mountain'))continue;
+  if(type==='woodworks'&&!count('lumber')&&p.wood>=8)continue;
+  if(['leatherFactory','stoneworks','foundry','armory'].includes(type)&&G.round<(type==='leatherFactory'?4:6))continue;
+  if(type==='post'&&G.round<2&&p.cpuPersonality!=='marshal')continue;
+  if(['caravanWarehouse','storageWarehouse'].includes(type)&&count('farm')+count('mine')+count('lumber')===0&&G.round<3)continue;
+  if(type==='homes'&&people.housing>people.count+10&&count(type)>=1)continue;
+  const b=BUILDINGS[type];
+  if(!hasMoney(p,buildingCost(p,b))||p.wood<b.wood||mineralCount(p,'iron')<b.iron)continue;
+  if(p.gold<9&&!['market','farm','homes'].includes(type))continue;
+  const sites=owned.filter(t=>canBuild(p,t,b)).sort((a,b)=>{
+   const siteScore=t=>(type==='farm'&&t.terrain==='plains'?5:0)+(type==='mine'&&t.vein?8:0)
+    +(type==='post'?neighbors(t).filter(n=>n.owner!==null&&n.owner!==id).length*6:0)
+    +(['farm','mine','lumber'].includes(type)&&(t.capital||t.buildings.includes('storageWarehouse'))?3:0)
+    +buildFree(t)*.2+cpuRoll(p,'site:'+type+':'+t.id);
+   return siteScore(b)-siteScore(a);
+  });
+  if(!sites.length)continue;
+  let score=base-count(type)*Math.max(4,base*.35)+(count(type)===0?3:0);
+  if(type==='farm'&&eco.netFood<0)score+=7;
+  if(type==='market'&&eco.netGold<0)score+=7;
+  if(type==='homes'&&people.housing<=people.count+2)score+=8;
+  if(type==='post'&&underThreat&&profile.aggression>.8)score+=6;
+  if(type==='caravanWarehouse'&&!count(type)&&count('farm')+count('lumber')+count('mine')>0)score+=5;
+  if(type==='academy'&&p.knowledge>12)score-=8;
+  if(eco.netGold<0&&type!=='market'&&type!=='farm'&&type!=='homes')score-=8*profile.caution;
+  if(p.gold<15&&type!=='market')score-=7*profile.caution;
+  add('build:'+type+':'+sites[0].id,focus,score,()=>doBuild(sites[0],type,id));
+ }
+ for(const [key,t] of Object.entries(TECHS)){
+  if(p.tech.includes(key)||p.knowledge<t.knowledge||!hasMoney(p,t.gold))continue;
+  const focus=key==='cartography'?'expand':key==='commerce'?'economy':'food';
+  add('research:'+key,focus,15,()=>doResearch(key,id));
+ }
+ const posts=getMilitaryPosts(id);
+ if(posts.length&&G.round>2&&p.gold>=12){
+  const post=posts.find(t=>postGarrison(p,t.id).length<8);
+  if(post&&p.marketingUntil<G.round)add('recruit','military',12+(underThreat?8:0),()=>doMarketing(post,id));
+  const training=posts.find(t=>postGarrison(p,t.id).some(c=>(c.military?.training||0)<4));
+  if(training&&p.food>=3)add('train','military',11+(underThreat?7:0),()=>doTrain(training,id));
+ }
+ if(G.round>=4&&p.gold>=19&&p.wood>=3&&hasBuilder&&owned.length>=2){
+  const road=owned.flatMap(t=>neighbors(t).filter(n=>n.owner===id&&t.id<n.id).map(n=>({t,n})))
+   .find(({t,n})=>canStartDomesticRoad(t,n,id));
+  if(road)add('road','logistics',10+(p.caravans.length?5:0),()=>startDomesticRoad(road.t.id,road.n.id,id));
+ }
+ if(!p.levyUsed&&p.gold<16)add('levy','economy',5+(p.gold<8?10:0)+(eco.netGold<0?6:0),()=>doLevy(id));
+ if(mineralCount(p,'iron')<2&&p.gold>=16)add('import-iron','industry',9,()=>mineralTrade('iron','buy',id));
+ choices.sort((a,b)=>b.score-a.score||a.tag.localeCompare(b.tag));
+ for(const c of choices)if(c.score>0&&c.act())return true;
+ return false;
+}
 function runCpu(id){
  const p=G.players[id];
  if(id!==0)cpuSecretWarOrder(id); // also works during resumed/fast-forwarded CPU turns.
@@ -3762,60 +3859,7 @@ function runCpu(id){
    if(localCount(site,item)>0&&(item==='woodShield'?!c.military.shield:!c.military.weapon)&&equipAuxiliary(c.id,item,id))return;
   }
  }
- const owned=G.tiles.filter(t=>t.owner===id),eco=getEconomy(id),people=peopleSummary(p);
- const buildable=owned.filter(t=>buildFree(t)>0).sort((a,b)=>buildFree(b)-buildFree(a));
- const frontiers=G.tiles.filter(t=>eligibleExpansion(p,t)).sort((a,b)=>{
-  const value=t=>({plains:8,forest:6,hills:5,desert:3,mountain:t.vein?(t.vein.kind==='diamond'?17:t.vein.kind==='goldOre'?14:10):1})[t.terrain]+neighbors(t).filter(n=>n.owner===null&&n.terrain!=='water').length*.4;
-  return value(b)-value(a);
- });
- const tryBuild=type=>{const t=buildable.find(t=>canBuild(p,t,BUILDINGS[type]));return t?doBuild(t,type,id):false;};
- const tryExpand=()=>frontiers.length?doExpand(frontiers[0],id):false;
- // CPUs have the SAME money, jobs and actions as human players. They should
- // save during crises rather than blindly expanding until payroll bankrupts them.
- if(p.gold<=-CREDIT_LIMIT_SP){
-  if(!p.levyUsed&&doLevy(id))return;
-  for(const k of ['diamond','goldOre','silver','copper','iron','coal'])if(mineralCount(p,k)>1&&mineralTrade(k,'sell',id))return;
-  const sale=owned.find(t=>t.buildings.some((kind,i)=>kind!=='market'&&kind!=='farm'&&kind!=='homes'&&!G.projects.some(j=>j.upgradeSiteId===t.buildingMeta?.[i]?.id)&&!(kind==='post'&&postGarrison(p,t.id).length)));
-  if(sale){const index=sale.buildings.findIndex((kind,i)=>kind!=='market'&&kind!=='farm'&&kind!=='homes'&&!G.projects.some(j=>j.upgradeSiteId===sale.buildingMeta?.[i]?.id)&&!(kind==='post'&&postGarrison(p,sale.id).length));if(index>=0&&doSell(sale,index,id))return;}
-  return;
- }
- if(p.gold<16&&eco.netGold<0){
-  if(G.projects.filter(j=>j.owner===id&&j.type==='market').length<2&&tryBuild('market'))return;
-  if(!p.levyUsed&&doLevy(id))return;
-  return;
- }
- if(p.gold<7&&!p.levyUsed&&doLevy(id))return;
- if(people.housing<=people.count+2&&(tryBuild('homes')||tryExpand()))return;
- if(eco.netGold<=0&&tryBuild('market'))return;
- if(owned.length<3&&tryExpand())return;
- if(G.round>=2&&!caravanWarehouses(p).length&&tryBuild('caravanWarehouse'))return;
- if(G.round>=4&&!owned.some(t=>t.buildings.includes('storageWarehouse'))&&tryBuild('storageWarehouse'))return;
- if(p.food<9&&tryBuild('farm'))return;
- if(p.wood<8&&(tryBuild('lumber')||tryBuild('woodworks')))return;
- if(mineralCount(p,'iron')<4&&p.gold>11&&mineralTrade('iron','buy',id))return;
- if(owned.some(t=>t.vein&&t.vein.remaining>0)&&tryBuild('mine'))return;
- if(eco.netGold<4&&tryBuild('market'))return;
- if(owned.length<9&&tryExpand())return;
- if(p.wood<14&&tryBuild('woodworks'))return;
- if(p.knowledge<9&&tryBuild('academy'))return;
- if(G.round>5&&owned.length>=4&&tryBuild('leatherFactory'))return;
- if(G.round>6&&owned.length>=5&&tryBuild('woodworks'))return;
- if(G.round>7&&owned.length>=5&&tryBuild('stoneworks'))return;
- if(G.round>9&&owned.length>=6&&tryBuild('armory'))return;
- const posts=getMilitaryPosts(id);
- if(!posts.length&&G.round>=5&&tryBuild('post'))return;
- if(posts.length&&G.round%5===0&&p.marketingUntil<G.round&&doMarketing(posts[0],id))return;
- if(G.round>=4&&p.gold>=24&&p.wood>=3&&idleBuilders(p).length&&owned.length>1){
-  const candidate=owned.flatMap(t=>neighbors(t).filter(n=>n.owner===id&&t.id<n.id).map(n=>({t,n}))).find(({t,n})=>canStartDomesticRoad(t,n,id));
-  if(candidate&&startDomesticRoad(candidate.t.id,candidate.n.id,id))return;
- }
- if(owned.length<15&&tryExpand())return;
- if(tryBuild('homes')||tryBuild('market')||tryBuild('farm')||tryBuild('academy')||tryBuild('lumber')||tryBuild('storageWarehouse')||tryBuild('post')||tryBuild('mine')||tryBuild('leatherFactory')||tryBuild('woodworks')||tryBuild('stoneworks')||tryBuild('armory')||tryBuild('foundry'))return;
- if(tryExpand())return;
- if(p.tech.length<Object.keys(TECHS).length){const tech=Object.keys(TECHS).find(k=>!p.tech.includes(k)&&hasMoney(p,TECHS[k].gold)&&p.knowledge>=TECHS[k].knowledge);if(tech&&doResearch(tech,id))return;}
- const ownedUpgrade=owned.find(t=>t.buildings.some((kind,i)=>!G.projects.some(j=>j.upgradeSiteId===t.buildingMeta?.[i]?.id)&&upgradePrice(t,i)&&hasMoney(p,upgradePrice(t,i).gold)&&p.wood>=upgradePrice(t,i).wood&&mineralCount(p,'iron')>=upgradePrice(t,i).iron));
- if(ownedUpgrade&&upgradeBuilding(ownedUpgrade,ownedUpgrade.buildings.findIndex((kind,i)=>!G.projects.some(j=>j.upgradeSiteId===ownedUpgrade.buildingMeta?.[i]?.id)&&upgradePrice(ownedUpgrade,i)&&hasMoney(p,upgradePrice(ownedUpgrade,i).gold)&&p.wood>=upgradePrice(ownedUpgrade,i).wood&&mineralCount(p,'iron')>=upgradePrice(ownedUpgrade,i).iron),id))return;
- doLevy(id);
+ return cpuEconomyAction(id);
 }
 function prosperity(p){const owned=G.tiles.filter(t=>t.owner===p.id),people=peopleSummary(p);
  return owned.length*4+owned.reduce((n,t)=>n+(t.buildings||[]).length,0)*5+people.housed*2-people.homeless*2+people.soldiers*2+Math.max(0,Math.floor(p.gold/4))+Math.max(0,Math.floor(p.food/5))+Math.max(0,Math.floor(p.wood/5))+Math.max(0,Math.floor(mineralCount(p,'iron')/5))+Math.floor(MINERAL_KEYS.reduce((v,k)=>v+mineralCount(p,k)*MINERALS[k].price,0)/20)+Math.floor(p.knowledge/3)+p.tech.length*3;}
