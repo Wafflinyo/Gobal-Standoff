@@ -4230,7 +4230,7 @@ function renderTile(t){
   if(isOwn&&boatLanding(t)&&localCount(meta,'boat')>0)html+=`<button class="action-btn" data-action="launch-boat" data-launch-site="${meta.id}" ${!active()?'disabled':''}>Launch Boat · ${localCount(meta,'boat')} ready <span>Reusable 10-unit water transport</span></button>`;
   if(isOwn&&type==='storageWarehouse'&&stockList.length){
    const targets=routingTargets(p,meta.id);
-   html+=`<div class="gs-storage-actions"><strong>Ship stored goods by wagon or worker (when allowed)</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship (10 wagon / 2 worker)</button></div>`).join('')}</div>`;
+   html+=`<div class="gs-storage-actions"><strong>Ship stored goods by wagon, boat or worker (when allowed)</strong>${stockList.map(([item,qty])=>`<div class="gs-stock-dispatch"><span>${esc(GOOD_NAMES[item]||item)} ×${qty}</span><select data-storage-send-to="${i}" data-storage-good="${esc(item)}">${targets.map(dst=>`<option value="${dst.id}">${esc(dst.name)}</option>`).join('')}</select><button data-action="dispatch-store" data-index="${i}" data-item="${esc(item)}" ${!active()?'disabled':''}>Ship (10 wagon / boat · 2 worker)</button></div>`).join('')}</div>`;
   }
   if(isOwn&&FACTORY_RECIPES[type])html+=`<label class="gs-routing-label">Manufacture <select data-recipe-site="${i}">${FACTORY_RECIPES[type].map(recipe=>`<option value="${recipe}" ${meta.recipe===recipe?'selected':''}>${RECIPES[recipe].name}</option>`).join('')}</select></label>`;
   if(isOwn&&OUTPUTS[type]?.length){
@@ -4307,7 +4307,7 @@ function renderTile(t){
    html+='<div class="gs-local-road-list"><strong>Bridges · Cross water</strong><small>Craft Bridge Kits at Woodworks and deliver them to storage. A builder uses 1 kit and 2 SP for a bridge over a river border or a one-hex lake gap. Caravans cannot cross until the bridge is completed.</small>';
    for(const n of crossingBanks){
     const finished=bridgeExistsBetween(t,n),job=bridgeJobBetween(t,n),allowed=canStartBridge(t,n,0);
-    html+=`<div class="gs-local-road-row"><span>${esc(n.name)} <small>${crossingType(t,n)==='lake'?'Lake span':'River border'} · ${finished?'Bridge open':job?'Under construction · '+job.remaining+'T':'No bridge'}</small></span>${!finished&&!job?`<button data-action="bridge" data-bridge-neighbor="${esc(n.id)}" ${!active()||!allowed?'disabled':''}>Build bridge · 1 kit + 2 SP</button>`:''}</div>`;
+    html+=`<div class="gs-local-road-row"><span>${esc(n.name)} <small>${crossingType(t,n)==='lake'?'Lake span':'River border'} · ${finished?'Bridge open':job?'Under construction · '+job.remaining+'T':'No bridge'}</small></span>${!finished&&!job?`<button data-action="bridge" data-bridge-neighbor="${esc(n.id)}" ${!canAct()||!allowed?'disabled':''}>Build bridge · 1 kit + 2 SP</button>`:''}</div>`;
    }
    html+='</div>';
   }
@@ -4776,6 +4776,17 @@ function wagonRoadTrace(ids){
  const corners=tile=>Array.from({length:6},(_,i)=>{const c=coords(tile),a=i*Math.PI/3+Math.PI/6;return {x:c.x+HEX*Math.cos(a),y:c.y+HEX*Math.sin(a)};});
  const midpoint=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2});
  if(tiles.length===1){const c=corners(tiles[0]);return {points:[midpoint(c[0],c[1])],atStep:[0]};}
+ // A lake bridge links two shores across one water hex. Keep the wagon
+ // visible on the crossing instead of discarding the entire road trace.
+ if(tiles.some((tile,i)=>i>0&&distance(tiles[i-1],tile)===2&&bridgeExistsBetween(tiles[i-1],tile))){
+  const locations=tiles.map(tile=>coords(tile));
+  const points=locations.map((point,i)=>{
+   const before=locations[Math.max(0,i-1)],after=locations[Math.min(locations.length-1,i+1)];
+   const dx=after.x-before.x,dy=after.y-before.y,length=Math.hypot(dx,dy)||1;
+   return {x:point.x-dy/length*4,y:point.y+dx/length*4};
+  });
+  return {points,atStep:points.map((_,i)=>i)};
+ }
  const crossed=[];
  for(let i=0;i<tiles.length-1;i++){
   if(distance(tiles[i],tiles[i+1])!==1)return {points:[],atStep:[]};
